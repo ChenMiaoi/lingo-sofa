@@ -5,6 +5,7 @@ import {
   textOf,
   selectedText,
 } from "@lingo-sofa/web-extraction";
+import { TranslationBatcher } from "@lingo-sofa/translation-core/batch";
 import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
 export default defineContentScript({
   registration: "runtime",
@@ -57,10 +58,31 @@ export default defineContentScript({
     function start(targetLanguage: string, automatic = false) {
       stop();
       automaticMode = automatic;
+      const batcher = new TranslationBatcher(async (units, signal) => {
+        const requestId = crypto.randomUUID();
+        const cancel = () => {
+          void browser.runtime.sendMessage({ kind: "cancel", requestId });
+        };
+        signal.addEventListener("abort", cancel, { once: true });
+        try {
+          signal.throwIfAborted();
+          const reply = (await browser.runtime.sendMessage({
+            kind: "translate",
+            requestId,
+            units,
+            automatic,
+          })) as Reply;
+          if (!reply.ok) throw new Error(reply.error);
+          signal.throwIfAborted();
+          return reply.results ?? [];
+        } finally {
+          signal.removeEventListener("abort", cancel);
+        }
+      });
       translator = new PageTranslator(document, {
         targetLanguage,
         translate: (block, id, revision, signal) =>
-          translate(
+          batcher.translate(
             {
               id,
               revision,

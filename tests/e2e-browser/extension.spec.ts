@@ -106,9 +106,50 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       };
     });
     expect(usage.hasKey).toBe(true);
-    expect(usage.usage).toHaveLength(3);
+    expect(usage.usage).toHaveLength(2);
     expect(usage.usage[0]!.usage.totalTokens).toBe(44);
-    const data = await worker.evaluate(async () => {
+    const interruptedId = crypto.randomUUID();
+    await options.evaluate(async (requestId) => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const saved = (await api.runtime.sendMessage({ action: "state" })) as {
+        usage: Record<string, unknown>[];
+      };
+      await api.storage.session.set({
+        inFlight: [
+          {
+            ...saved.usage[0],
+            requestId,
+            status: "unknown",
+            usage: null,
+            costKnown: false,
+          },
+        ],
+      });
+    }, interruptedId);
+    const beforeRestart = model.requests.length;
+    const devtools = await context.newCDPSession(options);
+    await devtools.send("ServiceWorker.enable");
+    await devtools.send("ServiceWorker.stopAllWorkers");
+    const restored = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      return (await api.runtime.sendMessage({ action: "state" })) as {
+        usage: { requestId: string; status: string }[];
+        hasKey: boolean;
+      };
+    });
+    expect(restored.hasKey).toBe(true);
+    expect(restored.usage).toHaveLength(3);
+    expect(
+      restored.usage.find((record) => record.requestId === interruptedId)
+        ?.status,
+    ).toBe("unknown");
+    expect(model.requests.length).toBe(beforeRestart);
+    const restartedWorker = context
+      .serviceWorkers()
+      .find((candidate) => candidate.url().includes(id))!;
+    const data = await restartedWorker.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
       const tabs = await api.tabs.query({});
