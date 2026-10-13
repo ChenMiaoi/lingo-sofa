@@ -12,5 +12,9 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
+  {
+    files: ["apps/pi-bridge/**/*.mjs"],
+    languageOptions: { globals: { process: "readonly", console: "readonly" } },
+  },
   tseslint.configs.recommended,
 );

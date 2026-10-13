@@ -4,6 +4,11 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  packages: "external",
+  external: [
+    "@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-ai/*",
+    "zod",
+  ],
   outfile: "dist/index.js",
 });

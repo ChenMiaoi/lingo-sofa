@@ -17,6 +17,8 @@ export function resolveModel(config: ModelConfig): {
   model: Model<"openai-completions">;
   costKnown: boolean;
 } {
+  if (!["deepseek", "openai-compatible"].includes(config.provider))
+    throw new Error("This provider requires local Pi Bridge mode");
   const catalog =
     config.provider === "deepseek"
       ? deepseekProvider()

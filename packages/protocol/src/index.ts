@@ -17,7 +17,7 @@ export const translationOutputSchema = z
   .min(1)
   .max(16);
 export const modelConfigSchema = z.strictObject({
-  provider: z.enum(["deepseek", "openai-compatible"]),
+  provider: z.string().min(1).max(100),
   model: z.string().min(1).max(200),
   endpoint: z.url().refine((value) => {
     const url = new URL(value);
@@ -49,7 +49,7 @@ export const settingsSchema = z.strictObject({
   mode: z.enum(["direct", "bridge"]).default("direct"),
   model: modelConfigSchema.default({
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-flash",
     endpoint: "https://api.deepseek.com",
     maxOutputTokens: 2_048,
     timeoutMs: 30_000,
