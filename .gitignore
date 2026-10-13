@@ -6,3 +6,7 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+**/.wxt/
+**/.output/
+playwright-report/
+test-results/

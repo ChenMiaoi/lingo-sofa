@@ -1,0 +1,15 @@
+{
+  "name": "@lingo-sofa/provider-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.2.0",
+    "@lingo-sofa/protocol": "0.1.0"
+  }
+}

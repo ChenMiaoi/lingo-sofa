@@ -1,0 +1,95 @@
+body {
+  margin: 0;
+  width: 380px;
+  background: #f7f5ee;
+  color: #1e342c;
+  font:
+    15px/1.6 system-ui,
+    sans-serif;
+}
+main {
+  padding: 24px;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+:focus-visible {
+  outline: 3px solid #238363;
+  outline-offset: 3px;
+}
+
+.options-page {
+  width: auto;
+  max-width: 900px;
+  margin: 0 auto;
+}
+section,
+details {
+  margin-block: 20px;
+  padding-block: 12px;
+  border-top: 1px solid #cfd7cd;
+}
+h1,
+h2,
+p {
+  margin-block: 8px;
+}
+h2 {
+  font-size: 18px;
+}
+label {
+  display: block;
+  margin-block: 12px;
+}
+input:not([type="checkbox"]),
+textarea,
+select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #aabfb2;
+  border-radius: 6px;
+  background: #fffdf7;
+  color: inherit;
+}
+button {
+  border: 1px solid #749d87;
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin: 4px;
+  background: #e2eee5;
+  color: #183c2b;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.error {
+  color: #942828;
+}
+.answer {
+  white-space: pre-wrap;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+th,
+td {
+  padding: 8px;
+  text-align: start;
+  border-bottom: 1px solid #cfd7cd;
+}
+.stats {
+  font-variant-numeric: tabular-nums;
+}

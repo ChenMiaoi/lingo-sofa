@@ -1,0 +1,17 @@
+{
+  "name": "@lingo-sofa/pi-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@lingo-sofa/protocol": "0.1.0",
+    "@lingo-sofa/translation-core": "0.1.0",
+    "@lingo-sofa/provider-pi": "0.1.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  }
+}

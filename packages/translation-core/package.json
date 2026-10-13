@@ -1,0 +1,13 @@
+{
+  "name": "@lingo-sofa/translation-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@lingo-sofa/protocol": "0.1.0",
+    "@lingo-sofa/glossary": "0.1.0"
+  }
+}
