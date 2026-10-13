@@ -40,8 +40,7 @@ export class TaskQueue<T> {
   cancel(id: string): void {
     const active = this.active.get(id);
     if (active) {
-      active.controller.abort();
-      active.reject(new Error("Request cancelled"));
+      active.controller.abort(new Error("Request cancelled"));
     }
     const index = this.pending.findIndex((job) => job.id === id);
     if (index >= 0)

@@ -62,3 +62,33 @@ it("does not recursively translate generated nodes or accumulate state across 10
   translator.stop();
   expect(document.querySelectorAll("[data-lingo-sofa]")).toHaveLength(0);
 }, 30_000);
+it("omits hidden, form and editable text from a selection spanning regions", async () => {
+  const { selectedText } = await import("@lingo-sofa/web-extraction");
+  document.body.innerHTML = `<article><p>Public <span style="display:none">secret</span><code>fetch()</code></p><form><p>password</p></form><div contenteditable><p>draft</p></div><p>End</p></article>`;
+  const range = document.createRange();
+  range.selectNodeContents(document.querySelector("article")!);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  expect(selectedText(document)).toBe("Public fetch()End");
+  range.setStart(document.querySelector("p")!.firstChild!, 2);
+  range.setEnd(document.querySelector("p")!.firstChild!, 6);
+  expect(selectedText(document)).toBe("blic");
+});
+it("removes translations when a containing region becomes hidden", async () => {
+  document.body.innerHTML = `<article><p>Public</p></article>`;
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    observeVisibility: false,
+    translate: async () => "公开",
+  });
+  translator.start();
+  await wait();
+  document.querySelector("article")!.hidden = true;
+  await wait();
+  expect(translator.trackedCount).toBe(0);
+  expect(document.querySelectorAll("[data-lingo-sofa]")).toHaveLength(0);
+  document.querySelector("article")!.hidden = false;
+  await wait();
+  expect(document.querySelectorAll("[data-lingo-sofa]")).toHaveLength(1);
+  translator.stop();
+});

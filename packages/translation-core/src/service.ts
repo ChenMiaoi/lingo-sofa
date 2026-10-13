@@ -45,10 +45,15 @@ export class TranslationService {
     { context: string; turns: { question: string; answer: string }[] }
   >();
   private busy = new Set<string>();
+  private sessionRequests = new Map<string, string>();
   constructor(private readonly options: ServiceOptions) {}
   reset(): void {
     this.queue.clear();
     this.cache.clear();
+    for (const key of this.sessionRequests.keys())
+      this.options.clearSession?.(key);
+    for (const key of this.conversations.keys())
+      this.options.clearSession?.(key);
     this.conversations.clear();
   }
   async handle(
@@ -60,6 +65,8 @@ export class TranslationService {
     const sessionKey =
       "sessionId" in request ? `${scope}|${request.sessionId}` : "";
     if (request.kind === "clear-session") {
+      const active = this.sessionRequests.get(sessionKey);
+      if (active) this.queue.cancel(active);
       this.conversations.delete(sessionKey);
       this.options.clearSession?.(sessionKey);
       return { ok: true };
@@ -74,7 +81,10 @@ export class TranslationService {
         ok: false,
         error: "A question is already running in this session",
       };
-    if (request.kind === "ask") this.busy.add(sessionKey);
+    if (request.kind === "ask") {
+      this.busy.add(sessionKey);
+      this.sessionRequests.set(sessionKey, queueId);
+    }
     try {
       return await this.queue.submit(
         queueId,
@@ -223,7 +233,10 @@ export class TranslationService {
         error: error instanceof Error ? error.message : "Request failed",
       };
     } finally {
-      if (request.kind === "ask") this.busy.delete(sessionKey);
+      if (request.kind === "ask") {
+        this.busy.delete(sessionKey);
+        this.sessionRequests.delete(sessionKey);
+      }
     }
   }
 }

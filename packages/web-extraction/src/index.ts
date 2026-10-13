@@ -7,29 +7,38 @@ export interface Block {
   text: string;
   protectedParts: string[];
 }
-export function textOf(element: HTMLElement): string {
+function visible(
+  element: HTMLElement,
+  cache: WeakMap<HTMLElement, boolean>,
+): boolean {
+  const stored = cache.get(element);
+  if (stored !== undefined) return stored;
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const result =
+    style?.display !== "none" &&
+    style?.visibility !== "hidden" &&
+    (!element.parentElement || visible(element.parentElement, cache));
+  cache.set(element, result);
+  return result;
+}
+export function textOf(
+  element: HTMLElement,
+  cache = new WeakMap<HTMLElement, boolean>(),
+): string {
   const walker = element.ownerDocument.createTreeWalker(element, 4);
   const parts: string[] = [];
   let node: Node | null;
-  while ((node = walker.nextNode())) {
-    if (node.parentElement?.closest(EXCLUDED)) continue;
-    let visible = true;
-    for (
-      let parent = node.parentElement;
-      parent;
-      parent = parent.parentElement
-    ) {
-      const style = element.ownerDocument.defaultView?.getComputedStyle(parent);
-      if (style?.display === "none" || style?.visibility === "hidden") {
-        visible = false;
-        break;
-      }
-    }
-    if (visible) parts.push(node.textContent ?? "");
-  }
+  while ((node = walker.nextNode()))
+    if (
+      node.parentElement &&
+      !node.parentElement.closest(EXCLUDED) &&
+      visible(node.parentElement, cache)
+    )
+      parts.push(node.textContent ?? "");
   return parts.join("").trim();
 }
 export function extract(root: ParentNode): Block[] {
+  const visibility = new WeakMap<HTMLElement, boolean>();
   const elements = [
     ...(root instanceof HTMLElement && root.matches(BLOCKS) ? [root] : []),
     ...root.querySelectorAll<HTMLElement>(BLOCKS),
@@ -38,27 +47,47 @@ export function extract(root: ParentNode): Block[] {
     .filter((element) => {
       if (element.closest(EXCLUDED) || element.querySelector(BLOCKS))
         return false;
-      const view = element.ownerDocument.defaultView;
-      for (
-        let ancestor: HTMLElement | null = element;
-        ancestor;
-        ancestor = ancestor.parentElement
-      ) {
-        const style = view?.getComputedStyle(ancestor);
-        if (style?.display === "none" || style?.visibility === "hidden")
-          return false;
-      }
-      return true;
+      return visible(element, visibility);
     })
     .map((element) => ({
       element,
-      text: textOf(element),
+      text: textOf(element, visibility),
       protectedParts: [...element.querySelectorAll("code,a")]
         .filter((node) => !node.closest(EXCLUDED))
-        .map((node) => node.textContent ?? "")
+        .map((node) => textOf(node as HTMLElement, visibility))
         .filter(Boolean),
     }))
     .filter((block) => block.text.length > 0 && block.text.length <= 16_000);
+}
+export function selectedText(document: Document): string {
+  const selection = document.defaultView?.getSelection();
+  if (!selection?.rangeCount) return "";
+  const range = selection.getRangeAt(0);
+  const ancestor = range.commonAncestorContainer;
+  const root =
+    ancestor instanceof HTMLElement ? ancestor : ancestor.parentElement;
+  if (!root || root.closest(EXCLUDED)) return "";
+  const walker = document.createTreeWalker(root, 4);
+  const cache = new WeakMap<HTMLElement, boolean>();
+  const parts: string[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (
+      !range.intersectsNode(node) ||
+      !node.parentElement ||
+      node.parentElement.closest(EXCLUDED) ||
+      !visible(node.parentElement, cache)
+    )
+      continue;
+    const text = node.textContent ?? "";
+    parts.push(
+      text.slice(
+        node === range.startContainer ? range.startOffset : 0,
+        node === range.endContainer ? range.endOffset : text.length,
+      ),
+    );
+  }
+  return parts.join("").trim().slice(0, 16_000);
 }
 interface State {
   id: string;
@@ -117,6 +146,7 @@ export class PageTranslator {
         if (parent?.closest(`[${TRANSLATION_ATTRIBUTE}]`)) continue;
         const block = parent?.closest<HTMLElement>(BLOCKS);
         if (block) roots.add(block);
+        else if (mutation.type === "attributes" && parent) roots.add(parent);
         for (const node of mutation.addedNodes)
           if (
             node instanceof HTMLElement &&
@@ -224,6 +254,8 @@ export class PageTranslator {
       .catch((error: unknown) => {
         if (
           !controller.signal.aborted &&
+          element.isConnected &&
+          textOf(element) === state.text &&
           !this.stopped &&
           this.states.get(element) === state
         ) {

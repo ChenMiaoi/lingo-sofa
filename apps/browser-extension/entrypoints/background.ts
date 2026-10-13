@@ -64,6 +64,9 @@ export default defineBackground(() => {
     ]);
     inFlight.clear();
     service.ledger.prune(Date.now(), settings.retentionDays);
+    await (
+      settings.persistUsage ? browser.storage.local : browser.storage.session
+    ).set({ usage: service.ledger.list() });
     await browser.storage.session.set({ inFlight: [] });
   })();
   const trustedUI = (sender: Browser.runtime.MessageSender) =>

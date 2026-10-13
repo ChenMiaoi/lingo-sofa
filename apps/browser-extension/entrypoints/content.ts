@@ -1,6 +1,10 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
-import { PageTranslator, textOf } from "@lingo-sofa/web-extraction";
+import {
+  PageTranslator,
+  textOf,
+  selectedText,
+} from "@lingo-sofa/web-extraction";
 import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
 export default defineContentScript({
   registration: "runtime",
@@ -11,12 +15,15 @@ export default defineContentScript({
     if (lifecycle.lingoSofaLoaded) return;
     lifecycle.lingoSofaLoaded = true;
     let translator: PageTranslator | undefined;
+    let automaticMode = false;
+    let selectionController: AbortController | undefined;
+    const dialogs = new Set<HTMLDialogElement>();
     function stop() {
       translator?.stop();
       translator = undefined;
-      document
-        .querySelectorAll("[data-lingo-sofa='selection']")
-        .forEach((node) => node.remove());
+      selectionController?.abort();
+      for (const dialog of dialogs) dialog.remove();
+      dialogs.clear();
     }
     async function translate(
       unit: TranslationUnit,
@@ -33,16 +40,23 @@ export default defineContentScript({
           kind: "translate",
           requestId,
           units: [unit],
+          automatic: unit.id !== "selection" && automaticMode,
         })) as Reply;
         if (!reply.ok) throw new Error(reply.error);
         signal.throwIfAborted();
-        return reply.results?.[0]?.text ?? "";
+        const result = reply.results?.find(
+          (result) =>
+            result.id === unit.id && result.revision === unit.revision,
+        );
+        if (!result) throw new Error("收到不匹配的段落版本");
+        return result.text;
       } finally {
         signal.removeEventListener("abort", cancel);
       }
     }
-    function start(targetLanguage: string) {
+    function start(targetLanguage: string, automatic = false) {
       stop();
+      automaticMode = automatic;
       translator = new PageTranslator(document, {
         targetLanguage,
         translate: (block, id, revision, signal) =>
@@ -78,34 +92,17 @@ export default defineContentScript({
             ? textOf(document.querySelector<HTMLElement>("article,main")!)
             : ""
           ).slice(0, 24_000),
-          selection: getSelection()?.toString().slice(0, 16_000) ?? "",
+          selection: selectedText(document),
           title: document.title,
         });
       if (data.action === "selection") {
-        const selection = getSelection();
-        if (!selection?.rangeCount || !selection.toString().trim())
-          return Promise.resolve({ ok: false, error: "请先选中正文文本" });
-        const range = selection.getRangeAt(0);
-        const ancestor =
-          range.commonAncestorContainer instanceof Element
-            ? range.commonAncestorContainer
-            : range.commonAncestorContainer.parentElement;
-        if (
-          ancestor?.closest(
-            "input,textarea,pre,[contenteditable]:not([contenteditable='false']),form,[data-lingo-sofa]",
-          )
-        )
+        const text = selectedText(document);
+        if (!text)
           return Promise.resolve({
             ok: false,
-            error: "不翻译表单、代码块或编辑区域",
+            error: "请先选中可见正文文本；不翻译表单、代码块或编辑区域",
           });
-        const fragment = range.cloneContents();
-        fragment
-          .querySelectorAll(
-            "input,textarea,pre,script,style,[hidden],[aria-hidden='true'],[data-lingo-sofa]",
-          )
-          .forEach((node) => node.remove());
-        const text = fragment.textContent?.trim() ?? "";
+        selectionController?.abort();
         return translate(
           {
             id: "selection",
@@ -113,11 +110,9 @@ export default defineContentScript({
             text,
             sourceKind: "web",
             targetLanguage: data.targetLanguage ?? "简体中文",
-            protectedParts: [...fragment.querySelectorAll("code,a")]
-              .map((node) => node.textContent ?? "")
-              .filter(Boolean),
+            protectedParts: [],
           },
-          new AbortController().signal,
+          (selectionController = new AbortController()).signal,
         )
           .then((translation) => {
             const dialog = document.createElement("dialog");
@@ -126,9 +121,14 @@ export default defineContentScript({
             content.textContent = translation;
             const close = document.createElement("button");
             close.textContent = "关闭译文";
-            close.onclick = () => dialog.remove();
+            const remove = () => {
+              dialogs.delete(dialog);
+              dialog.remove();
+            };
+            close.onclick = remove;
             dialog.append(content, close);
-            dialog.addEventListener("close", () => dialog.remove());
+            dialog.addEventListener("close", remove);
+            dialogs.add(dialog);
             document.body.append(dialog);
             dialog.showModal();
             return { ok: true };
@@ -146,7 +146,7 @@ export default defineContentScript({
     void browser.runtime
       .sendMessage({ action: "auto-state" })
       .then((response: { enabled: boolean; targetLanguage: string }) => {
-        if (response.enabled) start(response.targetLanguage);
+        if (response.enabled) start(response.targetLanguage, true);
       });
   },
 });
