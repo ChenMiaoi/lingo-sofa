@@ -1,33 +1,33 @@
-# LingoSofa 协作规范
+# LingoSofa Contributor Guidelines
 
-本文件适用于整个仓库。项目技术方案见 [docs/lingo-sofa-plan.md](docs/lingo-sofa-plan.md)。
+These guidelines apply to the entire repository. The technical plan is in [docs/lingo-sofa-plan.md](docs/lingo-sofa-plan.md).
 
-## Commit 提交规范
+## Commit Conventions
 
-- 使用 Conventional Commits：`<type>(<scope>): <description>`；scope 可省略。
-- 常用 type：`feat`、`fix`、`refactor`、`docs`、`test`、`build`、`ci`、`chore`、`perf`、`style`。
-- description 简洁、准确地描述本次改动，可使用中文或英文。例如：`docs: 明确 LingoSofa 协作规范`、`fix(translation-core): 丢弃过期翻译结果`。
-- 每个 commit 只处理一个明确目的，避免混入无关重构、格式化或临时文件。
-- 不兼容变更使用 `!` 标记，并在提交正文中用 `BREAKING CHANGE:` 说明影响和迁移方式。
-- 提交前检查暂存差异，确保不包含密钥、凭证、调试产物或非预期改动。
+- Use Conventional Commits: `<type>(<scope>): <description>`. The scope is optional.
+- Common types are `feat`, `fix`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `perf`, and `style`.
+- Write commit messages in English. Keep the description concise and specific, for example `docs: clarify contributor guidelines` or `fix(translation-core): discard stale translation results`.
+- Give each commit one clear purpose. Do not mix unrelated refactoring, formatting, or temporary files into the same commit.
+- Mark breaking changes with `!` and explain their impact and migration steps in a `BREAKING CHANGE:` footer.
+- Review the staged diff before committing. Exclude secrets, credentials, debug artifacts, and unintended changes.
 
-## 提交前检查
+## Pre-commit Verification
 
-- 提交前必须通过 lint 和 format 检查；使用仓库实际配置的脚本，格式检查不得只依赖编辑器自动格式化。
-- 必须通过改动部分的相关测试，覆盖修改的行为及受影响的调用方；共享核心或协议变更需验证相关消费端，不能只测试修改文件本身。
-- 修复缺陷时补充能复现问题的回归测试；行为变更时更新相应测试。纯文档修改无需编写代码测试，但需检查 Markdown 格式、链接和文件引用。
-- 涉及类型、构建配置或包依赖时，还需通过受影响部分的类型检查和构建。
-- 检查失败必须修复后重新执行，不得跳过检查、禁用规则或删除有效测试来获得通过结果。
-- 提交前运行 `npm run check`，依次执行 lint、format 检查、类型检查和测试；可使用 `npm test -- <文件路径>` 运行相关测试。工程初始化阶段允许没有测试文件；引入业务代码时需提供相关测试，不得以没有测试作为验证通过的依据。
-- 交付时简要说明已执行的检查及结果；未执行的检查必须说明原因。
+- Lint and formatting checks must pass before committing. Use the repository scripts; editor formatting alone is insufficient.
+- Run tests for the changed behavior and affected consumers. Changes to shared code or protocols require checks of the relevant consumers, not just the edited files.
+- Add regression tests for bug fixes and update tests for behavior changes. Documentation-only changes do not require code tests, but Markdown formatting, links, and file references must be checked.
+- Changes to types, build configuration, or dependencies also require type checks and builds for the affected components.
+- Fix failures and rerun the checks. Do not bypass checks, disable rules, or delete valid tests to make a change pass.
+- Run `npm run check` before committing. It runs lint, formatting checks, type checks, tests, and configured builds. Use `npm test -- <file-path>` to target relevant tests. The initial scaffold may have no tests; business logic must have meaningful tests, and the absence of tests is not evidence that behavior is correct.
+- Report the checks performed and their results. Explain any checks that were not run.
 
-## 架构与代码质量
+## Architecture and Code Quality
 
-- 保持架构清晰：每个模块职责单一，依赖方向明确，跨模块通过明确的公共接口协作。
-- 共享核心保持宿主无关，不依赖浏览器、Discord 或 Node 的具体实现；网络、存储、凭证和日志通过接口注入。
-- 保持低耦合，避免循环依赖、跨层访问内部实现，以及通过共享可变全局状态连接模块。
-- 优先使用简单、直接、可读的实现。抽象应解决实际重复或隔离明确边界，不为假设中的需求添加层级、配置或通用框架。
-- 不保留冗余、死代码、废弃分支、临时调试逻辑或重复实现；兼容代码需有明确用途和适用范围。
-- 命名表达业务含义，类型和错误边界明确；注释解释必要的原因、约束和取舍，避免复述代码。
-- 控制改动范围；确需重构时围绕本次需求展开，确保行为可验证，不顺带改写无关模块。
-- 测试关注可观察行为、边界条件和失败路径，避免只复制实现细节或为低影响改动堆积无意义测试。
+- Keep the architecture clear: each module has one responsibility, dependencies have an explicit direction, and modules interact through public interfaces.
+- Keep the shared core independent of its host. It must not depend on browser APIs, Discord internals, or Node-specific implementations. Inject network, storage, credential, and logging interfaces.
+- Keep coupling low. Avoid circular dependencies, access to another layer's internals, and shared mutable global state connecting modules.
+- Prefer simple, direct, readable implementations. Introduce abstractions to remove actual duplication or isolate a clear boundary, not to anticipate hypothetical needs.
+- Remove redundant code, dead branches, temporary debugging logic, and duplicate implementations. Compatibility code must have a clear purpose and supported scope.
+- Use names that express domain meaning and define clear types and error boundaries. Comments should explain necessary constraints and tradeoffs rather than repeat the code.
+- Keep changes focused. Refactor only as needed for the current task, preserve verifiable behavior, and avoid rewriting unrelated modules.
+- Test observable behavior, edge cases, and failure paths. Avoid tests that merely mirror implementation details or add little value for low-impact changes.
