@@ -2,6 +2,7 @@ import { defineBackground } from "wxt/utils/define-background";
 import { browser, type Browser } from "wxt/browser";
 import { createPiClient, resolveModel } from "@lingo-sofa/provider-pi/browser";
 import {
+  replySchema,
   requestSchema,
   settingsSchema,
   type UsageRecord,
@@ -73,7 +74,7 @@ export default defineBackground(() => {
       "com.lingosofa.bridge",
       { version: 1, scope, sourceKind: "web", request },
     );
-    return response as Reply;
+    return replySchema.parse(response);
   }
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
     return (async (): Promise<unknown> => {

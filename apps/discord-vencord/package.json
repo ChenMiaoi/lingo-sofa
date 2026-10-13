@@ -7,5 +7,9 @@
     "@lingo-sofa/protocol": "0.1.0",
     "@lingo-sofa/translation-core": "0.1.0",
     "@lingo-sofa/ui-shared": "0.1.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "node ../../scripts/verify-vencord.mjs"
   }
 }

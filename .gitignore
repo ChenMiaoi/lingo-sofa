@@ -10,3 +10,5 @@ coverage/
 **/.output/
 playwright-report/
 test-results/
+.cache/
+**/tsconfig.host.generated.json

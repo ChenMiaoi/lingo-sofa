@@ -121,87 +121,95 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
   }
 }, 15_000);
 
-it("relays framed requests through the packaged native executable", async () => {
-  const binary = resolve(
-    `apps/pi-bridge/dist/lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`,
-  );
-  if (!existsSync(binary)) return; // Packaged-host checks run after the native packaging command.
-  const model = await modelServer();
-  const directory = await mkdtemp(join(tmpdir(), "lingo-native-"));
-  const extension = "a".repeat(32);
-  const token = "native-token-0000000000000000000000000000";
-  const expiresAt = Date.now() + 60_000;
-  const config = bridgeConfigSchema.parse({
-    allowedExtensions: [extension],
-    settings: {
-      mode: "bridge",
-      model: {
-        provider: "openai-compatible",
-        model: "fixture",
-        endpoint: model.endpoint,
-      },
-    },
-  });
-  const bridge = createBridge(
-    config,
-    "fixture-key",
-    token,
-    expiresAt,
-    directory,
-  );
-  await new Promise<void>((resolve) =>
-    bridge.server.listen(0, "127.0.0.1", resolve),
-  );
-  config.port = (bridge.server.address() as AddressInfo).port;
-  await writeFile(join(directory, "config.json"), JSON.stringify(config));
-  await writeFile(
-    join(directory, "pairing.json"),
-    JSON.stringify({ token, expiresAt }),
-  );
-  const child = spawn(binary, [`chrome-extension://${extension}/`], {
-    env: { ...process.env, LINGO_SOFA_HOME: directory },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  try {
-    const reply = new Promise<unknown>((resolve, reject) => {
-      const decoder = new NativeDecoder();
-      child.on("error", reject);
-      child.on("exit", (code) => {
-        if (code) reject(new Error(`Native host exited: ${code}`));
-      });
-      child.stdout.on("data", (chunk: Buffer) => {
-        for (const value of decoder.push(chunk)) resolve(value);
-      });
-    });
-    child.stdin.write(
-      nativeFrame({
-        version: 1,
-        scope: "web:fixture",
-        sourceKind: "web",
-        request: {
-          kind: "translate",
-          requestId: crypto.randomUUID(),
-          units: [
-            {
-              id: "a",
-              revision: "1",
-              text: "Hello",
-              sourceKind: "web",
-              targetLanguage: "中文",
-            },
-          ],
-        },
-      }),
+const packagedNative = resolve(
+  `apps/pi-bridge/dist/lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`,
+);
+it.skipIf(!existsSync(packagedNative))(
+  "relays framed requests through the packaged native executable",
+  async () => {
+    const binary = resolve(
+      `apps/pi-bridge/dist/lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`,
     );
-    expect(await reply).toMatchObject({
-      ok: true,
-      results: [{ id: "a", revision: "1", text: "译文 Hello" }],
+    const model = await modelServer();
+    const directory = await mkdtemp(join(tmpdir(), "lingo-native-"));
+    const extension = "a".repeat(32);
+    const token = "native-token-0000000000000000000000000000";
+    const expiresAt = Date.now() + 60_000;
+    const config = bridgeConfigSchema.parse({
+      allowedExtensions: [extension],
+      settings: {
+        mode: "bridge",
+        model: {
+          provider: "openai-compatible",
+          model: "fixture",
+          endpoint: model.endpoint,
+        },
+      },
     });
-  } finally {
-    child.kill();
-    bridge.server.closeAllConnections();
-    await new Promise<void>((resolve) => bridge.server.close(() => resolve()));
-    await model.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-}, 15_000);
+    const bridge = createBridge(
+      config,
+      "fixture-key",
+      token,
+      expiresAt,
+      directory,
+    );
+    await new Promise<void>((resolve) =>
+      bridge.server.listen(0, "127.0.0.1", resolve),
+    );
+    config.port = (bridge.server.address() as AddressInfo).port;
+    await writeFile(join(directory, "config.json"), JSON.stringify(config));
+    await writeFile(
+      join(directory, "pairing.json"),
+      JSON.stringify({ token, expiresAt }),
+    );
+    const child = spawn(binary, [`chrome-extension://${extension}/`], {
+      env: { ...process.env, LINGO_SOFA_HOME: directory },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    try {
+      const reply = new Promise<unknown>((resolve, reject) => {
+        const decoder = new NativeDecoder();
+        child.on("error", reject);
+        child.on("exit", (code) => {
+          if (code) reject(new Error(`Native host exited: ${code}`));
+        });
+        child.stdout.on("data", (chunk: Buffer) => {
+          for (const value of decoder.push(chunk)) resolve(value);
+        });
+      });
+      child.stdin.write(
+        nativeFrame({
+          version: 1,
+          scope: "web:fixture",
+          sourceKind: "web",
+          request: {
+            kind: "translate",
+            requestId: crypto.randomUUID(),
+            units: [
+              {
+                id: "a",
+                revision: "1",
+                text: "Hello",
+                sourceKind: "web",
+                targetLanguage: "中文",
+              },
+            ],
+          },
+        }),
+      );
+      expect(await reply).toMatchObject({
+        ok: true,
+        results: [{ id: "a", revision: "1", text: "译文 Hello" }],
+      });
+    } finally {
+      child.kill();
+      bridge.server.closeAllConnections();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await model.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  15_000,
+);

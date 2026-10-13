@@ -113,7 +113,7 @@ export interface Usage {
   cacheRead: number;
   cacheWrite: number;
   totalTokens: number;
-  reasoning?: number;
+  reasoning?: number | undefined;
   cost: {
     input: number;
     output: number;
@@ -153,9 +153,9 @@ export interface ModelReply {
 export type Reply =
   | {
       ok: true;
-      results?: TranslationResult[];
-      text?: string;
-      metrics?: Metrics;
+      results?: TranslationResult[] | undefined;
+      text?: string | undefined;
+      metrics?: Metrics | undefined;
     }
   | { ok: false; error: string };
 export interface ModelClient {
@@ -166,3 +166,58 @@ export interface ModelClient {
     onText?: (text: string) => void,
   ): Promise<ModelReply>;
 }
+
+const count = z.number().int().nonnegative();
+const money = z.number().nonnegative();
+export const usageSchema = z.strictObject({
+  input: count,
+  output: count,
+  cacheRead: count,
+  cacheWrite: count,
+  totalTokens: count,
+  reasoning: count.optional(),
+  cost: z.strictObject({
+    input: money,
+    output: money,
+    cacheRead: money,
+    cacheWrite: money,
+    total: money,
+  }),
+});
+export const metricsSchema = z.strictObject({
+  usage: usageSchema.nullable(),
+  costKnown: z.boolean(),
+  durationMs: z.number().nonnegative(),
+  firstOutputMs: z.number().nonnegative().nullable(),
+  firstTextMs: z.number().nonnegative().nullable(),
+  generationMs: z.number().nonnegative().nullable(),
+  tps: z.number().nonnegative().nullable(),
+});
+export const usageRecordSchema = metricsSchema.extend({
+  requestId: z.uuid(),
+  scope: z.string().max(1024),
+  model: z.string().max(200),
+  provider: z.string().max(100),
+  sourceKind: z.enum(["web", "discord"]),
+  mode: z.enum(["direct", "bridge"]),
+  status: z.enum(["success", "failed", "cancelled", "unknown"]),
+  timestamp: count,
+});
+export const replySchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    results: z
+      .array(
+        z.strictObject({
+          id: z.string().max(128),
+          revision: z.string().max(128),
+          text: z.string().max(32_000),
+        }),
+      )
+      .max(16)
+      .optional(),
+    text: z.string().max(64_000).optional(),
+    metrics: metricsSchema.optional(),
+  }),
+  z.strictObject({ ok: z.literal(false), error: z.string().max(2_000) }),
+]);

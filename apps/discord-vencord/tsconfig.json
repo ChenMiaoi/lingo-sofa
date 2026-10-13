@@ -1,0 +1,12 @@
+{
+  "extends": "../../.cache/vencord/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../../"
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "../../.cache/vencord/src/**/*.d.ts"
+  ]
+}

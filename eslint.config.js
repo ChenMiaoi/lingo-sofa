@@ -9,11 +9,12 @@ export default tseslint.config(
       "**/dist/**",
       "**/.wxt/**",
       "**/.output/**",
+      ".cache/**",
     ],
   },
   js.configs.recommended,
   {
-    files: ["apps/pi-bridge/**/*.mjs"],
+    files: ["apps/*/**/*.mjs", "scripts/**/*.mjs"],
     languageOptions: { globals: { process: "readonly", console: "readonly" } },
   },
   tseslint.configs.recommended,
