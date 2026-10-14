@@ -79,7 +79,7 @@ try {
     (await context.waitForEvent("serviceworker"));
   const id = new URL(worker.url()).host;
   const options = await context.newPage();
-  await options.goto(`chrome-extension://${id}/options.html`);
+  await options.goto(`chrome-extension://${id}/options.html?view=activity`);
   await options.evaluate(
     async ({ key, model }) => {
       const state = await chrome.runtime.sendMessage({ action: "state" });

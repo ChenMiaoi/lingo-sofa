@@ -1,7 +1,13 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser, type Browser } from "wxt/browser";
-import { createPiClient, resolveModel } from "@lingo-sofa/provider-pi/browser";
 import {
+  createPiClient,
+  resolveModel,
+  listModels,
+} from "@lingo-sofa/provider-pi/browser";
+import {
+  providerCatalogSchema,
+  providerUpdateSchema,
   replySchema,
   requestSchema,
   settingsSchema,
@@ -173,7 +179,145 @@ export default defineBackground(() => {
         request?: unknown;
         context?: string;
         targetLanguage?: unknown;
+        model?: unknown;
+        enabled?: unknown;
+        update?: unknown;
+        mode?: unknown;
       };
+      async function catalog(mode = settings.mode) {
+        if (mode === "bridge")
+          return providerCatalogSchema.parse(
+            await browser.runtime.sendNativeMessage("com.lingosofa.bridge", {
+              version: 1,
+              sourceKind: "web",
+              scope: "browser",
+              operation: "provider",
+            }),
+          );
+        const supported = ["deepseek", "openai-compatible"].includes(
+          settings.model.provider,
+        );
+        return {
+          model: supported ? settings.model : settingsSchema.parse({}).model,
+          keyConfigured: supported && Boolean(await apiKey()),
+          piAuth: false,
+          providers: listModels(),
+        };
+      }
+      async function notify(next: Settings) {
+        for (const tab of await browser.tabs.query({}))
+          if (tab.id && tab.url && /^https?:/.test(tab.url))
+            await browser.tabs
+              .sendMessage(tab.id, {
+                action: "settings-changed",
+                targetLanguage: next.targetLanguage,
+                automatic: next.autoOrigins.includes(new URL(tab.url).origin),
+              })
+              .catch(() => undefined);
+      }
+      const topPage =
+        sender.tab &&
+        sender.frameId === 0 &&
+        sender.url &&
+        /^https?:/.test(sender.url);
+      if (data.action === "page-controls" && topPage) {
+        const info = await catalog();
+        return {
+          ok: true,
+          model: info.model.model,
+          providerName:
+            info.providers.find(
+              (provider) => provider.id === info.model.provider,
+            )?.name ??
+            (info.model.provider === "openai-compatible"
+              ? "OpenAI 兼容"
+              : info.model.provider),
+          models: info.providers
+            .find((provider) => provider.id === info.model.provider)
+            ?.models.map((model) => model.id) ?? [info.model.model],
+          targetLanguage: settings.targetLanguage,
+          automatic: settings.autoOrigins.includes(new URL(sender.url!).origin),
+        };
+      }
+      if (data.action === "page-model" && topPage) {
+        if (typeof data.model !== "string") throw new Error("Invalid model");
+        const info = await catalog();
+        if (
+          !info.providers
+            .find((provider) => provider.id === info.model.provider)
+            ?.models.some((model) => model.id === data.model)
+        )
+          throw new Error("模型不在当前供应商目录中");
+        const model = { ...info.model, model: data.model, prices: null };
+        await cancelTransports();
+        if (settings.mode === "bridge") {
+          const reply = replySchema.parse(
+            await browser.runtime.sendNativeMessage("com.lingosofa.bridge", {
+              version: 1,
+              sourceKind: "web",
+              scope: "browser",
+              operation: "provider-update",
+              update: { model },
+            }),
+          );
+          if (!reply.ok) throw new Error(reply.error);
+        }
+        service.reset();
+        const next = { ...settings, model };
+        if (
+          model.provider !== settings.model.provider ||
+          model.endpoint !== settings.model.endpoint
+        )
+          await browser.storage.session.remove(["apiKey", "balance"]);
+        await browser.storage.local.set({ settings: next });
+        await notify(next);
+        return { ok: true };
+      }
+      if (data.action === "page-auto" && topPage) {
+        if (typeof data.enabled !== "boolean")
+          throw new Error("Invalid automatic state");
+        const origin = new URL(sender.url!).origin;
+        if (
+          data.enabled &&
+          !(await browser.permissions.contains({ origins: [`${origin}/*`] }))
+        ) {
+          await browser.tabs.create({
+            url: browser.runtime.getURL(
+              `/options.html?authorize-origin=${encodeURIComponent(origin)}`,
+            ),
+          });
+          return { ok: true, pending: true };
+        }
+        const autoOrigins = data.enabled
+          ? [...new Set([...settings.autoOrigins, origin])]
+          : settings.autoOrigins.filter((value) => value !== origin);
+        const next = settingsSchema.parse({ ...settings, autoOrigins });
+        await browser.storage.local.set({ settings: next });
+        const scripts = await browser.scripting.getRegisteredContentScripts();
+        if (scripts.some((script) => script.id === "lingo-sofa-auto"))
+          await browser.scripting.unregisterContentScripts({
+            ids: ["lingo-sofa-auto"],
+          });
+        if (autoOrigins.length)
+          await browser.scripting.registerContentScripts([
+            {
+              id: "lingo-sofa-auto",
+              matches: autoOrigins.map((origin) => `${origin}/*`),
+              js: ["content-scripts/content.js"],
+              runAt: "document_idle",
+            },
+          ]);
+        // Preserve completed inline translations while pausing the current page.
+        for (const tab of await browser.tabs.query({}))
+          if (tab.id && tab.url && new URL(tab.url).origin === origin)
+            await browser.tabs
+              .sendMessage(tab.id, {
+                action: "automatic-changed",
+                automatic: data.enabled,
+              })
+              .catch(() => undefined);
+        return { ok: true };
+      }
       if (data.action === "auto-state" && sender.tab && sender.url)
         return {
           enabled: settings.autoOrigins.includes(new URL(sender.url).origin),
@@ -220,6 +364,48 @@ export default defineBackground(() => {
         throw new Error(
           "Settings and account data are restricted to extension pages",
         );
+      if (data.action === "provider-catalog")
+        return catalog(
+          data.mode === "bridge"
+            ? "bridge"
+            : data.mode === "direct"
+              ? "direct"
+              : settings.mode,
+        );
+      if (data.action === "provider-update") {
+        const update = providerUpdateSchema.parse(data.update);
+        if (data.mode === "bridge") {
+          const reply = replySchema.parse(
+            await browser.runtime.sendNativeMessage("com.lingosofa.bridge", {
+              version: 1,
+              sourceKind: "web",
+              scope: "browser",
+              operation: "provider-update",
+              update,
+            }),
+          );
+          if (!reply.ok) throw new Error(reply.error);
+          await cancelTransports();
+          service.reset();
+          const next = {
+            ...settings,
+            mode: "bridge" as const,
+            model: update.model,
+          };
+          if (
+            update.model.provider !== settings.model.provider ||
+            update.model.endpoint !== settings.model.endpoint
+          )
+            await browser.storage.session.remove(["apiKey", "balance"]);
+          await browser.storage.local.set({ settings: next });
+          await notify(next);
+          return { ok: true };
+        }
+        resolveModel(update.model);
+        data.action = "save";
+        data.settings = { ...settings, mode: "direct", model: update.model };
+        data.apiKey = update.apiKey;
+      }
       if (data.action === "state") {
         let bridgeUsage: UsageRecord[] = [];
         let budgets: BudgetSnapshot[] | undefined;

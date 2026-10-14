@@ -24,6 +24,8 @@ async function send<T>(message: unknown): Promise<T> {
   return reply;
 }
 export function App() {
+  const advanced =
+    new URLSearchParams(location.search).get("view") === "activity";
   const [settings, setSettings] = useState<Settings>(settingsSchema.parse({}));
   const [usage, setUsage] = useState<UsageRecord[]>([]);
   const [executionSettings, setExecutionSettings] = useState<Settings>(
@@ -322,8 +324,15 @@ export function App() {
         <a href="#translate">翻译与问答</a>
         <a href="#usage">用量</a>
         <a
-          href="#settings"
-          onClick={() => {
+          href={
+            advanced ? "#settings" : browser.runtime.getURL("/options.html")
+          }
+          onClick={(event) => {
+            if (!advanced) {
+              event.preventDefault();
+              void browser.runtime.openOptionsPage();
+              return;
+            }
             const panel = document.getElementById("settings");
             if (panel instanceof HTMLDetailsElement) panel.open = true;
           }}
@@ -362,6 +371,9 @@ export function App() {
             翻译选中
           </button>
           <button onClick={() => void act(() => page("stop"))}>关闭翻译</button>
+          <button onClick={() => void act(() => page("ask-selection"))}>
+            就地解释选中
+          </button>
         </div>
         <button
           className="context-action"
@@ -770,260 +782,266 @@ export function App() {
           清除缓存、会话与用量
         </button>
       </section>
-      <details id="settings" className="settings-card">
-        <summary>模型、网站与隐私设置</summary>
-        <form onSubmit={(event) => void save(event)}>
-          <fieldset>
-            <legend>模型连接</legend>
-            <p className="muted">
-              直连密钥仅在当前浏览器会话保留。本地模式的模型与预算由 Bridge
-              管理。
-            </p>
-            <label>
-              目标语言
-              <input
-                value={settings.targetLanguage}
-                onChange={(event) =>
-                  update("targetLanguage", event.target.value)
-                }
-                required
-              />
-            </label>
-            <label>
-              运行方式
-              <select
-                value={settings.mode}
-                onChange={(event) =>
-                  update("mode", event.target.value as Settings["mode"])
-                }
-              >
-                <option value="direct">直接调用模型</option>
-                <option value="bridge">本地 Pi Bridge</option>
-              </select>
-            </label>
-            <label>
-              供应商
-              <select
-                value={settings.model.provider}
-                onChange={(event) =>
-                  update("model", {
-                    ...settings.model,
-                    provider: event.target
-                      .value as Settings["model"]["provider"],
-                  })
-                }
-              >
-                <option value="deepseek">DeepSeek</option>
-                <option value="openai-compatible">OpenAI 兼容端点</option>
-              </select>
-            </label>
-            <label>
-              模型名称
-              <input
-                value={settings.model.model}
-                onChange={(event) =>
-                  update("model", {
-                    ...settings.model,
-                    model: event.target.value,
-                  })
-                }
-                required
-              />
-            </label>
-            <label>
-              模型端点
-              <input
-                value={settings.model.endpoint}
-                onChange={(event) =>
-                  update("model", {
-                    ...settings.model,
-                    endpoint: event.target.value,
-                  })
-                }
-                type="url"
-                required
-              />
-            </label>
-            <label>
-              API Key（{hasKey ? "已设置" : "未设置"}）
-              <input
-                type="password"
-                value={key}
-                autoComplete="off"
-                onChange={(event) => setKey(event.target.value)}
-                placeholder="仅在本次浏览器会话保留"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() =>
-                void act(async () => {
-                  await send({ action: "forget-key" });
-                  setHasKey(false);
-                })
-              }
-            >
-              清除 API Key
-            </button>
-          </fieldset>
-          <fieldset>
-            <legend>阅读偏好</legend>
-            <label>
-              自动翻译网站
-              <input
-                value={autoOrigin}
-                onChange={(event) => setAutoOrigin(event.target.value)}
-                placeholder="https://example.com"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={() =>
-                void act(async () => {
-                  const origin = new URL(autoOrigin).origin;
-                  update("autoOrigins", [
-                    ...new Set([...settings.autoOrigins, origin]),
-                  ]);
-                  setAutoOrigin("");
-                })
-              }
-            >
-              添加网站（保存后授权）
-            </button>
-            <ul>
-              {settings.autoOrigins.map((origin) => (
-                <li key={origin}>
-                  {origin}{" "}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      update(
-                        "autoOrigins",
-                        settings.autoOrigins.filter((item) => item !== origin),
-                      )
-                    }
-                  >
-                    移除
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <p>
-              自动翻译会发送已授权网站的可见正文到上述模型端点。手动翻译只处理当前页面。
-            </p>
-            <label>
-              术语表（每行 原词 = 译词）
-              <textarea
-                value={glossary}
-                onChange={(event) => setGlossary(event.target.value)}
-                rows={4}
-              />
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>预算与计价</legend>
-            <div className="form-grid">
-              {(
-                [
-                  "dailyTokens",
-                  "monthlyTokens",
-                  "dailyCost",
-                  "monthlyCost",
-                ] as const
-              ).map((field) => (
-                <label key={field}>
-                  {
-                    {
-                      dailyTokens: "日 token 预算",
-                      monthlyTokens: "月 token 预算",
-                      dailyCost: "日费用预算（USD）",
-                      monthlyCost: "月费用预算（USD）",
-                    }[field]
+      {advanced && (
+        <details id="settings" className="settings-card">
+          <summary>模型、网站与隐私设置</summary>
+          <form onSubmit={(event) => void save(event)}>
+            <fieldset>
+              <legend>模型连接</legend>
+              <p className="muted">
+                直连密钥仅在当前浏览器会话保留。本地模式的模型与预算由 Bridge
+                管理。
+              </p>
+              <label>
+                目标语言
+                <input
+                  value={settings.targetLanguage}
+                  onChange={(event) =>
+                    update("targetLanguage", event.target.value)
                   }
-                  <input
-                    type="number"
-                    min="0"
-                    step={field.endsWith("Cost") ? "0.01" : "1"}
-                    value={settings[field] ?? ""}
-                    onChange={(event) =>
-                      update(
-                        field,
-                        event.target.value ? Number(event.target.value) : null,
-                      )
+                  required
+                />
+              </label>
+              <label>
+                运行方式
+                <select
+                  value={settings.mode}
+                  onChange={(event) =>
+                    update("mode", event.target.value as Settings["mode"])
+                  }
+                >
+                  <option value="direct">直接调用模型</option>
+                  <option value="bridge">本地 Pi Bridge</option>
+                </select>
+              </label>
+              <label>
+                供应商
+                <select
+                  value={settings.model.provider}
+                  onChange={(event) =>
+                    update("model", {
+                      ...settings.model,
+                      provider: event.target
+                        .value as Settings["model"]["provider"],
+                    })
+                  }
+                >
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openai-compatible">OpenAI 兼容端点</option>
+                </select>
+              </label>
+              <label>
+                模型名称
+                <input
+                  value={settings.model.model}
+                  onChange={(event) =>
+                    update("model", {
+                      ...settings.model,
+                      model: event.target.value,
+                    })
+                  }
+                  required
+                />
+              </label>
+              <label>
+                模型端点
+                <input
+                  value={settings.model.endpoint}
+                  onChange={(event) =>
+                    update("model", {
+                      ...settings.model,
+                      endpoint: event.target.value,
+                    })
+                  }
+                  type="url"
+                  required
+                />
+              </label>
+              <label>
+                API Key（{hasKey ? "已设置" : "未设置"}）
+                <input
+                  type="password"
+                  value={key}
+                  autoComplete="off"
+                  onChange={(event) => setKey(event.target.value)}
+                  placeholder="仅在本次浏览器会话保留"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  void act(async () => {
+                    await send({ action: "forget-key" });
+                    setHasKey(false);
+                  })
+                }
+              >
+                清除 API Key
+              </button>
+            </fieldset>
+            <fieldset>
+              <legend>阅读偏好</legend>
+              <label>
+                自动翻译网站
+                <input
+                  value={autoOrigin}
+                  onChange={(event) => setAutoOrigin(event.target.value)}
+                  placeholder="https://example.com"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  void act(async () => {
+                    const origin = new URL(autoOrigin).origin;
+                    update("autoOrigins", [
+                      ...new Set([...settings.autoOrigins, origin]),
+                    ]);
+                    setAutoOrigin("");
+                  })
+                }
+              >
+                添加网站（保存后授权）
+              </button>
+              <ul>
+                {settings.autoOrigins.map((origin) => (
+                  <li key={origin}>
+                    {origin}{" "}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update(
+                          "autoOrigins",
+                          settings.autoOrigins.filter(
+                            (item) => item !== origin,
+                          ),
+                        )
+                      }
+                    >
+                      移除
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p>
+                自动翻译会发送已授权网站的可见正文到上述模型端点。手动翻译只处理当前页面。
+              </p>
+              <label>
+                术语表（每行 原词 = 译词）
+                <textarea
+                  value={glossary}
+                  onChange={(event) => setGlossary(event.target.value)}
+                  rows={4}
+                />
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>预算与计价</legend>
+              <div className="form-grid">
+                {(
+                  [
+                    "dailyTokens",
+                    "monthlyTokens",
+                    "dailyCost",
+                    "monthlyCost",
+                  ] as const
+                ).map((field) => (
+                  <label key={field}>
+                    {
+                      {
+                        dailyTokens: "日 token 预算",
+                        monthlyTokens: "月 token 预算",
+                        dailyCost: "日费用预算（USD）",
+                        monthlyCost: "月费用预算（USD）",
+                      }[field]
                     }
-                  />
-                </label>
-              ))}
-            </div>
-            <label>
-              单价（每百万 tokens，USD；留空使用官方或目录价格）
-              <input
-                placeholder="input,output,cacheRead,cacheWrite"
-                value={priceInput}
-                onChange={(event) => setPriceInput(event.target.value)}
-              />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={settings.strictBudget}
-                onChange={(event) =>
-                  update("strictBudget", event.target.checked)
-                }
-              />
-              消耗未知时暂停预算任务
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>隐私与历史</legend>
-            <label>
-              <input
-                type="checkbox"
-                checked={settings.persistUsage}
-                onChange={(event) =>
-                  update("persistUsage", event.target.checked)
-                }
-              />
-              本地保存用量历史（不保存正文）
-            </label>
-            <label>
-              历史保留天数
-              <input
-                type="number"
-                min="1"
-                max="90"
-                value={settings.retentionDays}
-                onChange={(event) =>
-                  update("retentionDays", Number(event.target.value))
-                }
-              />
-            </label>
-            <label>
-              预算提醒阈值
-              <input
-                type="number"
-                min="0.1"
-                max="1"
-                step="0.05"
-                value={settings.warningRatio}
-                onChange={(event) =>
-                  update("warningRatio", Number(event.target.value))
-                }
-              />
-            </label>
-            <label>
-              统计时区
-              <input
-                value={settings.timeZone}
-                onChange={(event) => update("timeZone", event.target.value)}
-              />
-            </label>
-          </fieldset>
-          <button className="primary" type="submit">
-            授权并保存设置
-          </button>
-        </form>
-      </details>
+                    <input
+                      type="number"
+                      min="0"
+                      step={field.endsWith("Cost") ? "0.01" : "1"}
+                      value={settings[field] ?? ""}
+                      onChange={(event) =>
+                        update(
+                          field,
+                          event.target.value
+                            ? Number(event.target.value)
+                            : null,
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+              <label>
+                单价（每百万 tokens，USD；留空使用官方或目录价格）
+                <input
+                  placeholder="input,output,cacheRead,cacheWrite"
+                  value={priceInput}
+                  onChange={(event) => setPriceInput(event.target.value)}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.strictBudget}
+                  onChange={(event) =>
+                    update("strictBudget", event.target.checked)
+                  }
+                />
+                消耗未知时暂停预算任务
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>隐私与历史</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.persistUsage}
+                  onChange={(event) =>
+                    update("persistUsage", event.target.checked)
+                  }
+                />
+                本地保存用量历史（不保存正文）
+              </label>
+              <label>
+                历史保留天数
+                <input
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={settings.retentionDays}
+                  onChange={(event) =>
+                    update("retentionDays", Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                预算提醒阈值
+                <input
+                  type="number"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value={settings.warningRatio}
+                  onChange={(event) =>
+                    update("warningRatio", Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                统计时区
+                <input
+                  value={settings.timeZone}
+                  onChange={(event) => update("timeZone", event.target.value)}
+                />
+              </label>
+            </fieldset>
+            <button className="primary" type="submit">
+              授权并保存设置
+            </button>
+          </form>
+        </details>
+      )}
       <footer className="page-footer">
         <button onClick={() => void browser.runtime.openOptionsPage()}>
           在完整页面中打开

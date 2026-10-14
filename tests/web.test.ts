@@ -168,3 +168,31 @@ it("pauses pending work without removing completed text and rejects late results
   expect(document.body.textContent).not.toContain("取消后的旧结果");
   translator.stop();
 });
+
+it("allows an explicit paragraph translation while automatic work is paused", async () => {
+  document.body.innerHTML =
+    '<article><p id="one">First</p><p id="two">Second</p></article>';
+  const calls: string[] = [];
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    translate: async (block) => {
+      calls.push(block.text);
+      return `译文 ${block.text}`;
+    },
+  });
+  translator.start();
+  await wait();
+  translator.pause();
+  calls.length = 0;
+  document.querySelector("#two")!.textContent = "Changed";
+  await wait();
+  expect(calls).toEqual([]);
+  translator.translateElement(document.querySelector<HTMLElement>("#two")!);
+  await wait();
+  expect(calls).toEqual(["Changed"]);
+  expect(
+    document.querySelector("#one [data-lingo-sofa=translation]")?.textContent,
+  ).toBe("译文 First");
+  expect(translator.progress.paused).toBe(true);
+  translator.stop();
+});

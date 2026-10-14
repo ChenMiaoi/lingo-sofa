@@ -149,7 +149,7 @@ export function createBridge(
         chunks.push(buffer);
       }
       const raw: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (request.url === "/v1/provider" && expectedDiscordOrigin(origin)) {
+      if (request.url === "/v1/provider") {
         reply(200, {
           model: config.settings.model,
           keyConfigured: Boolean(currentKey),
@@ -165,10 +165,7 @@ export function createBridge(
         });
         return;
       }
-      if (
-        request.url === "/v1/provider/update" &&
-        expectedDiscordOrigin(origin)
-      ) {
+      if (request.url === "/v1/provider/update") {
         const update = providerUpdateSchema.parse(raw);
         // Validate the catalog before touching credentials or persistent state.
         resolveModel(update.model);
@@ -332,12 +329,4 @@ export function createBridge(
       return sessions;
     },
   };
-}
-
-function expectedDiscordOrigin(origin: string) {
-  return [
-    "https://discord.com",
-    "https://canary.discord.com",
-    "https://ptb.discord.com",
-  ].includes(origin);
 }

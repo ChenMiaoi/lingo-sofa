@@ -44,7 +44,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
-    await options.goto(`chrome-extension://${id}/options.html`);
+    await options.goto(`chrome-extension://${id}/options.html?view=activity`);
     await options.evaluate(async (endpoint) => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
@@ -114,26 +114,29 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       exact: true,
     });
     await launcher.click();
-    await page.getByRole("button", { name: "翻译整页", exact: true }).click();
-    await page.getByRole("button", { name: "暂停", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "继续翻译", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("combobox")).toHaveCount(2);
+    const automatic = page.getByRole("switch", { name: "自动翻译此网站" });
+    await automatic.check();
     await expect(
       page.locator("#first [data-lingo-sofa=translation]"),
     ).toBeVisible();
-    await page.getByRole("button", { name: "继续翻译", exact: true }).click();
-    await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    await automatic.uncheck();
     await expect(
-      page.getByRole("button", { name: "恢复原文", exact: true }).first(),
+      page.locator("#first [data-lingo-sofa=translation]"),
     ).toBeVisible();
+    await automatic.check();
+    await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    await expect(page.getByText("更多操作", { exact: true })).toHaveCount(0);
     await expect(page.locator("pre code")).toHaveText("const untouched = 1;");
-    await expect(page.locator("input")).toHaveValue("draft");
+    await expect(page.getByRole("textbox")).toHaveValue("draft");
     await page.screenshot({ path: ".cache/ui/inline-reading.png" });
-    await page
-      .getByRole("button", { name: "恢复原文", exact: true })
-      .first()
-      .click();
+    await automatic.uncheck();
+    await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    await options.evaluate(async () => {
+      await (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
+      ).chrome.runtime.sendMessage({ action: "page", command: "stop" });
+    });
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(0);
     await page.evaluate(() => {
       const node = document.querySelector("#second")!.firstChild!;
@@ -161,10 +164,14 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
         })),
     ).toEqual({ color: "rgb(34, 34, 34)", opacity: "1" });
     await expect(page.locator("dialog")).toHaveCount(0);
-    await page.getByText("更多操作", { exact: true }).click();
-    await page
-      .getByRole("button", { name: "解释 / Ask Pi", exact: true })
-      .click();
+    await options.evaluate(async () => {
+      await (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
+      ).chrome.runtime.sendMessage({
+        action: "page",
+        command: "ask-selection",
+      });
+    });
     const dialog = page.locator("dialog[data-lingo-sofa=ask]");
     await expect(
       dialog.getByLabel("将发送的上下文", { exact: true }),

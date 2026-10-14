@@ -83,16 +83,16 @@ it("discovers multiple providers and saves credentials locally without returning
     expect(
       (await post("/v1/provider", {}, `chrome-extension://${"a".repeat(32)}`))
         .status,
-    ).toBe(404);
+    ).toBe(200);
     expect(
       (
         await post(
           "/v1/provider/update",
-          { model: next, apiKey: "new-fixture-key" },
+          { model: next },
           `chrome-extension://${"a".repeat(32)}`,
         )
       ).status,
-    ).toBe(404);
+    ).toBe(400);
     expect(
       (
         await post("/v1/provider/update", {
@@ -110,6 +110,10 @@ it("discovers multiple providers and saves credentials locally without returning
         })
       ).status,
     ).toBe(400);
+    expect(
+      (await post("/v1/provider", {}, `chrome-extension://${"b".repeat(32)}`))
+        .status,
+    ).toBe(403);
     let release!: () => void;
     const active = bridge.service.queue.submit(
       "configuration-busy",

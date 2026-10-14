@@ -45,7 +45,7 @@ test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
-    await options.goto(`chrome-extension://${id}/options.html`);
+    await options.goto(`chrome-extension://${id}/options.html?view=activity`);
     await options.evaluate(async (endpoint) => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;

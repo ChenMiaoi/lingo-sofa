@@ -105,7 +105,8 @@ export default defineContentScript({
     }
     function start(language: string, automatic = false, manual = false) {
       targetLanguage = language;
-      if (translator && mode === "manual" && !manual && !automatic) {
+      if (translator && mode === "manual" && !manual) {
+        automaticMode = automatic;
         mode = "page";
         translator.translatePage();
         return;
@@ -125,7 +126,7 @@ export default defineContentScript({
             kind: "translate",
             requestId,
             units,
-            automatic,
+            automatic: automaticMode,
           })) as Reply;
           if (!reply.ok) throw new Error(reply.error);
           signal.throwIfAborted();
@@ -137,7 +138,7 @@ export default defineContentScript({
       translator = new PageTranslator(document, {
         targetLanguage,
         manual,
-        onChange: (progress) => controls.update(progress, mode),
+        onChange: (progress) => controls.update(progress),
         onError: (reason) =>
           controls.setNotice(
             reason instanceof Error ? reason.message : "翻译失败",
@@ -157,35 +158,31 @@ export default defineContentScript({
       });
       translator.start();
     }
+    function askSelection() {
+      captureSelection();
+      const preview = selectedPreview;
+      if (!preview) {
+        controls.setNotice("请先选中要解释或询问的正文");
+        return;
+      }
+      const { text, root, original, url } = preview;
+      const cleanup = showSelectionAsk(
+        document,
+        text,
+        () =>
+          location.href === url &&
+          root.isConnected &&
+          textOf(root) === original,
+        async (request) =>
+          (await browser.runtime.sendMessage(request)) as Reply,
+        () => askCleanups.delete(cleanup),
+      );
+      askCleanups.add(cleanup);
+    }
     const controls = createPageControls(document, {
-      page: () => start(targetLanguage),
-      pause: () => translator?.pause(),
-      resume: () => translator?.resume(),
-      restore: stop,
       paragraph: (element) => {
         if (!translator) start(targetLanguage, false, true);
         translator?.translateElement(element);
-      },
-      ask: () => {
-        captureSelection();
-        const preview = selectedPreview;
-        if (!preview) {
-          controls.setNotice("请先选中要解释或询问的正文");
-          return;
-        }
-        const { text, root, original, url } = preview;
-        const cleanup = showSelectionAsk(
-          document,
-          text,
-          () =>
-            location.href === url &&
-            root.isConnected &&
-            textOf(root) === original,
-          async (request) =>
-            (await browser.runtime.sendMessage(request)) as Reply,
-          () => askCleanups.delete(cleanup),
-        );
-        askCleanups.add(cleanup);
       },
       language: async (language) => {
         const reply = (await browser.runtime.sendMessage({
@@ -199,8 +196,27 @@ export default defineContentScript({
         targetLanguage = language;
         if (active && !manual) start(language, automaticMode);
       },
-      options: () => {
-        void browser.runtime.sendMessage({ action: "open-options" });
+      configuration: async () => {
+        const reply = await browser.runtime.sendMessage({
+          action: "page-controls",
+        });
+        if (!reply.ok) throw new Error(reply.error);
+        return reply;
+      },
+      model: async (model) => {
+        const reply = await browser.runtime.sendMessage({
+          action: "page-model",
+          model,
+        });
+        if (!reply.ok) throw new Error(reply.error);
+      },
+      automatic: async (enabled) => {
+        const reply = await browser.runtime.sendMessage({
+          action: "page-auto",
+          enabled,
+        });
+        if (!reply.ok) throw new Error(reply.error);
+        return reply;
       },
     });
     const onMessage = (message: unknown) => {
@@ -220,10 +236,30 @@ export default defineContentScript({
         controls.open();
         return Promise.resolve({ ok: true });
       }
+      if (data.action === "ask-selection") {
+        askSelection();
+        return Promise.resolve({ ok: true });
+      }
+      if (data.action === "automatic-changed") {
+        controls.setAutomatic(Boolean(data.automatic));
+        if (data.automatic) {
+          if (translator) {
+            mode = "page";
+            automaticMode = true;
+            translator.translatePage();
+            translator.resume();
+          } else start(targetLanguage, true);
+        } else {
+          translator?.pause();
+          automaticMode = false;
+        }
+        return Promise.resolve({ ok: true });
+      }
       if (data.action === "settings-changed") {
         targetLanguage = data.targetLanguage ?? "简体中文";
         controls.setLanguage(targetLanguage);
         stop();
+        controls.setAutomatic(Boolean(data.automatic));
         if (data.automatic) start(data.targetLanguage ?? "简体中文", true);
         return Promise.resolve({ ok: true });
       }
@@ -333,6 +369,7 @@ export default defineContentScript({
         if (ctx.isInvalid) return;
         targetLanguage = response.targetLanguage;
         controls.setLanguage(targetLanguage);
+        controls.setAutomatic(response.enabled);
         if (response.enabled) start(targetLanguage, true);
       });
   },

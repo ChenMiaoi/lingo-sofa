@@ -52,7 +52,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
-    await options.goto(`chrome-extension://${id}/options.html`);
+    await options.goto(`chrome-extension://${id}/options.html?view=activity`);
     await expect(
       options.getByRole("heading", { name: "LingoSofa", exact: true }),
     ).toBeVisible();

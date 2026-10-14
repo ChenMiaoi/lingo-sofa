@@ -63,7 +63,7 @@ test("caches account queries and preserves the last displayed balance after refr
       };
     });
     const options = await context.newPage();
-    await options.goto(`chrome-extension://${id}/options.html`);
+    await options.goto(`chrome-extension://${id}/options.html?view=activity`);
     await options
       .getByRole("button", { name: "查询余额", exact: true })
       .click();

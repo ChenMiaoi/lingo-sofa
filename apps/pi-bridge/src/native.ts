@@ -1,4 +1,7 @@
-import { bridgeEnvelopeSchema } from "./config.js";
+import {
+  bridgeEnvelopeSchema,
+  nativeProviderEnvelopeSchema,
+} from "./config.js";
 export function nativeFrame(value: unknown): Buffer {
   const payload = Buffer.from(JSON.stringify(value));
   if (payload.length > 1_000_000)
@@ -45,15 +48,31 @@ export function startNative(
   process.stdin.on("data", (chunk: Buffer) => {
     try {
       for (const raw of decoder.push(chunk)) {
-        const envelope = bridgeEnvelopeSchema.parse(raw);
-        void fetch(`http://127.0.0.1:${port}/v1/request`, {
+        const providerOperation =
+          raw && typeof raw === "object" && "operation" in raw;
+        const envelope = providerOperation
+          ? nativeProviderEnvelopeSchema.parse(raw)
+          : bridgeEnvelopeSchema.parse(raw);
+        const route =
+          "operation" in envelope
+            ? envelope.operation === "provider"
+              ? "/v1/provider"
+              : "/v1/provider/update"
+            : "/v1/request";
+        const body =
+          "operation" in envelope
+            ? envelope.operation === "provider-update"
+              ? envelope.update
+              : {}
+            : envelope;
+        void fetch(`http://127.0.0.1:${port}${route}`, {
           method: "POST",
           headers: {
             Origin: origin.replace(/\/$/, ""),
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(envelope),
+          body: JSON.stringify(body),
           signal: AbortSignal.timeout(50_000),
         })
           .then(async (response) => {

@@ -24,9 +24,9 @@ npm run benchmark
 
 1. 执行 `npm run build`。
 2. 在 Chrome/Edge 扩展管理页启用开发者模式，加载 `apps/browser-extension/.output/chrome-mv3` 目录。
-3. 打开扩展设置，填写模型、端点和自己的 API Key，点击授权并保存。默认只在浏览器会话保留密钥。
-4. 在普通网页点击“在页面中打开控制”，从页边入口翻译整页，或悬停正文只翻译一段。选区译文也直接显示在对应段落下方。暂停保留完成的译文，恢复原文移除译文，收起控件继续阅读。
-5. 自动模式需要逐网站添加并保存授权。问答必须先预览文章或选中文本。
+3. 打开扩展设置，在 Provider 面板选择供应商与模型、填写 API Key 并保存；标准模型地址自动填充，自定义兼容接口才填写地址。直连 Key 只在浏览器会话保留，本地助手模式的 Key 仅保存在 Bridge。
+4. 在普通网页点击“在页面中打开控制”，页边面板只保留目标语言、当前供应商模型、网站自动翻译，布局与 Discord 一致。悬停正文可只翻译一段；选区译文也就地显示。暂停保留完成的译文，扩展弹窗的“关闭翻译”恢复原文。
+5. 自动开关识别当前网站；首次缺少权限时会打开扩展页面，由用户点击“允许并开启自动翻译”，无需填写网址。问答与用量在辅助入口；设置首页只显示 Provider，预算、术语与历史保留在“用量与高级”。
 
 可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成真机矩阵验收和第三方许可交付。
 
@@ -44,7 +44,7 @@ npm run init --workspace @lingo-sofa/pi-bridge
 npm run pair --workspace @lingo-sofa/pi-bridge
 ```
 
-默认配置位于 `~/.config/lingo-sofa/config.json`，可用 `LINGO_SOFA_HOME` 指定目录。编辑其中 `settings.model` 的 provider、模型及端点，设置预算，按需填写 `allowedExtensions`。API Key 可通过启动进程的 `LINGO_SOFA_API_KEY` 环境变量提供，或在 Discord 的 Provider 页面配置。该页面保存的模型和 Key 位于本地助手目录中的 `provider.json`（仅当前用户可读写），启动时优先读取；不要提交密钥或配对文件。
+默认配置位于 `~/.config/lingo-sofa/config.json`，可用 `LINGO_SOFA_HOME` 指定目录。编辑其中 `settings.model` 的 provider、模型及端点，设置预算，按需填写 `allowedExtensions`。API Key 可通过启动进程的 `LINGO_SOFA_API_KEY` 环境变量提供，或在 Discord/浏览器的 Provider 页面配置。该页面保存的模型和 Key 位于本地助手目录中的 `provider.json`（仅当前用户可读写），启动时优先读取；不要提交密钥或配对文件。
 
 ```sh
 npm run start --workspace @lingo-sofa/pi-bridge
@@ -83,3 +83,5 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 - [协作与提交规范](AGENTS.md)
 
 项目原创材料暂采用 [商业专有 LICENSE](LICENSE)，依赖保留各自授权，见 [第三方许可清单](THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍需单独核对 GPL 条件；当前开发产物尚未完成公开发行的许可交付。
+
+浏览器本地助手模式的 Provider 配置与模型切换需更新 Native Host 和 Bridge，并在 `allowedExtensions` 中授权该扩展 ID。网页只收到当前模型/可选模型等阅读状态，完整配置和 Key 操作仅允许扩展界面；Native 调用仍要求短期令牌、来源白名单与 Host 校验。

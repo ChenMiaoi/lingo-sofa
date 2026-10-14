@@ -220,6 +220,7 @@ export class PageTranslator {
   translateElement(element: HTMLElement): void {
     if (this.stopped) this.start();
     this.scan(element, true);
+    this.enqueue(element, true);
     this.notify();
   }
   translatePage(): void {
@@ -314,9 +315,15 @@ export class PageTranslator {
       } else this.enqueue(block.element);
     }
   }
-  private enqueue(element: HTMLElement): void {
+  private enqueue(element: HTMLElement, explicit = false): void {
     const state = this.states.get(element);
-    if (!state || state.pending || state.result || this.stopped || this.paused)
+    if (
+      !state ||
+      state.pending ||
+      state.result ||
+      this.stopped ||
+      (this.paused && !explicit)
+    )
       return;
     const block = extract(element).find(
       (candidate) => candidate.element === element,

@@ -332,6 +332,54 @@ it.skipIf(!existsSync(packagedNative))(
         ok: true,
         results: [{ id: "a", revision: "1", text: "译文 Hello" }],
       });
+      const exchange = (value: unknown) =>
+        new Promise<unknown>((resolve, reject) => {
+          const decoder = new NativeDecoder();
+          const timeout = setTimeout(() => {
+            child.stdout.off("data", receive);
+            reject(new Error("Native provider request timed out"));
+          }, 5000);
+          function receive(chunk: Buffer) {
+            for (const reply of decoder.push(chunk)) {
+              clearTimeout(timeout);
+              child.stdout.off("data", receive);
+              resolve(reply);
+            }
+          }
+          child.stdout.on("data", receive);
+          child.stdin.write(nativeFrame(value));
+        });
+      const catalog = await exchange({
+        version: 1,
+        sourceKind: "web",
+        scope: "browser",
+        operation: "provider",
+      });
+      expect(catalog).toMatchObject({
+        keyConfigured: true,
+        model: { model: "fixture" },
+      });
+      expect(JSON.stringify(catalog)).not.toContain("fixture-key");
+      expect(
+        await exchange({
+          version: 1,
+          sourceKind: "discord",
+          scope: "browser",
+          operation: "provider",
+        }),
+      ).toMatchObject({ ok: false });
+      expect(
+        await exchange({
+          version: 1,
+          sourceKind: "web",
+          scope: "browser",
+          operation: "provider-update",
+          update: {
+            model: { ...config.settings.model, model: "fixture-next" },
+          },
+        }),
+      ).toEqual({ ok: true });
+      expect(config.settings.model.model).toBe("fixture-next");
     } finally {
       child.kill();
       bridge.server.closeAllConnections();

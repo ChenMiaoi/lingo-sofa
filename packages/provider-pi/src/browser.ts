@@ -11,6 +11,20 @@ import type {
 import { resolvePricing } from "./pricing.js";
 import { measure, failureMessage } from "./index.js";
 
+export function listModels() {
+  const provider = deepseekProvider();
+  return [
+    {
+      id: provider.id,
+      name: provider.name,
+      models: provider.getModels().map((model) => ({
+        id: model.id,
+        endpoint: model.baseUrl,
+        api: model.api,
+      })),
+    },
+  ];
+}
 export class ModelFailure extends Error {
   constructor(
     message: string,

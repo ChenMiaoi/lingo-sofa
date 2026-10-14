@@ -23,7 +23,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       const id = new URL(worker.url()).host;
       const page = await context.newPage();
       await page.setViewportSize({ width: 1200, height: 900 });
-      await page.goto(`chrome-extension://${id}/options.html`);
+      await page.goto(`chrome-extension://${id}/options.html?view=activity`);
       await expect(
         page.getByRole("heading", { name: "LingoSofa", exact: true }),
       ).toBeVisible();

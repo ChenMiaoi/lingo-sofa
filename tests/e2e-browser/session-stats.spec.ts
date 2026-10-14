@@ -50,7 +50,7 @@ test("clears previous session totals while a new answer is pending and after can
       { settings: settingsSchema.parse({ mode: "bridge" }) },
     );
     const options = await context.newPage();
-    await options.goto(`chrome-extension://${id}/options.html`);
+    await options.goto(`chrome-extension://${id}/options.html?view=activity`);
     await options
       .getByRole("button", { name: "预览文章 / 选中内容并提问" })
       .click();
