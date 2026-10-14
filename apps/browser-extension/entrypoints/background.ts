@@ -185,6 +185,11 @@ export default defineBackground(() => {
         let bridgeUsage: UsageRecord[] = [];
         let sharedUsage = false;
         let executionSettings = settings;
+        let cacheStats = service.cacheStats();
+        let queue = {
+          running: service.queue.runningCount,
+          pending: service.queue.pendingCount,
+        };
         let bridgeError: string | undefined;
         if (settings.mode === "bridge") {
           try {
@@ -193,6 +198,12 @@ export default defineBackground(() => {
             bridgeUsage = result.usage ?? [];
             sharedUsage = result.sharedUsage ?? false;
             executionSettings = result.settings ?? settings;
+            queue = result.queue ?? { running: 0, pending: 0 };
+            cacheStats = result.cacheStats ?? {
+              hits: 0,
+              lookups: 0,
+              ratio: null,
+            };
           } catch {
             bridgeError = "Bridge 用量暂不可用；不会显示为零消耗";
           }
@@ -203,12 +214,10 @@ export default defineBackground(() => {
           hasKey: Boolean(await apiKey()),
           bridgeUsage,
           executionSettings,
+          cacheStats,
           sharedUsage,
           bridgeError,
-          queue: {
-            running: service.queue.runningCount,
-            pending: service.queue.pendingCount,
-          },
+          queue,
         };
       }
       if (data.action === "save") {

@@ -46,6 +46,12 @@ export function App() {
   const [sessionId, setSessionId] = useState(crypto.randomUUID());
   const [running, setRunning] = useState<string | undefined>();
   const [range, setRange] = useState("session");
+  const [cacheStats, setCacheStats] = useState<{
+    hits: number;
+    lookups: number;
+    ratio: number | null;
+  }>({ hits: 0, lookups: 0, ratio: null });
+  const [scopeFilter, setScopeFilter] = useState("");
   const [modelFilter, setModelFilter] = useState("");
   const [glossary, setGlossary] = useState("");
   const [balance, setBalance] = useState<string>("未查询");
@@ -54,6 +60,7 @@ export function App() {
     settings: Settings;
     usage: UsageRecord[];
     bridgeUsage?: UsageRecord[];
+    cacheStats?: { hits: number; lookups: number; ratio: number | null };
     executionSettings?: Settings;
     bridgeError?: string;
     sharedUsage?: boolean;
@@ -66,6 +73,7 @@ export function App() {
     );
     setBridgeError(data.bridgeError ?? "");
     setSharedUsage(data.sharedUsage ?? false);
+    setCacheStats(data.cacheStats ?? { hits: 0, lookups: 0, ratio: null });
     setQueue(data.queue ?? { running: 0, pending: 0 });
     setHasKey(data.hasKey);
   }
@@ -199,18 +207,24 @@ export function App() {
     setRunning(undefined);
   }
   const today = period(Date.now(), settings.timeZone);
-  const filtered = usage.filter(
-    (record) =>
-      (!modelFilter || record.model === modelFilter) &&
-      (!sourceFilter || record.sourceKind === sourceFilter) &&
-      (!providerFilter || record.provider === providerFilter) &&
-      (range === "session" ||
-        (range === "day"
-          ? period(record.timestamp, settings.timeZone).day === today.day
-          : period(record.timestamp, settings.timeZone).month === today.month)),
-  );
+  const filtered = bridgeError
+    ? []
+    : usage.filter(
+        (record) =>
+          (!scopeFilter || record.scope === scopeFilter) &&
+          (!modelFilter || record.model === modelFilter) &&
+          (!sourceFilter || record.sourceKind === sourceFilter) &&
+          (!providerFilter || record.provider === providerFilter) &&
+          (range === "qa"
+            ? record.sessionId === sessionId
+            : range === "session" ||
+              (range === "day"
+                ? period(record.timestamp, settings.timeZone).day === today.day
+                : period(record.timestamp, settings.timeZone).month ===
+                  today.month)),
+      );
   const totals = summarize(filtered);
-  const budgets = budgetStatus(usage, executionSettings);
+  const budgets = bridgeError ? [] : budgetStatus(usage, executionSettings);
   const trend = [
     ...new Set(
       filtered.map((record) => period(record.timestamp, settings.timeZone).day),
@@ -329,8 +343,9 @@ export function App() {
         <h2>用量与预算</h2>
         {bridgeError && <p role="alert">{bridgeError}</p>}
         <p>
-          当前模型：{executionSettings.model.model} · 排队 {queue.pending} /
-          运行 {queue.running}
+          当前模型：{bridgeError ? "未知" : executionSettings.model.model} ·
+          排队 {bridgeError ? "未知" : queue.pending} / 运行{" "}
+          {bridgeError ? "未知" : queue.running}
         </p>
         {settings.mode === "bridge" && (
           <p>
@@ -358,10 +373,19 @@ export function App() {
           </p>
         ))}
         <p className="stats">
-          Input {formatTokens(totals.input)} · Output{" "}
-          {formatTokens(totals.output)}
+          {queue.running > 0 && "运行中用量统计中 · "}Input{" "}
+          {formatTokens(bridgeError ? null : totals.input)} · Output{" "}
+          {formatTokens(bridgeError ? null : totals.output)}
           <br />
-          {formatSpeed(totals.tps)} · {formatCost(totals.cost)}
+          {formatSpeed(bridgeError ? null : totals.tps)} ·{" "}
+          {formatCost(bridgeError ? null : totals.cost)}
+        </p>
+        <p>
+          本地译文缓存：{cacheStats.hits} / {cacheStats.lookups} 段命中（
+          {cacheStats.ratio === null
+            ? "不可用"
+            : `${Math.round(cacheStats.ratio * 100)}%`}
+          ）；仅当前执行进程保留的范围，不计入模型账单。
         </p>
         <label>
           查看范围
@@ -370,8 +394,25 @@ export function App() {
             onChange={(event) => setRange(event.target.value)}
           >
             <option value="session">当前可观测记录</option>
+            <option value="qa">当前问答会话</option>
             <option value="day">今日</option>
             <option value="month">本月</option>
+          </select>
+        </label>
+        <label>
+          页面 / 频道范围
+          <select
+            value={scopeFilter}
+            onChange={(event) => setScopeFilter(event.target.value)}
+          >
+            <option value="">全部已观测范围</option>
+            {[...new Set(usage.map((record) => record.scope))].map((scope) => (
+              <option key={scope} value={scope}>
+                {scope.includes("web")
+                  ? `${scope.includes("web-qa") ? "文章问答" : "网页翻译"} · ${scope.match(/web(?:-qa)?:\d+:(https?:\/\/[^/|]+):[^:|]+$/)?.[1] ?? "页面"}`
+                  : `Discord · 频道 ${scope.split(":").at(-1)}`}
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -478,11 +519,26 @@ export function App() {
                         {record.usage
                           ? `${record.usage.input + record.usage.cacheRead + record.usage.cacheWrite} / ${record.usage.output}`
                           : "未知"}
+                        {record.usage?.reasoning !== undefined && (
+                          <>
+                            <br />
+                            思考 {record.usage.reasoning}（Output 子集）
+                          </>
+                        )}
                       </td>
                       <td>
                         {record.usage
                           ? `${record.usage.cacheRead} 读 / ${record.usage.cacheWrite} 写`
                           : "未知"}
+                        <br />
+                        模型缓存命中率{" "}
+                        {record.usage &&
+                        record.usage.input +
+                          record.usage.cacheRead +
+                          record.usage.cacheWrite >
+                          0
+                          ? `${Math.round((record.usage.cacheRead / (record.usage.input + record.usage.cacheRead + record.usage.cacheWrite)) * 100)}%`
+                          : "不可用"}
                       </td>
                       <td>
                         {record.firstTextMs === null
@@ -505,7 +561,10 @@ export function App() {
             </table>
           </div>
         </details>
-        <p>费用为 Pi 估算值；TPS 为客户端观测平均吞吐。未知值不视作免费。</p>
+        <p>
+          费用为 Pi 模型目录或用户单价估算（USD）；TPS
+          为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
+        </p>
         <p>供应商余额：{balance}；订阅额度 / 重置时间：未提供</p>
         <button
           onClick={() =>

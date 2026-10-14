@@ -114,7 +114,10 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
     expect(await usage.json()).toMatchObject({
       ok: true,
       usage: [
-        expect.objectContaining({ scope: "https://discord.com|account:one" }),
+        expect.objectContaining({
+          scope: "https://discord.com|account:one",
+          sessionId: "conversation",
+        }),
       ],
     });
     expect(model.requests[0]).not.toHaveProperty("tools");
@@ -135,7 +138,10 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
       ok: true,
       sharedUsage: false,
       usage: [
-        expect.objectContaining({ scope: "https://discord.com|account:one" }),
+        expect.objectContaining({
+          scope: "https://discord.com|account:one",
+          sessionId: "conversation",
+        }),
       ],
     });
     await post({

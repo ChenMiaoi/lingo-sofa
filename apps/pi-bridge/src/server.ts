@@ -191,6 +191,18 @@ export function createBridge(
             .filter((record) => record.scope.startsWith(`${origin}|`));
         result.sharedUsage = config.shareUsage;
         result.settings = config.settings;
+        result.cacheStats = config.shareUsage
+          ? service.cacheStats()
+          : service.cacheStats(
+              expectedKind === "web" && envelope.scope === "browser"
+                ? `${origin}|`
+                : `${origin}|${envelope.scope}`,
+              expectedKind === "web" && envelope.scope === "browser",
+            );
+        result.queue = {
+          running: service.queue.runningCount,
+          pending: service.queue.pendingCount,
+        };
       }
       if (result.ok && envelope.request.kind === "ask") {
         const stats = sessions.stats(

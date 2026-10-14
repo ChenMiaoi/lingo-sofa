@@ -97,6 +97,10 @@ export class LruCache<T> {
     if (this.values.size > this.capacity)
       this.values.delete(this.values.keys().next().value!);
   }
+  deleteWhere(predicate: (value: T) => boolean): void {
+    for (const [key, value] of this.values)
+      if (predicate(value)) this.values.delete(key);
+  }
   clear(): void {
     this.values.clear();
   }

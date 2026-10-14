@@ -279,6 +279,23 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
             .cspViolations,
       ),
     ).toEqual([]);
+    await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const state = (await api.runtime.sendMessage({ action: "state" })) as {
+        settings: Record<string, unknown>;
+      };
+      await api.runtime.sendMessage({
+        action: "save",
+        settings: { ...state.settings, mode: "bridge" },
+      });
+    });
+    await options.reload();
+    await expect(options.getByRole("alert")).toContainText(
+      "Bridge 用量暂不可用",
+    );
+    await expect(options.locator(".stats")).toContainText("Input 未知");
+    await expect(options.locator(".stats")).toContainText("Output 未知");
   } finally {
     await context.close();
     await model.close();

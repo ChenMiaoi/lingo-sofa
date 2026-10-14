@@ -152,6 +152,7 @@ export interface UsageRecord extends Metrics {
   mode: "direct" | "bridge";
   status: "success" | "failed" | "cancelled" | "unknown";
   timestamp: number;
+  sessionId?: string | undefined;
 }
 export interface TranslationResult {
   id: string;
@@ -170,6 +171,9 @@ export type Reply =
       metrics?: Metrics | undefined;
       usage?: UsageRecord[] | undefined;
       sharedUsage?: boolean | undefined;
+      queue?: { running: number; pending: number } | undefined;
+      cacheStats?:
+        { hits: number; lookups: number; ratio: number | null } | undefined;
       settings?: Settings | undefined;
       sessionStats?:
         { tokens: number; cost: number | null; messages: number } | undefined;
@@ -219,6 +223,7 @@ export const usageRecordSchema = metricsSchema.extend({
   mode: z.enum(["direct", "bridge"]),
   status: z.enum(["success", "failed", "cancelled", "unknown"]),
   timestamp: count,
+  sessionId: z.string().min(1).max(128).optional(),
 });
 export const replySchema = z.discriminatedUnion("ok", [
   z.strictObject({
@@ -237,6 +242,14 @@ export const replySchema = z.discriminatedUnion("ok", [
     metrics: metricsSchema.optional(),
     usage: z.array(usageRecordSchema).max(10_000).optional(),
     sharedUsage: z.boolean().optional(),
+    cacheStats: z
+      .strictObject({
+        hits: count,
+        lookups: count,
+        ratio: z.number().min(0).max(1).nullable(),
+      })
+      .optional(),
+    queue: z.strictObject({ running: count, pending: count }).optional(),
     settings: settingsSchema.optional(),
     sessionStats: z
       .strictObject({ tokens: count, cost: money.nullable(), messages: count })

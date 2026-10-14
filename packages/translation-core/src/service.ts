@@ -39,7 +39,8 @@ const unknown: Metrics = {
 export class TranslationService {
   readonly ledger = new UsageLedger();
   readonly queue = new TaskQueue<Reply>(2, 100);
-  private cache = new LruCache<string>();
+  private cache = new LruCache<{ scope: string; text: string }>();
+  private cacheCounters = new Map<string, { hits: number; lookups: number }>();
   private conversations = new Map<
     string,
     { context: string; turns: { question: string; answer: string }[] }
@@ -51,11 +52,24 @@ export class TranslationService {
   reset(): void {
     this.queue.clear();
     this.cache.clear();
+    this.cacheCounters.clear();
     for (const key of this.sessionRequests.keys())
       this.options.clearSession?.(key);
     for (const key of this.conversations.keys())
       this.options.clearSession?.(key);
     this.conversations.clear();
+  }
+  cacheStats(
+    scope?: string,
+    prefix = false,
+  ): { hits: number; lookups: number; ratio: number | null } {
+    const counters = [...this.cacheCounters].filter(
+      ([key]) =>
+        scope === undefined || (prefix ? key.startsWith(scope) : key === scope),
+    );
+    const hits = counters.reduce((sum, [, value]) => sum + value.hits, 0);
+    const lookups = counters.reduce((sum, [, value]) => sum + value.lookups, 0);
+    return { hits, lookups, ratio: lookups ? hits / lookups : null };
   }
   async clearScopes(prefix: string): Promise<void> {
     for (const [id, scope] of this.requests)
@@ -70,7 +84,9 @@ export class TranslationService {
       }
     for (const record of this.ledger.list())
       if (record.scope.startsWith(prefix)) this.ledger.clearScope(record.scope);
-    this.cache.clear();
+    this.cache.deleteWhere((value) => value.scope.startsWith(prefix));
+    for (const key of this.cacheCounters.keys())
+      if (key.startsWith(prefix)) this.cacheCounters.delete(key);
     await this.options.onRecords?.(this.ledger.list());
   }
   async handle(
@@ -95,7 +111,8 @@ export class TranslationService {
           this.conversations.delete(key);
           this.options.clearSession?.(key);
         }
-      this.cache.clear();
+      this.cache.deleteWhere((value) => value.scope === scope);
+      this.cacheCounters.delete(scope);
       this.ledger.clearScope(scope);
       await this.options.onRecords?.(this.ledger.list());
       return { ok: true };
@@ -131,12 +148,27 @@ export class TranslationService {
           const modelKey = JSON.stringify(settings.model);
           const cached =
             request.kind === "translate"
-              ? request.units.map((unit) =>
-                  this.cache.get(
-                    cacheKey(scope, unit, modelKey, settings.glossary),
-                  ),
+              ? request.units.map(
+                  (unit) =>
+                    this.cache.get(
+                      cacheKey(scope, unit, modelKey, settings.glossary),
+                    )?.text,
                 )
               : [];
+          if (request.kind === "translate") {
+            const previous = this.cacheCounters.get(scope) ?? {
+              hits: 0,
+              lookups: 0,
+            };
+            previous.hits += cached.filter((text) => text !== undefined).length;
+            previous.lookups += cached.length;
+            this.cacheCounters.delete(scope);
+            this.cacheCounters.set(scope, previous);
+            if (this.cacheCounters.size > 500)
+              this.cacheCounters.delete(
+                this.cacheCounters.keys().next().value!,
+              );
+          }
           if (
             request.kind === "translate" &&
             cached.every((text) => text !== undefined)
@@ -191,6 +223,7 @@ export class TranslationService {
             mode: settings.mode,
             status: "unknown",
             timestamp: started,
+            ...(request.kind === "ask" ? { sessionId: request.sessionId } : {}),
           };
           let sent = false;
           try {
@@ -228,7 +261,7 @@ export class TranslationService {
                     modelKey,
                     settings.glossary,
                   ),
-                  results[index]!.text,
+                  { scope, text: results[index]!.text },
                 );
               reply = { ok: true, results, metrics };
             } else {

@@ -181,4 +181,28 @@ it("sends only cache misses in a mixed batch and binds cached text to new revisi
     "web",
   );
   expect(sent).toHaveLength(3);
+  expect(service.cacheStats("scope")).toEqual({
+    hits: 2,
+    lookups: 4,
+    ratio: 0.5,
+  });
+  expect(service.cacheStats("other-scope")).toEqual({
+    hits: 0,
+    lookups: 1,
+    ratio: 0,
+  });
+  await service.handle({ kind: "clear-data" }, "scope", settings, "web");
+  await service.handle(
+    {
+      kind: "translate",
+      requestId: crypto.randomUUID(),
+      automatic: false,
+      units: [make("e", "Hello")],
+    },
+    "other-scope",
+    settings,
+    "web",
+  );
+  expect(sent).toHaveLength(3);
+  expect(service.cacheStats("scope").lookups).toBe(0);
 });
