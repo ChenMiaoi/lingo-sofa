@@ -269,3 +269,70 @@ it.skipIf(!existsSync(packagedNative))(
   },
   15_000,
 );
+
+it("rejects expired pairing and incompatible versions, then recovers after Bridge restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-recovery-"));
+  const extension = "a".repeat(32);
+  const config = bridgeConfigSchema.parse({ allowedExtensions: [extension] });
+  const token = "recovery-fixture-token-000000000000000000";
+  let active = createBridge(
+    config,
+    "fixture-key",
+    token,
+    Date.now() - 1,
+    directory,
+  );
+  const listen = async () => {
+    await new Promise<void>((done) =>
+      active.server.listen(0, "127.0.0.1", done),
+    );
+    config.port = (active.server.address() as AddressInfo).port;
+  };
+  const post = (version = 1, sourceKind = "web") =>
+    fetch(`http://127.0.0.1:${config.port}/v1/request`, {
+      method: "POST",
+      headers: {
+        Origin: `chrome-extension://${extension}`,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        version,
+        sourceKind,
+        scope: "browser",
+        request: { kind: "usage" },
+      }),
+    });
+  const close = async () => {
+    active.server.closeAllConnections();
+    await new Promise<void>((done) => active.server.close(() => done()));
+  };
+  try {
+    await listen();
+    expect((await post()).status).toBe(401);
+    await close();
+    active = createBridge(
+      config,
+      "fixture-key",
+      token,
+      Date.now() + 60_000,
+      directory,
+    );
+    await listen();
+    expect((await post(2)).status).toBe(400);
+    expect((await post(1, "discord")).status).toBe(400);
+    const reply = await post();
+    expect(reply.status).toBe(200);
+    expect(await reply.json()).toMatchObject({
+      ok: true,
+      usage: [],
+      sharedUsage: false,
+      shareBudget: false,
+    });
+    expect(active.service.ledger.list()).toEqual([]);
+    expect(active.service.queue.runningCount).toBe(0);
+  } finally {
+    await close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
