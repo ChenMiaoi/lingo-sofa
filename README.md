@@ -25,7 +25,7 @@ npm run benchmark
 1. 执行 `npm run build`。
 2. 在 Chrome/Edge 扩展管理页启用开发者模式，加载 `apps/browser-extension/.output/chrome-mv3` 目录。
 3. 打开扩展设置，填写模型、端点和自己的 API Key，点击授权并保存。默认只在浏览器会话保留密钥。
-4. 在普通网页点击翻译页面或翻译选中。关闭翻译会移除本工具节点；原文不被替换。
+4. 在普通网页点击“在页面中打开控制”，从页边入口翻译整页，或悬停正文只翻译一段。选区译文也直接显示在对应段落下方。暂停保留完成的译文，恢复原文移除译文，收起控件继续阅读。
 5. 自动模式需要逐网站添加并保存授权。问答必须先预览文章或选中文本。
 
 可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成真机矩阵验收和第三方许可交付。
@@ -76,6 +76,9 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 - [隐私与凭证](docs/privacy.md)
 - [版本、平台与限制](docs/compatibility.md)
 - [验收证据及剩余发布条件](docs/acceptance.md)
+- [内嵌双语与轻量入口](docs/ui-design.md)
+- [入口设计探索](docs/ui-exploration.md)
+- [发布准备与环境依赖](docs/release-readiness.md)
 - [协作与提交规范](AGENTS.md)
 
 项目原创材料暂采用 [商业专有 LICENSE](LICENSE)，依赖保留各自授权，见 [第三方许可清单](THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍需单独核对 GPL 条件；当前开发产物尚未完成公开发行的许可交付。
