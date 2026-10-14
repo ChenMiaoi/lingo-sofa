@@ -105,3 +105,7 @@ Vencord 配置页改为供应商/模型/API Key 单一面板，标准模型端�
 实际 Chromium MV3 与本地模型 fixture 验证了 Provider 保存/清空输入 Key、模型切换、语言切换、自动启停、暂停保留译文、就地单段与问答、两种主题及窄屏。网页合成 change 不改变后台模型；网页内容脚本调用完整 Provider 目录被拒绝；状态响应和页面不含 Key。实际打包 Native Host 验证 Provider 目录、模型保存与畸形 sourceKind 拒绝。Bridge API 现在允许明确白名单中的扩展调用，并仍保留 Origin/Host/短期令牌校验；跨供应商/端点不复用凭据。
 
 使用 `.cache/ui/browser-provider-light.png`、`browser-provider-dark.png`、`browser-three-controls.png` 检查实际组件截图。新增测试使用模拟模型，不证明真实模型质量；可选站点权限的系统确认、不同浏览器真实用户 profile、其他供应商真实 Key 仍在真机验收范围。默认跳过需联网的公共网页测试，之前已有公共 LLVM 页面证据。
+
+## 共享服务与阅读总开关补充（2026-10-14）
+
+普通 Chrome 155.0.8059.41 与原 Discord 的退出互不影响、两端离线自动退出、任意一端独立冷启动及阅读开关持久化已通过界面实测。发现并修复 Chrome 配置档启动时未自动唤醒扩展后台的问题。步骤、实例比较与保留用量见 [共享服务记录](service-lifecycle.md#普通-chrome-与原-discord-实测2026-10-14)。两端新版已加载，总开关与自动翻译独立；不重置未知用量。

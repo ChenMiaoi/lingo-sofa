@@ -25,6 +25,11 @@ import { NativeConnection } from "../src/native-connection.js";
 
 export default defineBackground(() => {
   const native = new NativeConnection();
+  // Register synchronously so Chrome wakes this worker on profile startup,
+  // even when no extension UI or authorized page is open.
+  browser.runtime.onStartup.addListener(() => {
+    void ready.catch(() => undefined);
+  });
   browser.runtime.onSuspend.addListener(() => native.stop());
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes.settings) return;
