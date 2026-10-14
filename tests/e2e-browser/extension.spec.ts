@@ -279,17 +279,28 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
             .cspViolations,
       ),
     ).toEqual([]);
-    await options.evaluate(async () => {
+    const credentialCache = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
       const state = (await api.runtime.sendMessage({ action: "state" })) as {
         settings: Record<string, unknown>;
       };
+      await api.storage.session.set({
+        balance: { data: { balance_infos: [] }, updatedAt: Date.now() },
+      });
+      await api.runtime.sendMessage({
+        action: "save",
+        settings: state.settings,
+        apiKey: "replacement-fixture-key",
+      });
+      const afterRotation = await api.storage.session.get("balance");
       await api.runtime.sendMessage({
         action: "save",
         settings: { ...state.settings, mode: "bridge" },
       });
+      return afterRotation;
     });
+    expect(credentialCache).toEqual({});
     await options.reload();
     await expect(options.getByRole("alert")).toContainText(
       "Bridge 用量暂不可用",

@@ -179,6 +179,7 @@ export function App() {
         settings: next,
         ...(key ? { apiKey: key } : {}),
       });
+      setBalance("未查询");
       setKey("");
       setHasKey(hasKey || Boolean(key));
       setNotice("设置已保存，API Key 仅在本次浏览器会话保留");
@@ -591,7 +592,7 @@ export function App() {
               }>({ action: "balance" });
               setBalance(
                 reply.unavailable
-                  ? "当前供应商未提供"
+                  ? "当前执行模式未提供账户数据"
                   : `${reply.data?.balance_infos?.map((info) => `${info.total_balance} ${info.currency}`).join(" / ") ?? "未知"}（${new Date(reply.updatedAt ?? Date.now()).toLocaleTimeString()} 更新）`,
               );
             })

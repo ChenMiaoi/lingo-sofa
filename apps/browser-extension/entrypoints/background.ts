@@ -247,8 +247,10 @@ export default defineBackground(() => {
           next.model.endpoint !== settings.model.endpoint
         )
           await browser.storage.session.remove(["apiKey", "balance"]);
-        if (typeof data.apiKey === "string")
+        if (typeof data.apiKey === "string") {
+          await browser.storage.session.remove("balance");
           await browser.storage.session.set({ apiKey: data.apiKey });
+        }
         const scripts = await browser.scripting.getRegisteredContentScripts();
         if (scripts.some((script) => script.id === "lingo-sofa-auto"))
           await browser.scripting.unregisterContentScripts({
