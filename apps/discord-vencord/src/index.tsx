@@ -105,6 +105,7 @@ function Ask({ message }: { message: MessageRef }) {
     if (!question.trim() || running) return;
     const requestId = crypto.randomUUID();
     setRunning(requestId);
+    setSessionStats(undefined);
     setError("");
     try {
       const reply = await client.request(scope(message), {

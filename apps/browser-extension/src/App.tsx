@@ -196,6 +196,7 @@ export function App() {
     const requestId = crypto.randomUUID();
     const prompt = question;
     setRunning(requestId);
+    setSessionStats(undefined);
     await act(async () => {
       const reply = await send<Reply>({
         action: "ask",
