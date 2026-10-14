@@ -303,3 +303,28 @@ export const replySchema = z.discriminatedUnion("ok", [
   }),
   z.strictObject({ ok: z.literal(false), error: z.string().max(2_000) }),
 ]);
+
+export const providerUpdateSchema = z.strictObject({
+  model: modelConfigSchema,
+  apiKey: z.string().trim().min(1).max(4096).optional(),
+});
+export type ProviderUpdate = z.infer<typeof providerUpdateSchema>;
+export const providerCatalogSchema = z.strictObject({
+  model: modelConfigSchema,
+  keyConfigured: z.boolean(),
+  piAuth: z.boolean(),
+  providers: z.array(
+    z.strictObject({
+      id: z.string(),
+      name: z.string(),
+      models: z.array(
+        z.strictObject({
+          id: z.string(),
+          endpoint: z.string(),
+          api: z.string(),
+        }),
+      ),
+    }),
+  ),
+});
+export type ProviderCatalog = z.infer<typeof providerCatalogSchema>;

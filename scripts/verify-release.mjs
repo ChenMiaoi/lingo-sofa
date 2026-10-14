@@ -34,7 +34,11 @@ async function inspect(directory) {
       const name = relative(root, path).replaceAll("\\", "/");
       if (name !== "SHA256SUMS" && !expected.has(name))
         throw new Error(`Unlisted file: ${name}`);
-      if (/^(\.env(?:\..*)?|pairing\.json)$/i.test(entry.name))
+      if (
+        /^(\.env(?:\..*)?|(?:provider|pairing|discord-connection)\.json|\.provider-.*\.json)$/i.test(
+          entry.name,
+        )
+      )
         throw new Error("Credential file in review bundle");
     }
   }

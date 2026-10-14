@@ -1,4 +1,6 @@
 import {
+  providerCatalogSchema,
+  type ProviderUpdate,
   replySchema,
   usageRecordSchema,
   type Request,
@@ -10,6 +12,7 @@ export interface BridgeClientOptions {
   token: () => string;
   origin?: string;
   fetcher?: typeof fetch;
+  connect?: () => Promise<{ port: number; token: string } | null>;
 }
 export class DiscordBridgeClient {
   constructor(private readonly options: BridgeClientOptions) {}
@@ -18,10 +21,11 @@ export class DiscordBridgeClient {
     body: unknown,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    const token = this.options.token();
+    const connection = await this.options.connect?.();
+    const token = connection?.token ?? this.options.token();
     if (token.length < 32)
       throw new Error("请先在 LingoSofa 设置中配对本地 Bridge");
-    const port = this.options.port();
+    const port = connection?.port ?? this.options.port();
     if (!Number.isInteger(port) || port < 1024 || port > 65535)
       throw new Error("Invalid Bridge port");
     const response = await (this.options.fetcher ?? fetch)(
@@ -43,7 +47,9 @@ export class DiscordBridgeClient {
       throw new Error(
         response.status === 401
           ? "配对令牌已失效，请重新配对"
-          : "Bridge 不可用或请求被限制",
+          : response.status === 409
+            ? "有请求正在进行，请完成后再保存供应商"
+            : "Bridge 不可用或请求被限制",
       );
     return (await response.json()) as unknown;
   }
@@ -59,6 +65,12 @@ export class DiscordBridgeClient {
         signal,
       ),
     );
+  }
+  async providers() {
+    return providerCatalogSchema.parse(await this.post("/v1/provider", {}));
+  }
+  async configureProvider(value: ProviderUpdate) {
+    return replySchema.parse(await this.post("/v1/provider/update", value));
   }
   async usage(scope: string): Promise<UsageRecord[]> {
     const reply = (await this.post("/v1/usage", { scope })) as {

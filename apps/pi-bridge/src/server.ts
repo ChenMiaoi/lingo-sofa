@@ -1,12 +1,17 @@
 import { homedir } from "node:os";
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { createPiClient, resolveModel } from "@lingo-sofa/provider-pi/node";
+import {
+  createPiClient,
+  resolveModel,
+  listModels,
+} from "@lingo-sofa/provider-pi/node";
 import { TranslationService, budgetStatus } from "@lingo-sofa/translation-core";
-import type { UsageRecord } from "@lingo-sofa/protocol";
+import { providerUpdateSchema, type UsageRecord } from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
 import { UsageHistory } from "./history.js";
 import { SafePiSessions } from "./sdk.js";
+import { saveProviderSettings } from "./provider-settings.js";
 
 export function createBridge(
   config: BridgeConfig,
@@ -17,7 +22,9 @@ export function createBridge(
 ) {
   if (token.length < 32)
     throw new Error("Pairing token must have at least 32 characters");
-  const sessions = new SafePiSessions(
+  let configuring = false;
+  let currentKey = apiKey;
+  let sessions = new SafePiSessions(
     config.settings.model,
     apiKey,
     directory,
@@ -142,6 +149,86 @@ export function createBridge(
         chunks.push(buffer);
       }
       const raw: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (request.url === "/v1/provider" && expectedDiscordOrigin(origin)) {
+        reply(200, {
+          model: config.settings.model,
+          keyConfigured: Boolean(currentKey),
+          piAuth: config.usePiAuth,
+          providers: listModels(config.usePiAuth),
+        });
+        return;
+      }
+      if (configuring) {
+        reply(409, {
+          ok: false,
+          error: "Provider configuration is being saved",
+        });
+        return;
+      }
+      if (
+        request.url === "/v1/provider/update" &&
+        expectedDiscordOrigin(origin)
+      ) {
+        const update = providerUpdateSchema.parse(raw);
+        // Validate the catalog before touching credentials or persistent state.
+        resolveModel(update.model);
+        if (
+          update.model.provider !== "openai-compatible" &&
+          !listModels(config.usePiAuth).some(
+            (provider) => provider.id === update.model.provider,
+          )
+        )
+          throw new Error(
+            "Provider requires explicitly enabled Pi authentication",
+          );
+        const sameCredentialTarget =
+          update.model.provider === config.settings.model.provider &&
+          update.model.endpoint === config.settings.model.endpoint;
+        const nextKey =
+          update.apiKey ?? (sameCredentialTarget ? currentKey : "");
+        if (!nextKey && !config.usePiAuth) {
+          reply(400, {
+            ok: false,
+            error: "An API key is required for this provider",
+          });
+          return;
+        }
+        if (
+          service.queue.runningCount ||
+          service.queue.pendingCount ||
+          inFlight.size
+        ) {
+          reply(409, {
+            ok: false,
+            error:
+              "Wait for current requests to finish before changing provider",
+          });
+          return;
+        }
+        configuring = true;
+        try {
+          await saveProviderSettings(directory, {
+            model: update.model,
+            ...(nextKey ? { apiKey: nextKey } : {}),
+          });
+          service.reset();
+          sessions.dispose();
+          config.settings.model = update.model;
+          currentKey = nextKey;
+          sessions = new SafePiSessions(
+            update.model,
+            nextKey,
+            directory,
+            config.usePiAuth
+              ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
+              : undefined,
+          );
+          reply(200, { ok: true });
+        } finally {
+          configuring = false;
+        }
+        return;
+      }
       if (request.url === "/v1/usage") {
         if (
           !raw ||
@@ -238,5 +325,19 @@ export function createBridge(
     service.reset();
     sessions.dispose();
   });
-  return { server, service, sessions };
+  return {
+    server,
+    service,
+    get sessions() {
+      return sessions;
+    },
+  };
+}
+
+function expectedDiscordOrigin(origin: string) {
+  return [
+    "https://discord.com",
+    "https://canary.discord.com",
+    "https://ptb.discord.com",
+  ].includes(origin);
 }

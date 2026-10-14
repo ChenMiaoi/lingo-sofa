@@ -44,13 +44,13 @@ npm run init --workspace @lingo-sofa/pi-bridge
 npm run pair --workspace @lingo-sofa/pi-bridge
 ```
 
-默认配置位于 `~/.config/lingo-sofa/config.json`，可用 `LINGO_SOFA_HOME` 指定目录。编辑其中 `settings.model` 的 provider、模型及端点，设置预算，按需填写 `allowedExtensions`。API Key 通过启动进程的 `LINGO_SOFA_API_KEY` 环境变量提供；不要提交密钥或配对文件。
+默认配置位于 `~/.config/lingo-sofa/config.json`，可用 `LINGO_SOFA_HOME` 指定目录。编辑其中 `settings.model` 的 provider、模型及端点，设置预算，按需填写 `allowedExtensions`。API Key 可通过启动进程的 `LINGO_SOFA_API_KEY` 环境变量提供，或在 Discord 的 Provider 页面配置。该页面保存的模型和 Key 位于本地助手目录中的 `provider.json`（仅当前用户可读写），启动时优先读取；不要提交密钥或配对文件。
 
 ```sh
 npm run start --workspace @lingo-sofa/pi-bridge
 ```
 
-服务只监听 `127.0.0.1`，默认端口 43187。配对令牌有效期一小时；重新配对后需重启服务并更新 Discord 插件中的令牌。`usePiAuth: true` 可显式复用 Pi 认证文件；默认不读取 Pi CLI 认证。`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。`shareBudget` 也默认关闭，独立控制是否跨前端合并预算；两端显示执行端计算的预算状态。正文缓存始终按上下文隔离。`settings.persistUsage` 控制是否写入 `usage.json`，保留期为 `settings.retentionDays`。
+服务只监听 `127.0.0.1`，默认端口 43187。配对令牌有效期一小时；重新配对后需重启服务；桌面 Discord 自动读取助手生成的 `discord-connection.json`，无需填写端口或令牌。`usePiAuth: true` 可显式复用 Pi 认证文件；默认不读取 Pi CLI 认证。`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。`shareBudget` 也默认关闭，独立控制是否跨前端合并预算；两端显示执行端计算的预算状态。正文缓存始终按上下文隔离。`settings.persistUsage` 控制是否写入 `usage.json`，保留期为 `settings.retentionDays`。
 
 浏览器接入还需要 Native Messaging host：
 
@@ -67,7 +67,7 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 
 执行 `npm run build --workspace @lingo-sofa/discord-vencord`，产物是 `apps/discord-vencord/dist/lingoSofa/index.tsx`。将整个 `lingoSofa` 目录放入自行维护的 Vencord checkout 的 `src/userplugins/` 后，按该宿主的构建流程使用。
 
-非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答及草稿预览。先在插件设置配对本地 Bridge；令牌仅保留至插件停止或客户端关闭。模型和预算由 Bridge 配置。生成草稿仅供复制，不自动发送。
+非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答及草稿预览。插件设置仅显示供应商、模型和 API Key；支持 Pi 目录中的多个供应商及自定义 OpenAI 兼容端点。桌面端自动连接本地 Bridge，连接描述文件只包含端口和短期令牌，不含模型 Key；旧版助手可从悬浮入口的更多操作中手动配对。所有频道均可手动翻译，自动双语由频道内开关授权，目标语言也在悬浮入口设置。用量与草稿预览移到更多操作；预算仍由 Bridge 配置。生成草稿仅供复制，不自动发送。
 
 ## 文档
 

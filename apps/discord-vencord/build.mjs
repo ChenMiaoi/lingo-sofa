@@ -10,3 +10,11 @@ await build({
   jsxFragment: "React.Fragment",
   external: ["@api/*", "@utils/*", "@webpack/*", "@vencord/*"],
 });
+
+await build({
+  entryPoints: ["src/native.ts"],
+  outfile: "dist/lingoSofa/native.ts",
+  bundle: true,
+  platform: "node",
+  format: "esm",
+});

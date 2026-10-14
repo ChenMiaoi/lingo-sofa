@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { bridgeConfigSchema } from "./config.js";
 import { createBridge } from "./server.js";
+import { readProviderSettings } from "./provider-settings.js";
 import { startNative } from "./native.js";
 
 const directory = resolve(
@@ -49,7 +50,20 @@ if (process.argv.includes("--init")) {
       ) ?? "";
     startNative(origin, config.allowedExtensions, config.port, pairing.token);
   } else {
-    const key = process.env.LINGO_SOFA_API_KEY ?? "";
+    const saved = await readProviderSettings(directory);
+    if (saved) config.settings.model = saved.model;
+    const key = saved
+      ? (saved.apiKey ?? "")
+      : (process.env.LINGO_SOFA_API_KEY ?? "");
+    await writeFile(
+      `${directory}/discord-connection.json`,
+      JSON.stringify({
+        port: config.port,
+        token: pairing.token,
+        expiresAt: pairing.expiresAt,
+      }),
+      { mode: 0o600 },
+    );
     const { server } = createBridge(
       config,
       key,

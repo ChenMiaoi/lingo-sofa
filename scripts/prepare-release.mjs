@@ -23,7 +23,11 @@ const tracked = git("ls-files").split("\n");
 if (
   tracked.some(
     (path) =>
-      /(?:^|\/)\.env(?:\..*)?$/.test(path) && !path.endsWith(".env.example"),
+      (/(?:^|\/)\.env(?:\..*)?$/.test(path) &&
+        !path.endsWith(".env.example")) ||
+      /(?:^|\/)(?:provider|pairing|discord-connection)\.json$|(?:^|\/)\.provider-.*\.json$/i.test(
+        path,
+      ),
   )
 )
   throw new Error(

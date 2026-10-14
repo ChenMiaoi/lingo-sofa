@@ -1,6 +1,6 @@
 import { definePluginSettings } from "@api/Settings";
 import { findGroupChildrenByChildId } from "@api/ContextMenu";
-import definePlugin, { OptionType } from "@utils/types";
+import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import {
   React,
   useStateFromStores,
@@ -13,6 +13,7 @@ import {
   openModal,
 } from "@webpack/common";
 import type { Message } from "@vencord/discord-types";
+import { ProviderSettings } from "./provider-settings.js";
 import { pluginStyles } from "./styles.js";
 import { DiscordBridgeClient } from "./client.js";
 import {
@@ -31,23 +32,30 @@ import {
 
 const settings = definePluginSettings({
   port: {
+    hidden: true,
     type: OptionType.NUMBER,
     description: "Local Bridge port",
     default: 43187,
   },
   targetLanguage: {
+    hidden: true,
     type: OptionType.STRING,
     description: "Translation language",
     default: "简体中文",
   },
   autoChannels: {
+    hidden: true,
     type: OptionType.STRING,
     description: "Explicitly enabled account:channel pairs",
     default: "",
   },
 });
 let pairingToken = "";
+const Native = VencordNative.pluginHelpers.LingoSofa as PluginNative<
+  typeof import("./native")
+>;
 const client = new DiscordBridgeClient({
+  connect: () => Native?.connection() ?? Promise.resolve(null),
   port: () => settings.store.port,
   token: () => pairingToken,
 });
@@ -330,7 +338,12 @@ function Accessory({ message }: { message: Message }) {
     </div>
   );
 }
-function SettingsPanel() {
+function ProviderSettingsPanel() {
+  return (
+    <ProviderSettings client={client} onSaved={() => translations.clear()} />
+  );
+}
+function ReadingToolsPanel() {
   const [token, setToken] = React.useState(pairingToken);
   const [notice, setNotice] = React.useState("");
   const [stats, setStats] = React.useState("未查询");
@@ -349,8 +362,8 @@ function SettingsPanel() {
     <section className="lingo-sofa-panel">
       <h3>连接本地助手</h3>
       <p>
-        模型、provider、Pi 登录和预算由本地 Bridge
-        配置。配对令牌只保留到插件停止或客户端关闭。
+        模型和 Key
+        在供应商设置中管理，预算由本地助手配置。桌面端自动连接；旧版助手可在这里手动配对。
       </p>
       <label>
         配对令牌
@@ -472,7 +485,7 @@ function SettingsPanel() {
           translations.clear();
           pairingToken = "";
           setToken("");
-          setNotice("已清理本地状态与配对令牌");
+          setNotice("已清理本地译文与手动配对状态");
         }}
       >
         清理
@@ -711,12 +724,24 @@ function FloatingControls() {
                 setExpanded(false);
                 openModal((props) => (
                   <Modal {...props} title="LingoSofa">
-                    <SettingsPanel />
+                    <ProviderSettingsPanel />
                   </Modal>
                 ));
               }}
             >
-              配对与用量
+              供应商设置
+            </button>
+            <button
+              onClick={() => {
+                setExpanded(false);
+                openModal((props) => (
+                  <Modal {...props} title="LingoSofa">
+                    <ReadingToolsPanel />
+                  </Modal>
+                ));
+              }}
+            >
+              用量与草稿
             </button>
           </details>
           {notice && <p role="status">{notice}</p>}
@@ -731,7 +756,7 @@ export default definePlugin({
     "Translate visible messages and ask Pi through a paired local Bridge.",
   authors: [],
   settings,
-  settingsAboutComponent: SettingsPanel,
+  settingsAboutComponent: ProviderSettingsPanel,
   // The host mounts this after its React/store initialization, inside its error boundary.
   chatBarButton: {
     icon: Icon,

@@ -12,3 +12,9 @@ playwright-report/
 test-results/
 .cache/
 **/tsconfig.host.generated.json
+
+# Local Bridge credentials and short-lived connection descriptors
+provider.json
+.provider-*.json
+pairing.json
+discord-connection.json

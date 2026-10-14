@@ -48,16 +48,19 @@ export function resolveModel(
     pricing,
   };
 }
-export function listModels() {
-  return catalog.getProviders().map((provider) => ({
-    id: provider.id,
-    name: provider.name,
-    models: provider.getModels().map((model) => ({
-      id: model.id,
-      endpoint: model.baseUrl,
-      api: model.api,
-    })),
-  }));
+export function listModels(includeOAuth = false) {
+  return catalog
+    .getProviders()
+    .filter((provider) => provider.auth.apiKey || includeOAuth)
+    .map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      models: provider.getModels().map((model) => ({
+        id: model.id,
+        endpoint: model.baseUrl,
+        api: model.api,
+      })),
+    }));
 }
 export function createPiClient(
   config: ModelConfig,

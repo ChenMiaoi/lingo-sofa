@@ -50,6 +50,19 @@ export const pluginStyles = `
 .lingo-sofa-channel-panel select { display: block; width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--lingo-border); border-radius: 6px; background: var(--input-background, var(--lingo-surface)); color: var(--lingo-text); font: inherit; }
 .lingo-sofa-channel-panel input[type=checkbox] { display: inline-block; width: auto; margin: 0 8px 0 0; }
 .lingo-sofa-control-hint { font-size: 12px; color: var(--text-muted, var(--lingo-text)); }
+.lingo-sofa-provider { max-width: 680px; margin: 0 auto; padding: 24px; }
+.lingo-sofa-provider-header { display: flex; align-items: center; gap: 14px; padding-bottom: 24px; border-bottom: 1px solid var(--lingo-border); margin-bottom: 22px; }
+.lingo-sofa-provider-header h2 { font-size: 22px; margin: 0; }
+.lingo-sofa-provider-header p { margin: 4px 0 0; color: var(--text-muted, var(--lingo-text)); }
+.lingo-sofa-provider-mark { flex-shrink: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 16px; color: white; background: var(--brand-500, #5865f2); font-size: 24px; }
+.lingo-sofa-connection-status { margin-left: auto; flex-shrink: 0; padding: 4px 9px; border: 1px solid var(--lingo-border); border-radius: 20px; font-size: 12px; color: var(--text-muted, var(--lingo-text)); }
+.lingo-sofa-provider-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; }
+.lingo-sofa-provider-fields label { margin: 0; min-width: 0; }
+.lingo-sofa-provider select { box-sizing: border-box; display: block; width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--lingo-border); border-radius: 8px; color: var(--lingo-text); background: var(--input-background, var(--lingo-surface)); font: inherit; }
+.lingo-sofa-provider-footer { display: flex; gap: 16px; justify-content: space-between; align-items: center; border-top: 1px solid var(--lingo-border); padding-top: 18px; margin-top: 24px; }
+.lingo-sofa-provider-footer > span { font-size: 12px; color: var(--text-muted, var(--lingo-text)); }
+.lingo-sofa-provider-footer button { flex-shrink: 0; margin: 0; }
+@media (max-width: 600px) { .lingo-sofa-provider-header { flex-wrap: wrap; } .lingo-sofa-connection-status { margin-left: 62px; } .lingo-sofa-provider-fields { grid-template-columns: minmax(0, 1fr); } .lingo-sofa-provider-footer { align-items: flex-start; flex-direction: column; } }
 @media (hover: none) { .lingo-sofa-translation-actions summary { opacity: 1; } }
 .lingo-sofa-accessory button { font-size: 12px; padding: 4px 8px; }
 `;

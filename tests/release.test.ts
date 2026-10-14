@@ -10,6 +10,8 @@ it.each([
   "tampered",
   "unlisted",
   "credential",
+  "provider-credential",
+  "connection-credential",
   "version",
   "traversal",
 ] as const)("release integrity verification: %s", async (scenario) => {
@@ -34,6 +36,10 @@ it.each([
   };
   try {
     if (scenario === "credential") files[".env"] = "API_KEY=fixture-only";
+    if (scenario === "provider-credential")
+      files["provider.json"] = "fixture-only";
+    if (scenario === "connection-credential")
+      files["discord-connection.json"] = "fixture-only";
     if (scenario === "version")
       files["browser/manifest.json"] = JSON.stringify({
         version: "9.0.0",
@@ -68,6 +74,8 @@ it.each([
           tampered: "Checksum mismatch",
           unlisted: "Unlisted file",
           credential: "Credential file",
+          "provider-credential": "Credential file",
+          "connection-credential": "Credential file",
           version: "Invalid review status",
           traversal: "Invalid or duplicate checksum path",
         }[scenario],
