@@ -4,7 +4,7 @@ export interface PageControlActions {
   paragraph: (element: HTMLElement) => void;
   language: (language: string) => Promise<void>;
   model: (model: string) => Promise<void>;
-  automatic: (enabled: boolean) => Promise<{ pending?: boolean }>;
+  automatic: (enabled: boolean) => Promise<unknown>;
   configuration: () => Promise<{
     readingEnabled: boolean;
     model: string;
@@ -183,18 +183,17 @@ export function createPageControls(
     automatic.disabled = true;
     void actions
       .automatic(enabled)
-      .then((reply) => {
-        if (reply.pending) {
-          automatic.checked = false;
-          notice.textContent = "请在打开的扩展页面中允许此网站自动翻译。";
-        } else
-          notice.textContent = enabled
-            ? "自动翻译已开启"
-            : "自动翻译已暂停，已有译文保留";
+      .then(() => {
+        notice.textContent = enabled
+          ? "自动翻译已开启"
+          : "自动翻译已暂停，已有译文保留";
       })
-      .catch(() => {
+      .catch((reason: unknown) => {
         automatic.checked = !enabled;
-        notice.textContent = "自动翻译更新失败，请重试。";
+        notice.textContent =
+          reason instanceof Error
+            ? reason.message
+            : "自动翻译更新失败，请重试。";
       })
       .finally(() => {
         automatic.disabled = !readingEnabled;

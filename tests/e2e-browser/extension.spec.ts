@@ -82,6 +82,12 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     }, model.endpoint);
     const page = await context.newPage();
     await page.goto(`http://127.0.0.1:${(site.address() as AddressInfo).port}`);
+    await expect(
+      page.getByRole("button", {
+        name: "LingoSofa 页面控制，可拖动或用方向键移动",
+        exact: true,
+      }),
+    ).toBeVisible();
     await worker.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
@@ -278,7 +284,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       };
     });
     expect(changed.hasKey).toBe(false);
-    await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(0);
+    await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(1);
     await expect(
       page.locator(
         "[data-lingo-sofa=translation],[data-lingo-sofa=error],[data-lingo-sofa=selection]",

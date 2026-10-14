@@ -134,8 +134,10 @@ test("unifies browser provider settings and the three floating reading controls"
     await expect(page.getByLabel("目标语言", { exact: true })).toHaveValue(
       "English",
     );
+    const tabsBeforeAutomatic = context.pages().length;
     await page.getByRole("switch", { name: "自动翻译此网站" }).check();
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    expect(context.pages().length).toBe(tabsBeforeAutomatic);
     await page.getByRole("switch", { name: "自动翻译此网站" }).uncheck();
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
     await page.evaluate(() => {

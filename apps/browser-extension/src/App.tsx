@@ -1,3 +1,4 @@
+import { ReadingAccess } from "./ReadingAccess.js";
 import { useEffect, useState, type FormEvent } from "react";
 import { browser } from "wxt/browser";
 import {
@@ -347,6 +348,7 @@ export function App() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+      <ReadingAccess />
       <section
         id="translate"
         tabIndex={-1}

@@ -1,3 +1,4 @@
+import { ReadingAccess } from "./ReadingAccess.js";
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import {
@@ -21,17 +22,6 @@ export function ProviderPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const originParameter = new URLSearchParams(location.search).get(
-    "authorize-origin",
-  );
-  let origin = "";
-  try {
-    if (originParameter && /^https?:/.test(originParameter))
-      origin = new URL(originParameter).origin;
-  } catch {
-    /* Ignore malformed page hints. */
-  }
-  const [authorization, setAuthorization] = useState(origin);
   async function load(nextMode: "direct" | "bridge") {
     setBusy(true);
     setError("");
@@ -79,52 +69,7 @@ export function ProviderPage() {
         </div>
         <a href="options.html?view=activity">用量与高级</a>
       </header>
-      {authorization && (
-        <section className="permission-card">
-          <h2>开启此网站的自动翻译</h2>
-          <p>{authorization}</p>
-          <p className="muted">
-            允许后会将此网站的可见正文与新内容发送给你配置的模型。
-          </p>
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                if (
-                  !(await browser.permissions.request({
-                    origins: [`${authorization}/*`],
-                  }))
-                )
-                  throw new Error("未获得此网站的访问权限。");
-                const state = await send({ action: "state" });
-                await send({
-                  action: "save",
-                  settings: {
-                    ...state.settings,
-                    autoOrigins: [
-                      ...new Set([
-                        ...state.settings.autoOrigins,
-                        authorization,
-                      ]),
-                    ],
-                  },
-                });
-                setAuthorization("");
-                setNotice("此网站已启用自动翻译，可以返回原页面。");
-              } catch (reason) {
-                setError(reason instanceof Error ? reason.message : "授权失败");
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            允许并开启自动翻译
-          </button>
-        </section>
-      )}
+      <ReadingAccess />
       <section className="provider-card">
         <header className="provider-heading">
           <span className="brand-mark" aria-hidden>

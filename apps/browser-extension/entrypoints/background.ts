@@ -21,10 +21,48 @@ import {
 import { TranslationService } from "@lingo-sofa/translation-core";
 import { readSettings, apiKey, records } from "../src/storage.js";
 
+import { syncReadingAccess, automaticPermission } from "../src/site-access.js";
+
 import { NativeConnection } from "../src/native-connection.js";
 
 export default defineBackground(() => {
   const native = new NativeConnection();
+  browser.runtime.onInstalled.addListener((details) => {
+    void syncReadingAccess().catch(() => undefined);
+    if (details.reason === "install")
+      void browser.tabs.create({
+        url: browser.runtime.getURL("/options.html?setup=reading"),
+      });
+  });
+  browser.permissions.onAdded.addListener(() => {
+    void syncReadingAccess().catch(() => undefined);
+  });
+  browser.permissions.onRemoved.addListener(() => {
+    void (async () => {
+      await cancelTransports((origin) =>
+        browser.permissions.contains({ origins: [`${origin}/*`] }),
+      );
+      const settings = await readSettings();
+      const autoOrigins: string[] = [];
+      for (const origin of settings.autoOrigins)
+        if (await browser.permissions.contains({ origins: [`${origin}/*`] }))
+          autoOrigins.push(origin);
+      await browser.storage.local.set({
+        settings: { ...settings, autoOrigins },
+      });
+      await syncReadingAccess();
+      for (const tab of await browser.tabs.query({})) {
+        if (!tab.id || !tab.url || !/^https?:/.test(tab.url)) continue;
+        const authorized = await browser.permissions.contains({
+          origins: [`${new URL(tab.url).origin}/*`],
+        });
+        if (!authorized)
+          await browser.tabs
+            .sendMessage(tab.id, { action: "disable" })
+            .catch(() => undefined);
+      }
+    })().catch(() => undefined);
+  });
   // Register synchronously so Chrome wakes this worker on profile startup,
   // even when no extension UI or authorized page is open.
   browser.runtime.onStartup.addListener(() => {
@@ -80,6 +118,7 @@ export default defineBackground(() => {
     });
     const settings = await readSettings();
     if (settings.mode === "bridge") native.start();
+    await syncReadingAccess();
     const saved = await records(settings);
     const pending = await browser.storage.session.get("inFlight");
     service.ledger.restore([
@@ -115,12 +154,13 @@ export default defineBackground(() => {
   }
   const transports = new Map<
     string,
-    { scope: string; mode: Settings["mode"] }
+    { scope: string; mode: Settings["mode"]; origin: string }
   >();
   async function dispatch(
     request: Request,
     scope: string,
     settings: Settings,
+    origin: string,
   ): Promise<Reply> {
     if (request.kind === "cancel") {
       const transport = transports.get(request.requestId);
@@ -141,7 +181,7 @@ export default defineBackground(() => {
       throw new Error("双语阅读已关闭，请先在悬浮面板中开启");
     if (transports.has(request.requestId))
       throw new Error("Duplicate request ID");
-    transports.set(request.requestId, { scope, mode: settings.mode });
+    transports.set(request.requestId, { scope, mode: settings.mode, origin });
     try {
       return await (settings.mode === "bridge"
         ? bridge(request, scope)
@@ -150,9 +190,13 @@ export default defineBackground(() => {
       transports.delete(request.requestId);
     }
   }
-  async function cancelTransports(): Promise<void> {
+  async function cancelTransports(
+    stillAuthorized?: (origin: string) => Promise<boolean>,
+  ): Promise<void> {
     await Promise.all(
       [...transports].map(async ([requestId, transport]) => {
+        if (stillAuthorized && (await stillAuthorized(transport.origin)))
+          return;
         if (transport.mode === "bridge")
           await bridge({ kind: "cancel", requestId }, transport.scope).catch(
             () => undefined,
@@ -162,6 +206,7 @@ export default defineBackground(() => {
     );
   }
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
+    const permission = automaticPermission(message, sender);
     return (async (): Promise<unknown> => {
       await ready;
       if (!message || typeof message !== "object")
@@ -191,7 +236,7 @@ export default defineBackground(() => {
             unit.targetLanguage = settings.targetLanguage;
           }
         }
-        return dispatch(request, scope, settings);
+        return dispatch(request, scope, settings, url.origin);
       }
       if (!("action" in message)) throw new Error("Invalid action");
       const data = message as {
@@ -325,36 +370,15 @@ export default defineBackground(() => {
         if (typeof data.enabled !== "boolean")
           throw new Error("Invalid automatic state");
         const origin = new URL(sender.url!).origin;
-        if (
-          data.enabled &&
-          !(await browser.permissions.contains({ origins: [`${origin}/*`] }))
-        ) {
-          await browser.tabs.create({
-            url: browser.runtime.getURL(
-              `/options.html?authorize-origin=${encodeURIComponent(origin)}`,
-            ),
-          });
-          return { ok: true, pending: true };
-        }
+        if (data.enabled && !(await permission))
+          throw new Error("Chrome 未授予此网站访问权限，自动翻译尚未开启。");
+        const current = await readSettings();
         const autoOrigins = data.enabled
-          ? [...new Set([...settings.autoOrigins, origin])]
-          : settings.autoOrigins.filter((value) => value !== origin);
-        const next = settingsSchema.parse({ ...settings, autoOrigins });
+          ? [...new Set([...current.autoOrigins, origin])]
+          : current.autoOrigins.filter((value) => value !== origin);
+        const next = settingsSchema.parse({ ...current, autoOrigins });
         await browser.storage.local.set({ settings: next });
-        const scripts = await browser.scripting.getRegisteredContentScripts();
-        if (scripts.some((script) => script.id === "lingo-sofa-auto"))
-          await browser.scripting.unregisterContentScripts({
-            ids: ["lingo-sofa-auto"],
-          });
-        if (autoOrigins.length)
-          await browser.scripting.registerContentScripts([
-            {
-              id: "lingo-sofa-auto",
-              matches: autoOrigins.map((origin) => `${origin}/*`),
-              js: ["content-scripts/content.js"],
-              runAt: "document_idle",
-            },
-          ]);
+        await syncReadingAccess();
         // Preserve completed inline translations while pausing the current page.
         for (const tab of await browser.tabs.query({}))
           if (tab.id && tab.url && new URL(tab.url).origin === origin)
@@ -457,6 +481,10 @@ export default defineBackground(() => {
         data.settings = { ...settings, mode: "direct", model: update.model };
         data.apiKey = update.apiKey;
       }
+      if (data.action === "reading-access-sync") {
+        await syncReadingAccess();
+        return { ok: true };
+      }
       if (data.action === "state") {
         let bridgeUsage: UsageRecord[] = [];
         let budgets: BudgetSnapshot[] | undefined;
@@ -528,49 +556,8 @@ export default defineBackground(() => {
           await browser.storage.session.remove("balance");
           await browser.storage.session.set({ apiKey: data.apiKey });
         }
-        const scripts = await browser.scripting.getRegisteredContentScripts();
-        if (scripts.some((script) => script.id === "lingo-sofa-auto"))
-          await browser.scripting.unregisterContentScripts({
-            ids: ["lingo-sofa-auto"],
-          });
-        if (next.autoOrigins.length)
-          await browser.scripting.registerContentScripts([
-            {
-              id: "lingo-sofa-auto",
-              matches: next.autoOrigins.map((origin) => `${origin}/*`),
-              js: ["content-scripts/content.js"],
-              runAt: "document_idle",
-            },
-          ]);
-        const oldOrigins = new Set([
-          ...(settings.mode === "direct"
-            ? [`${new URL(settings.model.endpoint).origin}/*`]
-            : []),
-          ...settings.autoOrigins.map((origin) => `${origin}/*`),
-        ]);
-        const newOrigins = new Set([
-          ...(next.mode === "direct"
-            ? [`${new URL(next.model.endpoint).origin}/*`]
-            : []),
-          ...next.autoOrigins.map((origin) => `${origin}/*`),
-        ]);
-        const removed = [...oldOrigins].filter(
-          (origin) => !newOrigins.has(origin),
-        );
-        for (const tab of await browser.tabs.query({}))
-          if (tab.id && tab.url && /^https?:/.test(tab.url)) {
-            await browser.tabs
-              .sendMessage(tab.id, {
-                action: removed.includes(`${new URL(tab.url).origin}/*`)
-                  ? "disable"
-                  : "settings-changed",
-                targetLanguage: next.targetLanguage,
-                automatic: next.autoOrigins.includes(new URL(tab.url).origin),
-              })
-              .catch(() => undefined);
-          }
-        if (removed.length)
-          await browser.permissions.remove({ origins: removed });
+        await syncReadingAccess();
+        await notify(next);
         return { ok: true };
       }
       if (data.action === "clear") {
@@ -651,7 +638,7 @@ export default defineBackground(() => {
             throw new Error("页面已刷新，请重新预览上下文");
         }
         const scope = preview.scope;
-        return dispatch(request, scope, settings);
+        return dispatch(request, scope, settings, new URL(tab.url).origin);
       }
       if (data.action === "balance") {
         if (settings.mode === "bridge") return { unavailable: true };
