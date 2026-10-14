@@ -20,7 +20,9 @@
     "verify:vencord": "node scripts/verify-vencord.mjs",
     "verify:extension": "node scripts/verify-extension.mjs",
     "benchmark": "tsx scripts/benchmark.mjs",
-    "verify:real": "tsx scripts/verify-real-provider.mjs"
+    "verify:real": "tsx scripts/verify-real-provider.mjs",
+    "prepare:release": "npm run build && npm run package:native --workspace @lingo-sofa/pi-bridge && node scripts/prepare-release.mjs",
+    "verify:release": "node scripts/verify-release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
