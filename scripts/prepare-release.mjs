@@ -90,13 +90,15 @@ try {
   const overrides = JSON.parse(
     await readFile(join(root, "third-party/sources.json"), "utf8"),
   );
-  const piLicense = await readFile(
-    join(root, "third-party", overrides[0].file),
-  );
-  if (
-    createHash("sha256").update(piLicense).digest("hex") !== overrides[0].sha256
-  )
-    throw new Error("Vendored Pi license checksum mismatch");
+  const licenseTexts = new Map();
+  for (const source of overrides) {
+    const content = await readFile(join(root, "third-party", source.file));
+    if (createHash("sha256").update(content).digest("hex") !== source.sha256)
+      throw new Error(
+        `Vendored license checksum mismatch: ${source.component}`,
+      );
+    licenseTexts.set(source.file, content);
+  }
   for (const [path, entry] of Object.entries(lock.packages).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
@@ -128,14 +130,20 @@ try {
         join(temporary, destination, document),
       );
     let licenseSource = "installed package";
-    if (
-      !documents.length &&
-      pkg.name.startsWith("@earendil-works/pi-") &&
-      pkg.version === overrides[0].version
-    ) {
-      await writeFile(join(temporary, destination, "LICENSE"), piLicense);
+    const source = overrides.find(
+      (source) =>
+        pkg.version === source.version &&
+        (source.component.endsWith("*")
+          ? pkg.name.startsWith(source.component.slice(0, -1))
+          : pkg.name === source.component),
+    );
+    if (!documents.length && source) {
+      await writeFile(
+        join(temporary, destination, "LICENSE"),
+        licenseTexts.get(source.file),
+      );
       documents.push("LICENSE");
-      licenseSource = overrides[0].sourceUrl;
+      licenseSource = source.sourceUrl;
     }
     if (!documents.length)
       issues.push(

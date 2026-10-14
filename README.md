@@ -79,6 +79,7 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 - [内嵌双语与轻量入口](docs/ui-design.md)
 - [入口设计探索](docs/ui-exploration.md)
 - [发布准备与环境依赖](docs/release-readiness.md)
+- [依赖许可具体缺项](docs/dependency-license-review.md)
 - [协作与提交规范](AGENTS.md)
 
 项目原创材料暂采用 [商业专有 LICENSE](LICENSE)，依赖保留各自授权，见 [第三方许可清单](THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍需单独核对 GPL 条件；当前开发产物尚未完成公开发行的许可交付。
