@@ -324,12 +324,13 @@ function SettingsPanel() {
                   ),
               );
               setBudgets(
-                reply.settings
-                  ? budgetStatus(records, reply.settings).map(
-                      (item) =>
-                        `${item.window === "day" ? "日" : "月"}${item.metric === "tokens" ? " token" : "费用"}预算：${item.used ?? "未知"} / ${item.limit}${item.warning ? " · 已达阈值或消耗未知" : ""}`,
-                    )
-                  : [],
+                (
+                  reply.budgets ??
+                  (reply.settings ? budgetStatus(records, reply.settings) : [])
+                ).map(
+                  (item) =>
+                    `${reply.shareBudget ? "Bridge 共享" : "当前前端"} · ${item.window === "day" ? "日" : "月"}${item.metric === "tokens" ? " token" : "费用"}预算：${item.used ?? "未知"} / ${item.limit}${item.warning ? " · 已达阈值或消耗未知" : ""}`,
+                ),
               );
               setStats(
                 `${reply.sharedUsage ? "Bridge 跨端共享" : "当前频道"} · ${total.requests} 次请求 · Input ${formatTokens(total.input)} · Output ${formatTokens(total.output)} · ${formatSpeed(total.tps)} · ${formatCost(total.cost)}`,

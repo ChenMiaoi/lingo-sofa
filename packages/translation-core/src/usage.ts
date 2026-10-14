@@ -17,7 +17,7 @@ export class UsageLedger {
   private records = new Map<string, UsageRecord>();
   private reservations = new Map<
     string,
-    { tokens: number; cost: number | null }
+    { tokens: number; cost: number | null; scopePrefix: string | undefined }
   >();
   restore(records: readonly UsageRecord[]): void {
     for (const record of records) this.records.set(record.requestId, record);
@@ -42,23 +42,28 @@ export class UsageLedger {
     cost: number | null,
     settings: Settings,
     now = Date.now(),
+    scopePrefix?: string,
   ): void {
     if (this.reservations.has(id) || this.records.has(id))
       throw new Error("Request already accounted for");
     const current = period(now, settings.timeZone);
     const inMonth = this.list().filter(
       (record) =>
+        (scopePrefix === undefined || record.scope.startsWith(scopePrefix)) &&
         period(record.timestamp, settings.timeZone).month === current.month,
     );
     const inDay = inMonth.filter(
       (record) =>
         period(record.timestamp, settings.timeZone).day === current.day,
     );
-    const reservedTokens = [...this.reservations.values()].reduce(
+    const reservations = [...this.reservations.values()].filter(
+      (item) => scopePrefix === undefined || item.scopePrefix === scopePrefix,
+    );
+    const reservedTokens = reservations.reduce(
       (sum, item) => sum + item.tokens,
       0,
     );
-    const reservedCost = [...this.reservations.values()].reduce(
+    const reservedCost = reservations.reduce(
       (sum, item) => sum + (item.cost ?? 0),
       0,
     );
@@ -87,8 +92,7 @@ export class UsageLedger {
       if (costLimit !== null) {
         if (
           settings.strictBudget &&
-          (cost === null ||
-            [...this.reservations.values()].some((item) => item.cost === null))
+          (cost === null || reservations.some((item) => item.cost === null))
         )
           throw new Error("Budget paused: price is unknown");
         if (
@@ -103,7 +107,7 @@ export class UsageLedger {
           throw new Error("Cost budget exceeded");
       }
     }
-    this.reservations.set(id, { tokens, cost });
+    this.reservations.set(id, { tokens, cost, scopePrefix });
   }
   settle(record: UsageRecord): void {
     this.reservations.delete(record.requestId);

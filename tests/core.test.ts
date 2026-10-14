@@ -268,3 +268,27 @@ it("warns on local budget thresholds and unknown costs", async () => {
     )[1],
   ).toMatchObject({ used: null, ratio: null, warning: true });
 });
+it("isolates frontend budget reservations unless a global budget is explicitly selected", () => {
+  const ledger = new UsageLedger();
+  const settings = settingsSchema.parse({ dailyTokens: 100 });
+  const now = record("sample").timestamp;
+  ledger.reserve("web", 60, null, settings, now, "extension|");
+  ledger.reserve("discord", 60, null, settings, now, "discord|");
+  expect(() =>
+    ledger.reserve("another-web", 50, null, settings, now, "extension|"),
+  ).toThrow("budget");
+  expect(() => ledger.reserve("shared", 1, null, settings, now)).toThrow(
+    "budget",
+  );
+  ledger.settle({ ...record("web"), scope: "extension|page" });
+  ledger.reserve("another-web", 60, null, settings, now, "extension|");
+  ledger.settle({
+    ...record("discord"),
+    scope: "discord|channel",
+    usage: null,
+  });
+  expect(() =>
+    ledger.reserve("discord-next", 1, null, settings, now, "discord|"),
+  ).toThrow("unknown");
+  ledger.reserve("web-small", 1, null, settings, now, "extension|");
+});

@@ -143,6 +143,14 @@ export interface Metrics {
   generationMs: number | null;
   tps: number | null;
 }
+export interface BudgetSnapshot {
+  window: "day" | "month";
+  metric: "tokens" | "cost";
+  used: number | null;
+  limit: number | null;
+  ratio: number | null;
+  warning: boolean;
+}
 export interface UsageRecord extends Metrics {
   requestId: string;
   scope: string;
@@ -171,6 +179,8 @@ export type Reply =
       metrics?: Metrics | undefined;
       usage?: UsageRecord[] | undefined;
       sharedUsage?: boolean | undefined;
+      shareBudget?: boolean | undefined;
+      budgets?: BudgetSnapshot[] | undefined;
       queue?: { running: number; pending: number } | undefined;
       cacheStats?:
         { hits: number; lookups: number; ratio: number | null } | undefined;
@@ -242,6 +252,20 @@ export const replySchema = z.discriminatedUnion("ok", [
     metrics: metricsSchema.optional(),
     usage: z.array(usageRecordSchema).max(10_000).optional(),
     sharedUsage: z.boolean().optional(),
+    shareBudget: z.boolean().optional(),
+    budgets: z
+      .array(
+        z.strictObject({
+          window: z.enum(["day", "month"]),
+          metric: z.enum(["tokens", "cost"]),
+          used: money.nullable(),
+          limit: money.nullable(),
+          ratio: money.nullable(),
+          warning: z.boolean(),
+        }),
+      )
+      .max(4)
+      .optional(),
     cacheStats: z
       .strictObject({
         hits: count,

@@ -10,6 +10,7 @@ import {
   type Request,
   type Reply,
   type Settings,
+  type BudgetSnapshot,
 } from "@lingo-sofa/protocol";
 import { TranslationService } from "@lingo-sofa/translation-core";
 import { readSettings, apiKey, records } from "../src/storage.js";
@@ -183,6 +184,8 @@ export default defineBackground(() => {
         );
       if (data.action === "state") {
         let bridgeUsage: UsageRecord[] = [];
+        let budgets: BudgetSnapshot[] | undefined;
+        let shareBudget = false;
         let sharedUsage = false;
         let executionSettings = settings;
         let cacheStats = service.cacheStats();
@@ -197,6 +200,8 @@ export default defineBackground(() => {
             if (!result.ok) throw new Error(result.error);
             bridgeUsage = result.usage ?? [];
             sharedUsage = result.sharedUsage ?? false;
+            budgets = result.budgets;
+            shareBudget = result.shareBudget ?? false;
             executionSettings = result.settings ?? settings;
             queue = result.queue ?? { running: 0, pending: 0 };
             cacheStats = result.cacheStats ?? {
@@ -213,6 +218,8 @@ export default defineBackground(() => {
           usage: service.ledger.list(),
           hasKey: Boolean(await apiKey()),
           bridgeUsage,
+          budgets,
+          shareBudget,
           executionSettings,
           cacheStats,
           sharedUsage,

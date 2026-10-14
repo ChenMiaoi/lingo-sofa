@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { createPiClient, resolveModel } from "@lingo-sofa/provider-pi/node";
-import { TranslationService } from "@lingo-sofa/translation-core";
+import { TranslationService, budgetStatus } from "@lingo-sofa/translation-core";
 import type { UsageRecord } from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
 import { UsageHistory } from "./history.js";
@@ -37,6 +37,8 @@ export function createBridge(
       ).values(),
     ]);
   const service = new TranslationService({
+    budgetScope: (scope) =>
+      config.shareBudget ? undefined : `${scope.split("|")[0]}|`,
     onBegin: async (record) => {
       inFlight.set(record.requestId, record);
       await checkpoint();
@@ -191,6 +193,16 @@ export function createBridge(
             .filter((record) => record.scope.startsWith(`${origin}|`));
         result.sharedUsage = config.shareUsage;
         result.settings = config.settings;
+        result.shareBudget = config.shareBudget;
+        result.budgets = budgetStatus(
+          service.ledger
+            .list()
+            .filter(
+              (record) =>
+                config.shareBudget || record.scope.startsWith(`${origin}|`),
+            ),
+          config.settings,
+        );
         result.cacheStats = config.shareUsage
           ? service.cacheStats()
           : service.cacheStats(

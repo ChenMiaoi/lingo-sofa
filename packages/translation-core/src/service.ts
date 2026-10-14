@@ -16,6 +16,7 @@ export interface ServiceOptions {
   ) => Promise<ModelClient>;
   onBegin?: (record: UsageRecord) => Promise<void>;
   onFinish?: (requestId: string) => Promise<void>;
+  budgetScope?: (scope: string) => string | undefined;
   pricing?: (settings: Settings) => Settings["model"]["prices"];
   onRecords?: (records: UsageRecord[]) => Promise<void>;
   ask?: (
@@ -210,7 +211,14 @@ export class TranslationService {
                 settings.model.maxOutputTokens * prices.output) /
               1_000_000
             : null;
-          this.ledger.reserve(request.requestId, estimate, cost, settings);
+          this.ledger.reserve(
+            request.requestId,
+            estimate,
+            cost,
+            settings,
+            Date.now(),
+            this.options.budgetScope?.(scope),
+          );
           let metrics = unknown;
           const started = Date.now();
           const base: UsageRecord = {

@@ -5,6 +5,7 @@ import {
   type Settings,
   type Reply,
   type UsageRecord,
+  type BudgetSnapshot,
 } from "@lingo-sofa/protocol";
 import { summarize, period, budgetStatus } from "@lingo-sofa/translation-core";
 import { formatTokens, formatCost, formatSpeed } from "@lingo-sofa/ui-shared";
@@ -23,6 +24,8 @@ export function App() {
   const [executionSettings, setExecutionSettings] = useState<Settings>(
     settingsSchema.parse({}),
   );
+  const [budgetSnapshots, setBudgetSnapshots] = useState<BudgetSnapshot[]>();
+  const [shareBudget, setShareBudget] = useState(false);
   const [bridgeError, setBridgeError] = useState("");
   const [sharedUsage, setSharedUsage] = useState(false);
   const [queue, setQueue] = useState({ running: 0, pending: 0 });
@@ -60,6 +63,8 @@ export function App() {
     settings: Settings;
     usage: UsageRecord[];
     bridgeUsage?: UsageRecord[];
+    budgets?: BudgetSnapshot[];
+    shareBudget?: boolean;
     cacheStats?: { hits: number; lookups: number; ratio: number | null };
     executionSettings?: Settings;
     bridgeError?: string;
@@ -74,6 +79,8 @@ export function App() {
     setBridgeError(data.bridgeError ?? "");
     setSharedUsage(data.sharedUsage ?? false);
     setCacheStats(data.cacheStats ?? { hits: 0, lookups: 0, ratio: null });
+    setBudgetSnapshots(data.budgets);
+    setShareBudget(data.shareBudget ?? false);
     setQueue(data.queue ?? { running: 0, pending: 0 });
     setHasKey(data.hasKey);
   }
@@ -224,7 +231,9 @@ export function App() {
                   today.month)),
       );
   const totals = summarize(filtered);
-  const budgets = bridgeError ? [] : budgetStatus(usage, executionSettings);
+  const budgets = bridgeError
+    ? []
+    : (budgetSnapshots ?? budgetStatus(usage, executionSettings));
   const trend = [
     ...new Set(
       filtered.map((record) => period(record.timestamp, settings.timeZone).day),
@@ -352,7 +361,11 @@ export function App() {
             {sharedUsage
               ? "Bridge 已启用跨端共享统计"
               : "仅当前扩展的 Bridge 用量；跨端统计未启用"}
-            。预算与提醒使用 Bridge 配置。
+            。预算与提醒使用 Bridge 配置；
+            {shareBudget
+              ? "跨端预算共享已启用"
+              : "预算仅限当前前端，跨端共享未启用"}
+            。
           </p>
         )}
         {budgets.map((budget) => (
@@ -476,8 +489,8 @@ export function App() {
           </table>
         </details>
         <p>
-          {settings.persistUsage
-            ? `本地保留 ${settings.retentionDays} 天`
+          {executionSettings.persistUsage
+            ? `本地保留 ${executionSettings.retentionDays} 天`
             : "仅当前浏览器会话；未启用历史持久化"}{" "}
           · {totals.requests} 次请求 · {totals.unknown} 次消耗未知
         </p>

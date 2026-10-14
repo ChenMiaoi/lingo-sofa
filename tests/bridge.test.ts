@@ -137,6 +137,8 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
     expect(await statsReply.json()).toMatchObject({
       ok: true,
       sharedUsage: false,
+      shareBudget: false,
+      budgets: [],
       usage: [
         expect.objectContaining({
           scope: "https://discord.com|account:one",

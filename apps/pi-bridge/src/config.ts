@@ -8,6 +8,7 @@ export const bridgeConfigSchema = z.strictObject({
     .max(10)
     .default([]),
   shareUsage: z.boolean().default(false),
+  shareBudget: z.boolean().default(false),
   usePiAuth: z.boolean().default(false),
   piAuthPath: z.string().min(1).optional(),
 });
