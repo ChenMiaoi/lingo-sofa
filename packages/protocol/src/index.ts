@@ -59,7 +59,7 @@ export const modelConfigSchema = z.strictObject({
           ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)))
     );
   }, "Use HTTPS, or HTTP on loopback, without credentials or query parameters"),
-  maxOutputTokens: z.number().int().min(128).max(8_192).default(2_048),
+  maxOutputTokens: z.number().int().min(128).max(8_192).default(4_096),
   timeoutMs: z.number().int().min(1_000).max(45_000).default(30_000),
   prices: pricesSchema.nullable().default(null),
 });
@@ -71,7 +71,7 @@ export const settingsSchema = z.strictObject({
     provider: "deepseek",
     model: "deepseek-flash",
     endpoint: "https://api.deepseek.com",
-    maxOutputTokens: 2_048,
+    maxOutputTokens: 4_096,
     timeoutMs: 30_000,
     prices: null,
   }),

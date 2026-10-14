@@ -51,6 +51,7 @@ export default defineContentScript({
     });
     const askCleanups = new Set<() => void>();
     let targetLanguage = "简体中文";
+    let maxOutputTokens = 4_096;
     let mode: "page" | "manual" = "manual";
     let selectedPreview:
       | { text: string; root: HTMLElement; original: string; url: string }
@@ -125,27 +126,32 @@ export default defineContentScript({
       mode = manual ? "manual" : "page";
       stop();
       automaticMode = automatic;
-      const batcher = new TranslationBatcher(async (units, signal) => {
-        const requestId = crypto.randomUUID();
-        const cancel = () => {
-          void browser.runtime.sendMessage({ kind: "cancel", requestId });
-        };
-        signal.addEventListener("abort", cancel, { once: true });
-        try {
-          signal.throwIfAborted();
-          const reply = (await browser.runtime.sendMessage({
-            kind: "translate",
-            requestId,
-            units,
-            automatic: automaticMode,
-          })) as Reply;
-          if (!reply.ok) throw new Error(reply.error);
-          signal.throwIfAborted();
-          return reply.results ?? [];
-        } finally {
-          signal.removeEventListener("abort", cancel);
-        }
-      });
+      const batcher = new TranslationBatcher(
+        async (units, signal) => {
+          const requestId = crypto.randomUUID();
+          const cancel = () => {
+            void browser.runtime.sendMessage({ kind: "cancel", requestId });
+          };
+          signal.addEventListener("abort", cancel, { once: true });
+          try {
+            signal.throwIfAborted();
+            const reply = (await browser.runtime.sendMessage({
+              kind: "translate",
+              requestId,
+              units,
+              automatic: automaticMode,
+            })) as Reply;
+            if (!reply.ok) throw new Error(reply.error);
+            signal.throwIfAborted();
+            return reply.results ?? [];
+          } finally {
+            signal.removeEventListener("abort", cancel);
+          }
+        },
+        1_000,
+        4_000,
+        () => maxOutputTokens,
+      );
       translator = new PageTranslator(document, {
         targetLanguage,
         manual,
@@ -221,6 +227,7 @@ export default defineContentScript({
           action: "page-controls",
         });
         if (!reply.ok) throw new Error(reply.error);
+        maxOutputTokens = reply.maxOutputTokens ?? 4_096;
         return reply;
       },
       model: async (model) => {

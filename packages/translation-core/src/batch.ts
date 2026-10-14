@@ -1,5 +1,7 @@
 import type { TranslationUnit, TranslationResult } from "@lingo-sofa/protocol";
+import { translationParts } from "./translation-parts.js";
 interface Pending {
+  isolated: boolean;
   unit: TranslationUnit;
   signal: AbortSignal;
   resolve: (result: TranslationResult) => void;
@@ -11,6 +13,7 @@ export class TranslationBatcher {
   private pending: Pending[] = [];
   private running = 0;
   private scheduled = false;
+  private sequence = 0;
   constructor(
     private readonly send: (
       units: TranslationUnit[],
@@ -18,6 +21,7 @@ export class TranslationBatcher {
     ) => Promise<TranslationResult[]>,
     private readonly capacity = 1_000,
     private readonly maxBytes = 4_000,
+    private readonly maxOutputTokens: number | (() => number) = 4_096,
   ) {}
   translate(unit: TranslationUnit, signal: AbortSignal): Promise<string> {
     return this.translateResult(unit, signal).then((result) => result.text);
@@ -27,12 +31,73 @@ export class TranslationBatcher {
     signal: AbortSignal,
   ): Promise<TranslationResult> {
     if (signal.aborted) return Promise.reject(signal.reason);
+    const metadata = new TextEncoder().encode(
+      JSON.stringify({ ...unit, text: "", protectedParts: [] }),
+    ).length;
+    const parts = translationParts(
+      unit,
+      Math.max(64, this.byteLimit() - metadata - 64),
+    );
+    if (parts) {
+      if (this.pending.length + parts.chunks.length > this.capacity)
+        return Promise.reject(
+          new Error(
+            "Page queue is full; retry after visible paragraphs finish",
+          ),
+        );
+      const controller = new AbortController();
+      const abort = () => controller.abort(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      return Promise.all(
+        parts.chunks.map((chunk) =>
+          this.enqueue(
+            {
+              ...unit,
+              id: `ls-part-${++this.sequence}`,
+              text: chunk.text,
+              protectedParts: parts.markers.filter((marker) =>
+                chunk.text.includes(marker),
+              ),
+            },
+            controller.signal,
+            true,
+          ).catch((error) => {
+            controller.abort(error);
+            throw error;
+          }),
+        ),
+      )
+        .then((results) => parts.combine(results))
+        .catch((error) => {
+          controller.abort(error);
+          throw error;
+        })
+        .finally(() => signal.removeEventListener("abort", abort));
+    }
+    return this.enqueue(unit, signal, false);
+  }
+  private byteLimit(): number {
+    const tokens =
+      typeof this.maxOutputTokens === "function"
+        ? this.maxOutputTokens()
+        : this.maxOutputTokens;
+    return Math.min(
+      this.maxBytes,
+      Math.max(128, Math.floor(tokens * 1.3) - 128),
+    );
+  }
+  private enqueue(
+    unit: TranslationUnit,
+    signal: AbortSignal,
+    isolated: boolean,
+  ): Promise<TranslationResult> {
     if (this.pending.length >= this.capacity)
       return Promise.reject(
         new Error("Page queue is full; retry after visible paragraphs finish"),
       );
     return new Promise((resolve, reject) => {
       const item: Pending = {
+        isolated,
         unit,
         signal,
         resolve,
@@ -64,7 +129,13 @@ export class TranslationBatcher {
         const bytes = new TextEncoder().encode(
           JSON.stringify(next.unit),
         ).length;
-        if (batch.length && size + bytes > this.maxBytes) break;
+        if (
+          batch.length &&
+          (next.isolated ||
+            batch[0]!.isolated ||
+            size + bytes > this.byteLimit())
+        )
+          break;
         batch.push(this.pending.shift()!);
         size += bytes;
       }

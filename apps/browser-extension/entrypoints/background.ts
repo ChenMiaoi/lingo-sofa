@@ -293,6 +293,7 @@ export default defineBackground(() => {
         const info = await catalog();
         return {
           ok: true,
+          maxOutputTokens: info.model.maxOutputTokens,
           model: info.model.model,
           providerName:
             info.providers.find(
