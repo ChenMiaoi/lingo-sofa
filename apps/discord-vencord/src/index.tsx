@@ -13,6 +13,8 @@ import {
   openModal,
 } from "@webpack/common";
 import type { Message } from "@vencord/discord-types";
+import { ChannelControls } from "./channel-controls.js";
+import type { ProviderCatalog } from "@lingo-sofa/protocol";
 import { ProviderSettings } from "./provider-settings.js";
 import { pluginStyles } from "./styles.js";
 import { DiscordBridgeClient } from "./client.js";
@@ -22,15 +24,15 @@ import {
   messageContextMatches,
   type MessageRef,
 } from "./controller.js";
-import { budgetStatus, summarize } from "@lingo-sofa/translation-core";
-import {
-  formatTokens,
-  formatCost,
-  formatSpeed,
-  formatPricing,
-} from "@lingo-sofa/ui-shared";
+import { formatTokens, formatCost } from "@lingo-sofa/ui-shared";
 
 const settings = definePluginSettings({
+  modelRevision: {
+    hidden: true,
+    type: OptionType.NUMBER,
+    description: "Model refresh generation",
+    default: 0,
+  },
   port: {
     hidden: true,
     type: OptionType.NUMBER,
@@ -50,14 +52,13 @@ const settings = definePluginSettings({
     default: "",
   },
 });
-let pairingToken = "";
 const Native = VencordNative.pluginHelpers.LingoSofa as PluginNative<
   typeof import("./native")
 >;
 const client = new DiscordBridgeClient({
   connect: () => Native?.connection() ?? Promise.resolve(null),
   port: () => settings.store.port,
-  token: () => pairingToken,
+  token: () => "",
 });
 const translations = new MessageTranslations(client);
 function reference(message: Message): MessageRef {
@@ -250,7 +251,11 @@ function showAsk(message: MessageRef) {
   ));
 }
 function Accessory({ message }: { message: Message }) {
-  const configuration = settings.use(["autoChannels", "targetLanguage"]);
+  const configuration = settings.use([
+    "autoChannels",
+    "targetLanguage",
+    "modelRevision",
+  ]);
   const ref = reference(message);
   const [, refresh] = React.useState(0);
   const element = React.useRef<HTMLDivElement>(null);
@@ -275,6 +280,7 @@ function Accessory({ message }: { message: Message }) {
     ref.deliveryState,
     configuration.autoChannels,
     configuration.targetLanguage,
+    configuration.modelRevision,
   ]);
   const observed = translations.get(ref);
   const state =
@@ -340,161 +346,21 @@ function Accessory({ message }: { message: Message }) {
 }
 function ProviderSettingsPanel() {
   return (
-    <ProviderSettings client={client} onSaved={() => translations.clear()} />
-  );
-}
-function ReadingToolsPanel() {
-  const [token, setToken] = React.useState(pairingToken);
-  const [notice, setNotice] = React.useState("");
-  const [stats, setStats] = React.useState("未查询");
-  const [details, setDetails] = React.useState<string[]>([]);
-  const [budgets, setBudgets] = React.useState<string[]>([]);
-  const [draft, setDraft] = React.useState("");
-  const [translated, setTranslated] = React.useState("");
-  const [previewRunning, setPreviewRunning] = React.useState(false);
-  const current = () => ({
-    account: UserStore.getCurrentUser()?.id ?? "",
-    channel: SelectedChannelStore.getChannelId(),
-    id: "draft",
-    content: draft,
-  });
-  return (
-    <section className="lingo-sofa-panel">
-      <h3>连接本地助手</h3>
-      <p>
-        模型和 Key
-        在供应商设置中管理，预算由本地助手配置。桌面端自动连接；旧版助手可在这里手动配对。
-      </p>
-      <label>
-        配对令牌
-        <input
-          type="password"
-          autoComplete="off"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-        />
-      </label>
-      <button
-        onClick={() => {
-          pairingToken = token;
-          setNotice("已保存本次会话的配对令牌");
-        }}
-      >
-        配对
-      </button>
-      <p role="status">{notice}</p>
-      <button
-        onClick={() => {
-          const message = current();
-          void client
-            .request(scope(message), { kind: "usage" })
-            .then((reply) => {
-              if (!reply.ok) throw new Error(reply.error);
-              const records = reply.usage ?? [];
-              const total = summarize(records);
-              setDetails(
-                records
-                  .slice(-100)
-                  .reverse()
-                  .map(
-                    (record) =>
-                      `${record.model} · ${record.status} · Input ${formatTokens(record.usage ? record.usage.input + record.usage.cacheRead + record.usage.cacheWrite : null)} / Output ${formatTokens(record.usage?.output ?? null)} · 缓存读 ${formatTokens(record.usage?.cacheRead ?? null)} / 写 ${formatTokens(record.usage?.cacheWrite ?? null)} · 首输出 ${record.firstTextMs === null ? "不可用" : `${Math.round(record.firstTextMs)}ms`} / 耗时 ${Math.round(record.durationMs)}ms · ${formatSpeed(record.tps)} · ${formatCost(record.costKnown ? (record.usage?.cost.total ?? null) : null)} · ${formatPricing(record.pricing)}${record.pricing?.sourceUrl ? ` · ${record.pricing.sourceUrl}` : ""}`,
-                  ),
-              );
-              setBudgets(
-                (
-                  reply.budgets ??
-                  (reply.settings ? budgetStatus(records, reply.settings) : [])
-                ).map(
-                  (item) =>
-                    `${reply.shareBudget ? "Bridge 共享" : "当前前端"} · ${item.window === "day" ? "日" : "月"}${item.metric === "tokens" ? " token" : "费用"}预算：${item.used ?? "未知"} / ${item.limit}${item.warning ? " · 已达阈值或消耗未知" : ""}`,
-                ),
-              );
-              setStats(
-                `${reply.sharedUsage ? "Bridge 跨端共享" : "当前频道"} · ${total.requests} 次请求 · Input ${formatTokens(total.input)} · Output ${formatTokens(total.output)} · ${formatSpeed(total.tps)} · ${formatCost(total.cost)}`,
-              );
-            })
-            .catch((reason: Error) => setStats(reason.message));
-        }}
-      >
-        查看当前频道用量
-      </button>
-      <p>{stats}</p>
-      {budgets.map((budget) => (
-        <p key={budget} role="status">
-          {budget}
-        </p>
-      ))}
-      <details>
-        <summary>请求明细（最近 100 次）</summary>
-        {details.map((record, index) => (
-          <p key={index}>{record}</p>
-        ))}
-      </details>
-      <h3>先预览，再复制</h3>
-      <label>
-        草稿翻译预览
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-      </label>
-      <button
-        className="lingo-sofa-primary"
-        disabled={previewRunning || !draft.trim()}
-        onClick={() => {
-          setPreviewRunning(true);
-          const requestId = crypto.randomUUID();
-          const ref = current();
-          void client
-            .request(scope(ref), {
-              kind: "translate",
-              requestId,
-              automatic: false,
-              units: [
-                {
-                  id: "draft",
-                  revision: requestId,
-                  text: draft,
-                  sourceKind: "discord",
-                  targetLanguage: settings.store.targetLanguage,
-                  protectedParts: [],
-                },
-              ],
-            })
-            .then((reply) => {
-              if (!reply.ok) throw new Error(reply.error);
-              setTranslated(reply.results?.[0]?.text ?? "");
-            })
-            .catch((reason: Error) => setNotice(reason.message))
-            .finally(() => setPreviewRunning(false));
-        }}
-      >
-        {previewRunning ? "翻译中…" : "预览翻译"}
-      </button>
-      <textarea value={translated} readOnly aria-label="草稿译文" />
-      <button
-        disabled={!translated}
-        onClick={() => void navigator.clipboard.writeText(translated)}
-      >
-        复制草稿译文
-      </button>
-      <p>不会替换输入框或自动发送消息。</p>
-      <button
-        onClick={() => {
-          translations.clear();
-          pairingToken = "";
-          setToken("");
-          setNotice("已清理本地译文与手动配对状态");
-        }}
-      >
-        清理
-      </button>
-    </section>
+    <ProviderSettings
+      client={client}
+      onSaved={() => {
+        translations.clear();
+        settings.store.modelRevision++;
+      }}
+    />
   );
 }
 function FloatingControls() {
-  const configuration = settings.use(["autoChannels", "targetLanguage"]);
+  const configuration = settings.use([
+    "autoChannels",
+    "targetLanguage",
+    "modelRevision",
+  ]);
   const identity = useStateFromStores(
     [SelectedChannelStore, UserStore],
     () =>
@@ -505,9 +371,11 @@ function FloatingControls() {
   const channelScope = scope(ref);
   const [expanded, setExpanded] = React.useState(false);
   const [notice, setNotice] = React.useState("");
-  const [selected, setSelected] = React.useState<MessageRef>();
+  const [catalog, setCatalog] = React.useState<ProviderCatalog | null>(null);
+  const [busy, setBusy] = React.useState(false);
   const [position, setPosition] = React.useState({ side: "right", y: 160 });
   const [, refresh] = React.useState(0);
+  const launcher = React.useRef<HTMLButtonElement>(null);
   const drag = React.useRef<{
     x: number;
     y: number;
@@ -526,47 +394,64 @@ function FloatingControls() {
     setNotice("");
   }, [identity]);
   React.useEffect(() => {
-    setSelected(undefined);
-    const capture = () => {
-      const selection = window.getSelection();
-      const text = selection?.toString().trim().slice(0, 16_000) ?? "";
-      // Discord restores composer focus when a chat-bar control is clicked.
-      // Keep the last explicit selection for its read-only preview; identity and
-      // source-content checks reject a changed message before anything is sent.
-      if (!text) return;
-      const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
-      const node = range?.commonAncestorContainer;
-      const element = node instanceof Element ? node : node?.parentElement;
-      const messageElement = element?.closest<HTMLElement>(
-        `[id^="chat-messages-${channel}-"]`,
-      );
-      const id = messageElement?.id.slice(`chat-messages-${channel}-`.length);
-      const message = id ? MessageStore.getMessage(channel, id) : undefined;
-      setSelected(
-        message && message.content.includes(text)
-          ? {
-              ...reference(message),
-              content: text,
-              sourceContent: message.content,
-            }
-          : undefined,
-      );
+    if (!expanded) return;
+    let active = true;
+    setBusy(true);
+    void client
+      .providers()
+      .then((next) => {
+        if (active) {
+          setCatalog(next);
+          setNotice("");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCatalog(null);
+          setNotice("本地助手未连接，请启动并配对后重新打开面板。");
+        }
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
     };
-    document.addEventListener("selectionchange", capture);
-    return () => document.removeEventListener("selectionchange", capture);
-  }, [identity]);
-  function askSelection() {
-    if (!selected) {
-      setNotice("请先在一条消息中选中要询问的正文");
-      return;
+  }, [expanded]);
+  React.useEffect(() => {
+    const resize = () =>
+      setPosition((position) => ({
+        ...position,
+        y: Math.max(16, Math.min(position.y, window.innerHeight - 60)),
+      }));
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  async function switchModel(id: string) {
+    if (!catalog || busy || id === catalog.model.model) return;
+    const selected = catalog.providers
+      .find((provider) => provider.id === catalog.model.provider)
+      ?.models.find((model) => model.id === id);
+    if (!selected) return;
+    setBusy(true);
+    setNotice("正在切换模型…");
+    try {
+      const model = {
+        ...catalog.model,
+        model: selected.id,
+        prices: null,
+      };
+      const reply = await client.configureProvider({ model });
+      if (!reply.ok) throw new Error(reply.error);
+      setCatalog({ ...catalog, model });
+      translations.clear();
+      settings.store.modelRevision++;
+      setNotice("模型已切换，后续翻译使用新模型。");
+    } catch {
+      setNotice("切换失败，请等当前翻译完成后重试；原模型仍保留。");
+    } finally {
+      setBusy(false);
     }
-    const current = MessageStore.getMessage(selected.channel, selected.id);
-    if (current?.content !== selected.sourceContent) {
-      setNotice("消息已变化，请重新选择上下文");
-      return;
-    }
-    showAsk(selected);
-    setExpanded(false);
   }
   if (!account || !channel) return null;
   return (
@@ -579,6 +464,7 @@ function FloatingControls() {
       }}
     >
       <button
+        ref={launcher}
         className="lingo-sofa-launcher"
         aria-label="LingoSofa 频道控制，可拖动或用方向键移动"
         aria-expanded={expanded}
@@ -643,108 +529,54 @@ function FloatingControls() {
         <section
           className="lingo-sofa-channel-panel lingo-sofa-panel"
           aria-label="LingoSofa 频道控制"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setExpanded(false);
+              launcher.current?.focus();
+            }
+          }}
           style={{
             right: position.side === "right" ? 0 : "auto",
             left: position.side === "left" ? 0 : "auto",
             top: position.y > window.innerHeight / 2 ? "auto" : 54,
             bottom: position.y > window.innerHeight / 2 ? 54 : "auto",
+            maxHeight: Math.max(
+              64,
+              position.y > window.innerHeight / 2
+                ? position.y - 70
+                : window.innerHeight - position.y - 70,
+            ),
           }}
         >
-          <div className="lingo-sofa-control-heading">
-            <strong>
-              LingoSofa · {ChannelStore.getChannel(channel)?.name ?? "当前频道"}
-            </strong>
-            <button
-              aria-label="收起频道控制"
-              onClick={() => setExpanded(false)}
-            >
-              ×
-            </button>
-          </div>
-          <label>
-            目标语言
-            <select
-              value={configuration.targetLanguage}
-              onChange={(event) => {
-                translations.pause(channelScope);
-                settings.store.targetLanguage = event.target.value;
-              }}
-            >
-              {[
-                ...new Set([
-                  configuration.targetLanguage,
-                  "简体中文",
-                  "English",
-                  "日本語",
-                  "한국어",
-                ]),
-              ].map((language) => (
-                <option key={language}>{language}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={automatic(ref)}
-              onChange={() => {
-                if (!pairingToken) {
-                  setNotice("请先配对本地 Bridge");
-                  return;
-                }
-                if (automatic(ref)) translations.pause(channelScope);
-                else translations.setOriginalOnly(channelScope, false);
-                toggleAuto(ref);
-              }}
-            />{" "}
-            自动翻译此频道
-          </label>
-          <p className="lingo-sofa-control-hint">
-            仅处理新消息和可见历史，不读取全部频道历史。
-          </p>
-          <label>
-            <input
-              type="checkbox"
-              checked={translations.isOriginalOnly(channelScope)}
-              onChange={(event) => {
-                if (event.target.checked && automatic(ref)) toggleAuto(ref);
-                translations.setOriginalOnly(
-                  channelScope,
-                  event.target.checked,
-                );
-              }}
-            />{" "}
-            只显示原文
-          </label>
-          <details>
-            <summary>更多操作</summary>
-            <button onClick={askSelection}>解释 / Ask Pi</button>
-            <button
-              onClick={() => {
-                setExpanded(false);
-                openModal((props) => (
-                  <Modal {...props} title="LingoSofa">
-                    <ProviderSettingsPanel />
-                  </Modal>
-                ));
-              }}
-            >
-              供应商设置
-            </button>
-            <button
-              onClick={() => {
-                setExpanded(false);
-                openModal((props) => (
-                  <Modal {...props} title="LingoSofa">
-                    <ReadingToolsPanel />
-                  </Modal>
-                ));
-              }}
-            >
-              用量与草稿
-            </button>
-          </details>
-          {notice && <p role="status">{notice}</p>}
+          <ChannelControls
+            channel={ChannelStore.getChannel(channel)?.name ?? "当前频道"}
+            language={configuration.targetLanguage}
+            automatic={automatic(ref)}
+            catalog={catalog}
+            busy={busy}
+            notice={notice}
+            onClose={() => {
+              setExpanded(false);
+              launcher.current?.focus();
+            }}
+            onLanguage={(language) => {
+              translations.pause(channelScope);
+              settings.store.targetLanguage = language;
+              setNotice(`目标语言已切换为 ${language}`);
+            }}
+            onModel={(model) => void switchModel(model)}
+            onAutomatic={() => {
+              if (automatic(ref)) translations.pause(channelScope);
+              else translations.setOriginalOnly(channelScope, false);
+              toggleAuto(ref);
+              setNotice(
+                automatic(ref)
+                  ? "自动翻译已开启"
+                  : "自动翻译已暂停，已有译文保留",
+              );
+            }}
+          />
         </section>
       )}
     </div>
@@ -832,6 +664,5 @@ export default definePlugin({
   stop: () => {
     document.getElementById("lingo-sofa-styles")?.remove();
     translations.clear();
-    pairingToken = "";
   },
 });

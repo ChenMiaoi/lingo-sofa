@@ -44,9 +44,30 @@ export const pluginStyles = `
 .lingo-sofa-accessory:hover summary, .lingo-sofa-accessory:focus-within summary { opacity: 1; }
 .lingo-sofa-dock { position: fixed; z-index: 100; color: var(--lingo-text); }
 .lingo-sofa-launcher { width: 44px; height: 44px; border-radius: 15px; background: var(--lingo-surface); border: 1px solid var(--lingo-border); font-size: 22px; color: var(--lingo-text); cursor: pointer; touch-action: none; }
-.lingo-sofa-channel-panel { position: absolute; width: 290px; max-width: calc(100vw - 32px); border-radius: 12px; border: 1px solid var(--lingo-border); background: var(--lingo-surface); box-shadow: 0 8px 28px #0003; max-height: calc(100vh - 80px); overflow: auto; }
+.lingo-sofa-channel-panel { box-sizing: border-box; position: absolute; width: 320px; padding: 18px; max-width: calc(100vw - 32px); border-radius: 12px; border: 1px solid var(--lingo-border); background: var(--lingo-surface); box-shadow: 0 8px 28px #0003; max-height: calc(100vh - 80px); overflow: auto; }
 .lingo-sofa-control-heading { display: flex; justify-content: space-between; align-items: center; }
 .lingo-sofa-control-heading button { border: 0; background: transparent; }
+.lingo-sofa-control-heading { gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--lingo-border); }
+.lingo-sofa-control-heading > div { min-width: 0; }
+.lingo-sofa-control-heading strong { display: block; font-size: 16px; line-height: 1.4; }
+.lingo-sofa-channel-name { display: block; color: var(--text-muted, var(--lingo-text)); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lingo-sofa-control-heading button { flex-shrink: 0; width: 30px; height: 30px; padding: 0; margin: 0; font-size: 22px; }
+.lingo-sofa-reading-options { padding: 4px 0 14px; }
+.lingo-sofa-field-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.lingo-sofa-field-heading > span { color: var(--text-muted, var(--lingo-text)); font-size: 12px; font-weight: 400; }
+.lingo-sofa-channel-panel .lingo-sofa-reading-options label { font-size: 13px; font-weight: 600; margin: 14px 0 0; }
+.lingo-sofa-channel-panel .lingo-sofa-reading-options select { box-sizing: border-box; min-height: 40px; padding: 8px 10px; border-radius: 8px; font-size: 14px; font-weight: 400; }
+.lingo-sofa-channel-panel .lingo-sofa-auto-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--lingo-border); margin: 0; padding-top: 14px; }
+.lingo-sofa-auto-row > span > strong, .lingo-sofa-auto-row .lingo-sofa-control-hint { display: block; }
+.lingo-sofa-auto-row strong { font-size: 14px; font-weight: 600; }
+.lingo-sofa-channel-panel .lingo-sofa-auto-row input { appearance: none; display: block; width: 38px; height: 22px; padding: 2px; margin: 0; border-radius: 20px; background: var(--background-modifier-accent, GrayText); flex-shrink: 0; cursor: pointer; }
+.lingo-sofa-auto-row input::before { content: ""; display: block; width: 16px; height: 16px; border-radius: 50%; background: white; transition: transform .15s ease; }
+.lingo-sofa-channel-panel .lingo-sofa-auto-row input:checked { background: var(--brand-500, #5865f2); border-color: transparent; }
+.lingo-sofa-auto-row input:checked::before { transform: translateX(16px); }
+.lingo-sofa-auto-row input:disabled { opacity: .5; cursor: wait; }
+.lingo-sofa-channel-panel .lingo-sofa-control-status { margin: 12px 0 0; font-size: 12px; color: var(--text-muted, var(--lingo-text)); }
+@media (prefers-reduced-motion: reduce) { .lingo-sofa-auto-row input::before { transition: none; } }
+
 .lingo-sofa-channel-panel select { display: block; width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--lingo-border); border-radius: 6px; background: var(--input-background, var(--lingo-surface)); color: var(--lingo-text); font: inherit; }
 .lingo-sofa-channel-panel input[type=checkbox] { display: inline-block; width: auto; margin: 0 8px 0 0; }
 .lingo-sofa-control-hint { font-size: 12px; color: var(--text-muted, var(--lingo-text)); }

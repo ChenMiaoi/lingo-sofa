@@ -254,3 +254,44 @@ it("translates message prose without sending fenced code blocks and skips code-o
   expect(captured).toHaveLength(1);
   store.clear();
 });
+
+it("replaces translations when the language changes and discards late results from the previous language", async () => {
+  const pending: {
+    request: Extract<Request, { kind: "translate" }>;
+    resolve: (reply: Reply) => void;
+  }[] = [];
+  const store = new MessageTranslations({
+    request: async (_scope, request) => {
+      if (request.kind !== "translate") return { ok: true };
+      return new Promise<Reply>((resolve) =>
+        pending.push({ request, resolve }),
+      );
+    },
+  });
+  store.translate(message, "简体中文", true);
+  await wait();
+  store.pause("discord:account:channel");
+  store.translate(message, "日本語", true);
+  await wait();
+  const finish = (index: number, text: string) =>
+    pending[index]!.resolve({
+      ok: true,
+      results: [
+        {
+          id: message.id,
+          revision: pending[index]!.request.units[0]!.revision,
+          text,
+        },
+      ],
+    });
+  finish(1, "こんにちは");
+  await wait();
+  finish(0, "你好");
+  await wait();
+  expect(store.get(message)?.language).toBe("日本語");
+  expect(store.get(message)?.text).toBe("こんにちは");
+  expect(
+    pending.map(({ request }) => request.units[0]?.targetLanguage),
+  ).toEqual(["简体中文", "日本語"]);
+  store.clear();
+});

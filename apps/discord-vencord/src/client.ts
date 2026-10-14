@@ -24,7 +24,7 @@ export class DiscordBridgeClient {
     const connection = await this.options.connect?.();
     const token = connection?.token ?? this.options.token();
     if (token.length < 32)
-      throw new Error("请先在 LingoSofa 设置中配对本地 Bridge");
+      throw new Error("本地助手尚未配对，请启动助手并更新配对后重试");
     const port = connection?.port ?? this.options.port();
     if (!Number.isInteger(port) || port < 1024 || port > 65535)
       throw new Error("Invalid Bridge port");

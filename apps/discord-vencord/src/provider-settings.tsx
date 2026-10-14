@@ -22,9 +22,7 @@ export function ProviderSettings({
       setCatalog(next);
       setModel(next.model);
     } catch {
-      setError(
-        "请启动本地助手并更新配对，再点击重新连接。旧版助手可从悬浮入口的更多操作中配对。",
-      );
+      setError("请启动或更新本地助手并刷新配对，再点击重新连接。");
     } finally {
       setBusy(false);
     }

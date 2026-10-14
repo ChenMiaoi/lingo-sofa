@@ -67,7 +67,7 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 
 执行 `npm run build --workspace @lingo-sofa/discord-vencord`，产物是 `apps/discord-vencord/dist/lingoSofa/index.tsx`。将整个 `lingoSofa` 目录放入自行维护的 Vencord checkout 的 `src/userplugins/` 后，按该宿主的构建流程使用。
 
-非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答及草稿预览。插件设置仅显示供应商、模型和 API Key；支持 Pi 目录中的多个供应商及自定义 OpenAI 兼容端点。桌面端自动连接本地 Bridge，连接描述文件只包含端口和短期令牌，不含模型 Key；旧版助手可从悬浮入口的更多操作中手动配对。所有频道均可手动翻译，自动双语由频道内开关授权，目标语言也在悬浮入口设置。用量与草稿预览移到更多操作；预算仍由 Bridge 配置。生成草稿仅供复制，不自动发送。
+非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答。插件设置仅显示供应商、模型和 API Key；支持 Pi 目录中的多个供应商及自定义 OpenAI 兼容端点。桌面端自动连接本地 Bridge，连接描述文件只包含端口和短期令牌，不含模型 Key；旧版助手需升级后使用自动连接。所有频道均可手动翻译，自动双语由频道内开关授权，目标语言也在悬浮入口设置。悬浮面板只保留目标语言、当前供应商的模型切换、频道自动翻译开关；预算和用量仍由 Bridge/网页端管理。
 
 ## 文档
 
