@@ -1,0 +1,18 @@
+LingoSofa Proprietary License
+
+Copyright (c) 2026 LingoSofa contributors. All rights reserved.
+
+LingoSofa's original source code, documentation and other original project
+materials are proprietary. No permission to use, copy, modify, distribute,
+sublicense or sell these materials is granted by their availability in this
+repository. Such permission requires a separate written commercial license
+from the relevant copyright holders.
+
+Third-party components are excluded from this license. They remain subject to
+their own copyright notices and license terms. This license does not restrict
+any rights granted by those third-party licenses and does not replace any
+obligations that apply to a combined or derived distribution.
+
+See THIRD_PARTY_NOTICES.md for the dependency inventory and release review
+requirements. A proprietary license for LingoSofa does not grant permission to
+relicense Vencord or other third-party software.

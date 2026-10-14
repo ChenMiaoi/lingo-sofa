@@ -78,4 +78,4 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 - [验收证据及剩余发布条件](docs/acceptance.md)
 - [协作与提交规范](AGENTS.md)
 
-项目许可证尚待维护者决定；不能将当前开发产物视为已完成许可核对的公开发布包。
+项目原创材料暂采用 [商业专有 LICENSE](LICENSE)，依赖保留各自授权，见 [第三方许可清单](THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍需单独核对 GPL 条件；当前开发产物尚未完成公开发行的许可交付。
