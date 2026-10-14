@@ -1,6 +1,7 @@
 import { browser } from "wxt/browser";
 import {
   settingsSchema,
+  usageRecordSchema,
   type Settings,
   type UsageRecord,
 } from "@lingo-sofa/protocol";
@@ -16,5 +17,5 @@ export async function records(settings: Settings): Promise<UsageRecord[]> {
   const data = await (
     settings.persistUsage ? browser.storage.local : browser.storage.session
   ).get("usage");
-  return Array.isArray(data.usage) ? (data.usage as UsageRecord[]) : [];
+  return usageRecordSchema.array().parse(data.usage ?? []);
 }

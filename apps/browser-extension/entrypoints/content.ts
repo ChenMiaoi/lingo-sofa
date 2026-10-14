@@ -4,6 +4,7 @@ import {
   PageTranslator,
   textOf,
   selectedText,
+  selectedContent,
 } from "@lingo-sofa/web-extraction";
 import { TranslationBatcher } from "@lingo-sofa/translation-core/batch";
 import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
@@ -15,6 +16,7 @@ export default defineContentScript({
     };
     if (lifecycle.lingoSofaLoaded) return;
     lifecycle.lingoSofaLoaded = true;
+    const documentToken = crypto.randomUUID();
     let translator: PageTranslator | undefined;
     let automaticMode = false;
     let selectionController: AbortController | undefined;
@@ -99,7 +101,16 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((message: unknown) => {
       if (!message || typeof message !== "object" || !("action" in message))
         return;
-      const data = message as { action: string; targetLanguage?: string };
+      const data = message as {
+        action: string;
+        targetLanguage?: string;
+        automatic?: boolean;
+      };
+      if (data.action === "settings-changed") {
+        stop();
+        if (data.automatic) start(data.targetLanguage ?? "简体中文", true);
+        return Promise.resolve({ ok: true });
+      }
       if (data.action === "stop") {
         stop();
         return Promise.resolve({ ok: true });
@@ -108,6 +119,8 @@ export default defineContentScript({
         start(data.targetLanguage ?? "简体中文");
         return Promise.resolve({ ok: true });
       }
+      if (data.action === "context-token")
+        return Promise.resolve({ documentToken });
       if (data.action === "context")
         return Promise.resolve({
           text: (document.querySelector("article,main")
@@ -116,9 +129,10 @@ export default defineContentScript({
           ).slice(0, 24_000),
           selection: selectedText(document),
           title: document.title,
+          documentToken,
         });
       if (data.action === "selection") {
-        const text = selectedText(document);
+        const { text, protectedParts } = selectedContent(document);
         if (!text)
           return Promise.resolve({
             ok: false,
@@ -132,7 +146,7 @@ export default defineContentScript({
             text,
             sourceKind: "web",
             targetLanguage: data.targetLanguage ?? "简体中文",
-            protectedParts: [],
+            protectedParts,
           },
           (selectionController = new AbortController()).signal,
         )

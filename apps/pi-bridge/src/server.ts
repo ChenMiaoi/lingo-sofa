@@ -5,6 +5,7 @@ import { createPiClient, resolveModel } from "@lingo-sofa/provider-pi/node";
 import { TranslationService } from "@lingo-sofa/translation-core";
 import type { UsageRecord } from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
+import { UsageHistory } from "./history.js";
 import { SafePiSessions } from "./sdk.js";
 
 export function createBridge(
@@ -24,7 +25,30 @@ export function createBridge(
       ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
       : undefined,
   );
+  const history = new UsageHistory(directory, config.settings.persistUsage);
+  const inFlight = new Map<string, UsageRecord>();
+  const checkpoint = () =>
+    history.save([
+      ...new Map(
+        [...inFlight.values(), ...service.ledger.list()].map((record) => [
+          record.requestId,
+          record,
+        ]),
+      ).values(),
+    ]);
   const service = new TranslationService({
+    onBegin: async (record) => {
+      inFlight.set(record.requestId, record);
+      await checkpoint();
+    },
+    onFinish: async (id) => {
+      inFlight.delete(id);
+      await checkpoint();
+    },
+    onRecords: async () => {
+      service.ledger.prune(Date.now(), config.settings.retentionDays);
+      await checkpoint();
+    },
     pricing: (settings) => {
       const resolved = resolveModel(settings.model);
       return resolved.costKnown ? resolved.model.cost : null;
@@ -35,6 +59,8 @@ export function createBridge(
       sessions.ask(key, question, context, signal, onMetrics),
     clearSession: (key) => sessions.clear(key),
   });
+  service.ledger.restore(history.read());
+  service.ledger.prune(Date.now(), config.settings.retentionDays);
   const allowed = new Set([
     "https://discord.com",
     "https://canary.discord.com",
@@ -141,12 +167,44 @@ export function createBridge(
         : "discord";
       if (envelope.sourceKind !== expectedKind)
         throw new Error("Source boundary mismatch");
+      if (
+        expectedKind === "web" &&
+        envelope.scope === "browser" &&
+        envelope.request.kind === "clear-data"
+      ) {
+        await service.clearScopes(`${origin}|`);
+        reply(200, { ok: true });
+        return;
+      }
+      service.ledger.prune(Date.now(), config.settings.retentionDays);
       const result = await service.handle(
         envelope.request,
         `${origin}|${envelope.scope}`,
         { ...config.settings, mode: "bridge" },
         expectedKind,
       );
+      if (result.ok && envelope.request.kind === "usage") {
+        if (config.shareUsage) result.usage = service.ledger.list();
+        else if (expectedKind === "web" && envelope.scope === "browser")
+          result.usage = service.ledger
+            .list()
+            .filter((record) => record.scope.startsWith(`${origin}|`));
+        result.sharedUsage = config.shareUsage;
+        result.settings = config.settings;
+      }
+      if (result.ok && envelope.request.kind === "ask") {
+        const stats = sessions.stats(
+          `${origin}|${envelope.scope}|${envelope.request.sessionId}`,
+        );
+        if (stats)
+          result.sessionStats = {
+            tokens: stats.tokens.total,
+            messages: stats.totalMessages,
+            cost: resolveModel(config.settings.model).costKnown
+              ? stats.cost
+              : null,
+          };
+      }
       reply(200, result);
     } catch {
       reply(400, { ok: false, error: "Invalid request or unavailable Bridge" });

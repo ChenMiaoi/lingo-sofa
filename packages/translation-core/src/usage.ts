@@ -28,6 +28,10 @@ export class UsageLedger {
   clear(): void {
     this.records.clear();
   }
+  clearScope(scope: string): void {
+    for (const [id, record] of this.records)
+      if (record.scope === scope) this.records.delete(id);
+  }
   prune(now: number, days: number): void {
     for (const [id, record] of this.records)
       if (record.timestamp < now - days * 86_400_000) this.records.delete(id);
@@ -150,4 +154,40 @@ export function summarize(records: readonly UsageRecord[]) {
         : null,
     unknown: unique.filter((record) => record.usage === null).length,
   };
+}
+
+export function budgetStatus(
+  records: readonly UsageRecord[],
+  settings: Settings,
+  now = Date.now(),
+) {
+  const current = period(now, settings.timeZone);
+  return (["day", "month"] as const).flatMap((window) => {
+    const matching = records.filter(
+      (record) =>
+        period(record.timestamp, settings.timeZone)[window] === current[window],
+    );
+    const total = summarize(matching);
+    const tokens =
+      window === "day" ? settings.dailyTokens : settings.monthlyTokens;
+    const cost = window === "day" ? settings.dailyCost : settings.monthlyCost;
+    return [
+      {
+        metric: "tokens" as const,
+        used: total.unknown ? null : total.tokens,
+        limit: tokens,
+      },
+      { metric: "cost" as const, used: total.cost, limit: cost },
+    ]
+      .filter((item) => item.limit !== null)
+      .map((item) => ({
+        ...item,
+        window,
+        ratio: item.used === null ? null : item.used / item.limit!,
+        warning:
+          item.used === null
+            ? settings.strictBudget
+            : item.used / item.limit! >= settings.warningRatio,
+      }));
+  });
 }

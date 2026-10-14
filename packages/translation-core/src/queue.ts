@@ -16,6 +16,12 @@ export class TaskQueue<T> {
     if (concurrency < 1 || capacity < 1)
       throw new Error("Invalid queue limits");
   }
+  get runningCount(): number {
+    return this.active.size;
+  }
+  get pendingCount(): number {
+    return this.pending.length;
+  }
   get size(): number {
     return this.pending.length + this.active.size;
   }

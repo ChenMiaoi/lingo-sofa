@@ -29,6 +29,7 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
   const config = bridgeConfigSchema.parse({
     settings: {
       mode: "bridge",
+      persistUsage: true,
       model: {
         provider: "openai-compatible",
         model: "fixture",
@@ -93,6 +94,10 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
       "https://discord.com|account:one|conversation",
     );
     expect(session.getActiveToolNames()).toEqual([]);
+    expect(session.settingsManager.getCacheWarmingMode()).toBe("off");
+    expect(session.settingsManager.getProviderRetrySettings().maxRetries).toBe(
+      0,
+    );
     expect(session.getSessionStats().tokens.total).toBe(44);
     await post(ask("account:two", "Other channel"));
     const secondSession = await bridge.sessions.get(
@@ -113,6 +118,49 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
       ],
     });
     expect(model.requests[0]).not.toHaveProperty("tools");
+    expect(firstReply).toMatchObject({
+      sessionStats: {
+        tokens: 44,
+        cost: null,
+        messages: session.getSessionStats().totalMessages,
+      },
+    });
+    const statsReply = await post({
+      version: 1,
+      sourceKind: "discord",
+      scope: "account:one",
+      request: { kind: "usage" },
+    });
+    expect(await statsReply.json()).toMatchObject({
+      ok: true,
+      sharedUsage: false,
+      usage: [
+        expect.objectContaining({ scope: "https://discord.com|account:one" }),
+      ],
+    });
+    await post({
+      version: 1,
+      sourceKind: "discord",
+      scope: "account:one",
+      request: { kind: "clear-data" },
+    });
+    expect(
+      bridge.sessions.stats("https://discord.com|account:one|conversation"),
+    ).toBeUndefined();
+    expect(bridge.service.ledger.list()).toHaveLength(1);
+    const observed = model.requests.length;
+    const restored = createBridge(
+      config,
+      "fixture-key",
+      token,
+      Date.now() + 60_000,
+      directory,
+    );
+    expect(restored.service.ledger.list()).toEqual(
+      bridge.service.ledger.list(),
+    );
+    expect(model.requests).toHaveLength(observed);
+    restored.sessions.dispose();
   } finally {
     bridge.server.closeAllConnections();
     await new Promise<void>((resolve) => bridge.server.close(() => resolve()));

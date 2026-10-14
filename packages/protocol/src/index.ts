@@ -55,7 +55,17 @@ export const settingsSchema = z.strictObject({
     timeoutMs: 30_000,
     prices: null,
   }),
-  autoOrigins: z.array(z.url()).max(100).default([]),
+  autoOrigins: z
+    .array(
+      z.url().refine((value) => {
+        const url = new URL(value);
+        return (
+          ["https:", "http:"].includes(url.protocol) && value === url.origin
+        );
+      }, "Automatic sites must be exact HTTP(S) origins"),
+    )
+    .max(100)
+    .default([]),
   glossary: z
     .array(
       z.strictObject({
@@ -87,6 +97,8 @@ export const settingsSchema = z.strictObject({
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export const requestSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("usage") }),
+  z.strictObject({ kind: z.literal("clear-data") }),
   z.strictObject({
     kind: z.literal("translate"),
     requestId: z.uuid(),
@@ -156,6 +168,11 @@ export type Reply =
       results?: TranslationResult[] | undefined;
       text?: string | undefined;
       metrics?: Metrics | undefined;
+      usage?: UsageRecord[] | undefined;
+      sharedUsage?: boolean | undefined;
+      settings?: Settings | undefined;
+      sessionStats?:
+        { tokens: number; cost: number | null; messages: number } | undefined;
     }
   | { ok: false; error: string };
 export interface ModelClient {
@@ -218,6 +235,12 @@ export const replySchema = z.discriminatedUnion("ok", [
       .optional(),
     text: z.string().max(64_000).optional(),
     metrics: metricsSchema.optional(),
+    usage: z.array(usageRecordSchema).max(10_000).optional(),
+    sharedUsage: z.boolean().optional(),
+    settings: settingsSchema.optional(),
+    sessionStats: z
+      .strictObject({ tokens: count, cost: money.nullable(), messages: count })
+      .optional(),
   }),
   z.strictObject({ ok: z.literal(false), error: z.string().max(2_000) }),
 ]);

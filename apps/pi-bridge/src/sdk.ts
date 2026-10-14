@@ -133,7 +133,13 @@ export class SafePiSessions {
       sessionManager: SessionManager.inMemory(this.directory),
       settingsManager: SettingsManager.inMemory({
         compaction: { enabled: false },
-        retry: { enabled: false, maxRetries: 0 },
+        cacheWarming: "off",
+        httpIdleTimeoutMs: this.config.timeoutMs,
+        retry: {
+          enabled: false,
+          maxRetries: 0,
+          provider: { maxRetries: 0, timeoutMs: this.config.timeoutMs },
+        },
       }),
     });
     if (session.getActiveToolNames().length) {
@@ -150,6 +156,10 @@ export class SafePiSessions {
     signal: AbortSignal,
     onMetrics: (metrics: Metrics) => void,
   ) {
+    signal = AbortSignal.any([
+      signal,
+      AbortSignal.timeout(this.config.timeoutMs),
+    ]);
     const session = await this.get(key);
     signal.throwIfAborted();
     const started = performance.now();

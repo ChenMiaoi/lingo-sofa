@@ -99,3 +99,86 @@ it("keeps cancellation pending until upstream accounting has settled", async () 
     { requestId: id, status: "cancelled", durationMs: 1 },
   ]);
 });
+it("sends only cache misses in a mixed batch and binds cached text to new revisions", async () => {
+  const sent: { id: string; text: string }[][] = [];
+  const service = new TranslationService({
+    client: async () => ({
+      complete: async (_system, prompt) => {
+        const units = JSON.parse(prompt) as { id: string; text: string }[];
+        sent.push(units);
+        return {
+          text: JSON.stringify(
+            units.map((unit) => ({ id: unit.id, text: `译 ${unit.text}` })),
+          ),
+          metrics,
+        };
+      },
+    }),
+  });
+  const make = (id: string, text: string) => ({
+    id,
+    text,
+    revision: "1",
+    sourceKind: "web" as const,
+    targetLanguage: "中文",
+    protectedParts: [],
+  });
+  const settings = settingsSchema.parse({});
+  await service.handle(
+    {
+      kind: "translate",
+      requestId: crypto.randomUUID(),
+      automatic: false,
+      units: [make("a", "Hello")],
+    },
+    "scope",
+    settings,
+    "web",
+  );
+  const reply = await service.handle(
+    {
+      kind: "translate",
+      requestId: crypto.randomUUID(),
+      automatic: false,
+      units: [{ ...make("b", "Hello"), revision: "2" }, make("c", "World")],
+    },
+    "scope",
+    settings,
+    "web",
+  );
+  expect(reply).toMatchObject({
+    ok: true,
+    results: [
+      { id: "b", revision: "2", text: "译 Hello" },
+      { id: "c", revision: "1", text: "译 World" },
+    ],
+  });
+  expect(sent[1]).toEqual([
+    { id: "c", text: "World", targetLanguage: "中文", context: "" },
+  ]);
+  expect(service.ledger.list()).toHaveLength(2);
+  await service.handle(
+    {
+      kind: "translate",
+      requestId: crypto.randomUUID(),
+      automatic: false,
+      units: [make("d", "Hello")],
+    },
+    "scope",
+    settings,
+    "web",
+  );
+  expect(sent).toHaveLength(2);
+  await service.handle(
+    {
+      kind: "translate",
+      requestId: crypto.randomUUID(),
+      automatic: false,
+      units: [make("d", "Hello")],
+    },
+    "other-scope",
+    settings,
+    "web",
+  );
+  expect(sent).toHaveLength(3);
+});

@@ -59,17 +59,21 @@ export function extract(root: ParentNode): Block[] {
     }))
     .filter((block) => block.text.length > 0 && block.text.length <= 16_000);
 }
-export function selectedText(document: Document): string {
+export function selectedContent(document: Document): {
+  text: string;
+  protectedParts: string[];
+} {
   const selection = document.defaultView?.getSelection();
-  if (!selection?.rangeCount) return "";
+  if (!selection?.rangeCount) return { text: "", protectedParts: [] };
   const range = selection.getRangeAt(0);
   const ancestor = range.commonAncestorContainer;
   const root =
     ancestor instanceof HTMLElement ? ancestor : ancestor.parentElement;
-  if (!root || root.closest(EXCLUDED)) return "";
+  if (!root || root.closest(EXCLUDED)) return { text: "", protectedParts: [] };
   const walker = document.createTreeWalker(root, 4);
   const cache = new WeakMap<HTMLElement, boolean>();
   const parts: string[] = [];
+  const protectedParts = new Map<Element, string>();
   let node: Node | null;
   while ((node = walker.nextNode())) {
     if (
@@ -80,14 +84,28 @@ export function selectedText(document: Document): string {
     )
       continue;
     const text = node.textContent ?? "";
-    parts.push(
-      text.slice(
-        node === range.startContainer ? range.startOffset : 0,
-        node === range.endContainer ? range.endOffset : text.length,
-      ),
+    const selected = text.slice(
+      node === range.startContainer ? range.startOffset : 0,
+      node === range.endContainer ? range.endOffset : text.length,
     );
+    parts.push(selected);
+    const protectedElement = node.parentElement.closest("code,a");
+    if (protectedElement)
+      protectedParts.set(
+        protectedElement,
+        (protectedParts.get(protectedElement) ?? "") + selected,
+      );
   }
-  return parts.join("").trim().slice(0, 16_000);
+  const text = parts.join("").trim().slice(0, 16_000);
+  return {
+    text,
+    protectedParts: [...protectedParts.values()].filter(
+      (part) => part.length && text.includes(part),
+    ),
+  };
+}
+export function selectedText(document: Document): string {
+  return selectedContent(document).text;
 }
 interface State {
   id: string;

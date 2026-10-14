@@ -235,3 +235,36 @@ describe("request boundaries", () => {
     ).toThrow();
   });
 });
+it("validates exact automatic site origins", () => {
+  for (const origin of [
+    "file:///tmp",
+    "https://user:secret@example.com",
+    "https://example.com/private",
+    "https://example.com/",
+  ])
+    expect(() => settingsSchema.parse({ autoOrigins: [origin] })).toThrow();
+  expect(
+    settingsSchema.parse({ autoOrigins: ["https://example.com"] }).autoOrigins,
+  ).toEqual(["https://example.com"]);
+});
+it("warns on local budget thresholds and unknown costs", async () => {
+  const { budgetStatus } = await import("@lingo-sofa/translation-core");
+  const settings = settingsSchema.parse({
+    dailyTokens: 40,
+    monthlyCost: 0.1,
+    warningRatio: 0.8,
+  });
+  expect(
+    budgetStatus([record("one")], settings, record("one").timestamp),
+  ).toMatchObject([
+    { window: "day", metric: "tokens", used: 37, warning: true },
+    { window: "month", metric: "cost", used: 0.032, warning: false },
+  ]);
+  expect(
+    budgetStatus(
+      [{ ...record("one"), costKnown: false }],
+      settings,
+      record("one").timestamp,
+    )[1],
+  ).toMatchObject({ used: null, ratio: null, warning: true });
+});

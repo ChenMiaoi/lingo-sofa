@@ -13,7 +13,7 @@ import {
 import type { Message } from "@vencord/discord-types";
 import { DiscordBridgeClient } from "./client.js";
 import { MessageTranslations, type MessageRef } from "./controller.js";
-import { summarize } from "@lingo-sofa/translation-core";
+import { budgetStatus, summarize } from "@lingo-sofa/translation-core";
 import { formatTokens, formatCost, formatSpeed } from "@lingo-sofa/ui-shared";
 
 const settings = definePluginSettings({
@@ -81,6 +81,11 @@ function Ask({ message }: { message: MessageRef }) {
   >([]);
   const [running, setRunning] = React.useState<string | null>(null);
   const [error, setError] = React.useState("");
+  const [sessionStats, setSessionStats] = React.useState<{
+    tokens: number;
+    cost: number | null;
+    messages: number;
+  }>();
   const sessionId = React.useRef(crypto.randomUUID());
   React.useEffect(
     () => () => {
@@ -105,6 +110,7 @@ function Ask({ message }: { message: MessageRef }) {
         question,
       });
       if (!reply.ok) throw new Error(reply.error);
+      setSessionStats(reply.sessionStats);
       setTurns((current) => [
         ...current,
         { question, answer: reply.text ?? "" },
@@ -130,6 +136,13 @@ function Ask({ message }: { message: MessageRef }) {
           <p style={{ whiteSpace: "pre-wrap" }}>{turn.answer}</p>
         </div>
       ))}
+      {sessionStats && (
+        <p>
+          Pi 会话汇总：{formatTokens(sessionStats.tokens)} tokens ·{" "}
+          {formatCost(sessionStats.cost)} · {sessionStats.messages}{" "}
+          条消息（与请求统计为同一消耗）
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
       <label>
         问题
@@ -164,6 +177,7 @@ function Ask({ message }: { message: MessageRef }) {
             .catch(() => undefined);
           sessionId.current = crypto.randomUUID();
           setTurns([]);
+          setSessionStats(undefined);
         }}
       >
         新建 / 清理会话
@@ -257,6 +271,8 @@ function SettingsPanel() {
   const [token, setToken] = React.useState(pairingToken);
   const [notice, setNotice] = React.useState("");
   const [stats, setStats] = React.useState("未查询");
+  const [details, setDetails] = React.useState<string[]>([]);
+  const [budgets, setBudgets] = React.useState<string[]>([]);
   const [draft, setDraft] = React.useState("");
   const [translated, setTranslated] = React.useState("");
   const current = () => ({
@@ -293,11 +309,30 @@ function SettingsPanel() {
         onClick={() => {
           const message = current();
           void client
-            .usage(scope(message))
-            .then((records) => {
+            .request(scope(message), { kind: "usage" })
+            .then((reply) => {
+              if (!reply.ok) throw new Error(reply.error);
+              const records = reply.usage ?? [];
               const total = summarize(records);
+              setDetails(
+                records
+                  .slice(-100)
+                  .reverse()
+                  .map(
+                    (record) =>
+                      `${record.model} · ${record.status} · Input ${formatTokens(record.usage ? record.usage.input + record.usage.cacheRead + record.usage.cacheWrite : null)} / Output ${formatTokens(record.usage?.output ?? null)} · 缓存读 ${formatTokens(record.usage?.cacheRead ?? null)} / 写 ${formatTokens(record.usage?.cacheWrite ?? null)} · 首输出 ${record.firstTextMs === null ? "不可用" : `${Math.round(record.firstTextMs)}ms`} / 耗时 ${Math.round(record.durationMs)}ms · ${formatSpeed(record.tps)} · ${formatCost(record.costKnown ? (record.usage?.cost.total ?? null) : null)}`,
+                  ),
+              );
+              setBudgets(
+                reply.settings
+                  ? budgetStatus(records, reply.settings).map(
+                      (item) =>
+                        `${item.window === "day" ? "日" : "月"}${item.metric === "tokens" ? " token" : "费用"}预算：${item.used ?? "未知"} / ${item.limit}${item.warning ? " · 已达阈值或消耗未知" : ""}`,
+                    )
+                  : [],
+              );
               setStats(
-                `Input ${formatTokens(total.input)} · Output ${formatTokens(total.output)} · ${formatSpeed(total.tps)} · ${formatCost(total.cost)}`,
+                `${reply.sharedUsage ? "Bridge 跨端共享" : "当前频道"} · ${total.requests} 次请求 · Input ${formatTokens(total.input)} · Output ${formatTokens(total.output)} · ${formatSpeed(total.tps)} · ${formatCost(total.cost)}`,
               );
             })
             .catch((reason: Error) => setStats(reason.message));
@@ -306,6 +341,17 @@ function SettingsPanel() {
         查看当前频道用量
       </button>
       <p>{stats}</p>
+      {budgets.map((budget) => (
+        <p key={budget} role="status">
+          {budget}
+        </p>
+      ))}
+      <details>
+        <summary>请求明细（最近 100 次）</summary>
+        {details.map((record, index) => (
+          <p key={index}>{record}</p>
+        ))}
+      </details>
       <label>
         草稿翻译预览
         <textarea

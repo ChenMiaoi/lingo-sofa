@@ -6,7 +6,7 @@ import {
   type Reply,
   type UsageRecord,
 } from "@lingo-sofa/protocol";
-import { summarize, period } from "@lingo-sofa/translation-core";
+import { summarize, period, budgetStatus } from "@lingo-sofa/translation-core";
 import { formatTokens, formatCost, formatSpeed } from "@lingo-sofa/ui-shared";
 
 async function send<T>(message: unknown): Promise<T> {
@@ -20,6 +20,19 @@ async function send<T>(message: unknown): Promise<T> {
 export function App() {
   const [settings, setSettings] = useState<Settings>(settingsSchema.parse({}));
   const [usage, setUsage] = useState<UsageRecord[]>([]);
+  const [executionSettings, setExecutionSettings] = useState<Settings>(
+    settingsSchema.parse({}),
+  );
+  const [bridgeError, setBridgeError] = useState("");
+  const [sharedUsage, setSharedUsage] = useState(false);
+  const [queue, setQueue] = useState({ running: 0, pending: 0 });
+  const [sessionStats, setSessionStats] = useState<{
+    tokens: number;
+    cost: number | null;
+    messages: number;
+  }>();
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [providerFilter, setProviderFilter] = useState("");
   const [key, setKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
   const [notice, setNotice] = useState("");
@@ -37,14 +50,33 @@ export function App() {
   const [glossary, setGlossary] = useState("");
   const [balance, setBalance] = useState<string>("未查询");
   const [autoOrigin, setAutoOrigin] = useState("");
+  function applyState(data: {
+    settings: Settings;
+    usage: UsageRecord[];
+    bridgeUsage?: UsageRecord[];
+    executionSettings?: Settings;
+    bridgeError?: string;
+    sharedUsage?: boolean;
+    queue?: { running: number; pending: number };
+    hasKey: boolean;
+  }) {
+    setExecutionSettings(data.executionSettings ?? data.settings);
+    setUsage(
+      data.settings.mode === "bridge" ? (data.bridgeUsage ?? []) : data.usage,
+    );
+    setBridgeError(data.bridgeError ?? "");
+    setSharedUsage(data.sharedUsage ?? false);
+    setQueue(data.queue ?? { running: 0, pending: 0 });
+    setHasKey(data.hasKey);
+  }
   useEffect(() => {
     void send<{ settings: Settings; usage: UsageRecord[]; hasKey: boolean }>({
       action: "state",
     })
       .then((data) => {
+        applyState(data);
         setSettings(data.settings);
-        setUsage(data.usage);
-        setHasKey(data.hasKey);
+
         setGlossary(
           data.settings.glossary
             .map((term) => `${term.source} = ${term.target}`)
@@ -53,8 +85,10 @@ export function App() {
       })
       .catch((reason: Error) => setError(reason.message));
     const interval = setInterval(() => {
-      void send<{ usage: UsageRecord[] }>({ action: "state" })
-        .then((data) => setUsage(data.usage))
+      void send<{ settings: Settings; usage: UsageRecord[]; hasKey: boolean }>({
+        action: "state",
+      })
+        .then(applyState)
         .catch(() => undefined);
     }, 2_000);
     return () => clearInterval(interval);
@@ -72,6 +106,13 @@ export function App() {
     setSettings((current) => ({ ...current, [field]: value }));
   }
   async function page(command: string) {
+    if (command === "context" && running) throw new Error("请先停止当前问答");
+    if (command === "context" && tabId)
+      await send({
+        action: "clear-session",
+        tabId,
+        request: { kind: "clear-session", sessionId },
+      });
     const reply = await send<{
       ok?: boolean;
       text?: string;
@@ -84,6 +125,7 @@ export function App() {
       });
       if (!tab?.id) throw new Error("页面不可用");
       setTabId(tab.id);
+      setSessionStats(undefined);
       setContext(reply.selection || reply.text || "");
       setTurns([]);
       setSessionId(crypto.randomUUID());
@@ -144,6 +186,7 @@ export function App() {
         },
       });
       if (reply.ok) {
+        setSessionStats(reply.sessionStats);
         setTurns((current) => [
           ...current,
           { question: prompt, answer: reply.text ?? "" },
@@ -157,12 +200,30 @@ export function App() {
   const filtered = usage.filter(
     (record) =>
       (!modelFilter || record.model === modelFilter) &&
+      (!sourceFilter || record.sourceKind === sourceFilter) &&
+      (!providerFilter || record.provider === providerFilter) &&
       (range === "session" ||
         (range === "day"
           ? period(record.timestamp, settings.timeZone).day === today.day
           : period(record.timestamp, settings.timeZone).month === today.month)),
   );
   const totals = summarize(filtered);
+  const budgets = budgetStatus(usage, executionSettings);
+  const trend = [
+    ...new Set(
+      filtered.map((record) => period(record.timestamp, settings.timeZone).day),
+    ),
+  ]
+    .sort()
+    .slice(-30)
+    .map((day) => ({
+      day,
+      ...summarize(
+        filtered.filter(
+          (record) => period(record.timestamp, settings.timeZone).day === day,
+        ),
+      ),
+    }));
   return (
     <main>
       <header>
@@ -190,6 +251,13 @@ export function App() {
       {tabId && (
         <section aria-label="内容问答">
           <h2>先确认发送范围</h2>
+          {sessionStats && (
+            <p>
+              Pi 会话汇总（同一消耗的另一视图）：
+              {formatTokens(sessionStats.tokens)} tokens ·{" "}
+              {formatCost(sessionStats.cost)} · {sessionStats.messages} 条消息
+            </p>
+          )}
           <label>
             上下文预览
             <textarea value={context} readOnly rows={6} />
@@ -246,6 +314,7 @@ export function App() {
                   request: { kind: "clear-session", sessionId },
                 });
                 setTurns([]);
+                setSessionStats(undefined);
                 setSessionId(crypto.randomUUID());
               })
             }
@@ -256,6 +325,36 @@ export function App() {
       )}
       <section aria-label="用量监控">
         <h2>用量与预算</h2>
+        {bridgeError && <p role="alert">{bridgeError}</p>}
+        <p>
+          当前模型：{executionSettings.model.model} · 排队 {queue.pending} /
+          运行 {queue.running}
+        </p>
+        {settings.mode === "bridge" && (
+          <p>
+            {sharedUsage
+              ? "Bridge 已启用跨端共享统计"
+              : "仅当前扩展的 Bridge 用量；跨端统计未启用"}
+            。预算与提醒使用 Bridge 配置。
+          </p>
+        )}
+        {budgets.map((budget) => (
+          <p
+            key={`${budget.window}:${budget.metric}`}
+            role={budget.warning ? "status" : undefined}
+          >
+            {budget.window === "day" ? "日" : "月"}
+            {budget.metric === "tokens" ? " token" : "费用"}预算：
+            {budget.used === null
+              ? "消耗未知"
+              : `${budget.used.toFixed(2)} / ${budget.limit}`}{" "}
+            ·{" "}
+            {budget.ratio === null
+              ? "不可计算"
+              : `${Math.round(budget.ratio * 100)}%`}
+            {budget.warning ? " · 达到提醒阈值或需要处理未知消耗" : ""}
+          </p>
+        ))}
         <p className="stats">
           Input {formatTokens(totals.input)} · Output{" "}
           {formatTokens(totals.output)}
@@ -285,6 +384,54 @@ export function App() {
             ))}
           </select>
         </label>
+        <label>
+          来源
+          <select
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value)}
+          >
+            <option value="">全部</option>
+            <option value="web">浏览器</option>
+            <option value="discord">Discord</option>
+          </select>
+        </label>
+        <label>
+          供应商
+          <select
+            value={providerFilter}
+            onChange={(event) => setProviderFilter(event.target.value)}
+          >
+            <option value="">全部</option>
+            {[...new Set(usage.map((record) => record.provider))].map(
+              (provider) => (
+                <option key={provider}>{provider}</option>
+              ),
+            )}
+          </select>
+        </label>
+        <details>
+          <summary>每日趋势（当前可观测记录）</summary>
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>请求</th>
+                <th>Tokens</th>
+                <th>估算费用</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trend.map((day) => (
+                <tr key={day.day}>
+                  <td>{day.day}</td>
+                  <td>{day.requests}</td>
+                  <td>{day.tokens}</td>
+                  <td>{formatCost(day.cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
         <p>
           {settings.persistUsage
             ? `本地保留 ${settings.retentionDays} 天`
@@ -617,6 +764,19 @@ export function App() {
               value={settings.retentionDays}
               onChange={(event) =>
                 update("retentionDays", Number(event.target.value))
+              }
+            />
+          </label>
+          <label>
+            预算提醒阈值
+            <input
+              type="number"
+              min="0.1"
+              max="1"
+              step="0.05"
+              value={settings.warningRatio}
+              onChange={(event) =>
+                update("warningRatio", Number(event.target.value))
               }
             />
           </label>

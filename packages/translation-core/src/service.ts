@@ -45,6 +45,7 @@ export class TranslationService {
     { context: string; turns: { question: string; answer: string }[] }
   >();
   private busy = new Set<string>();
+  private requests = new Map<string, string>();
   private sessionRequests = new Map<string, string>();
   constructor(private readonly options: ServiceOptions) {}
   reset(): void {
@@ -56,12 +57,49 @@ export class TranslationService {
       this.options.clearSession?.(key);
     this.conversations.clear();
   }
+  async clearScopes(prefix: string): Promise<void> {
+    for (const [id, scope] of this.requests)
+      if (scope.startsWith(prefix)) this.queue.cancel(id);
+    for (const key of new Set([
+      ...this.conversations.keys(),
+      ...this.sessionRequests.keys(),
+    ]))
+      if (key.startsWith(prefix)) {
+        this.conversations.delete(key);
+        this.options.clearSession?.(key);
+      }
+    for (const record of this.ledger.list())
+      if (record.scope.startsWith(prefix)) this.ledger.clearScope(record.scope);
+    this.cache.clear();
+    await this.options.onRecords?.(this.ledger.list());
+  }
   async handle(
     request: Request,
     scope: string,
     settings: Settings,
     sourceKind: "web" | "discord",
   ): Promise<Reply> {
+    if (request.kind === "usage")
+      return {
+        ok: true,
+        usage: this.ledger.list().filter((record) => record.scope === scope),
+      };
+    if (request.kind === "clear-data") {
+      for (const [id, requestScope] of this.requests)
+        if (requestScope === scope) this.queue.cancel(id);
+      for (const key of new Set([
+        ...this.conversations.keys(),
+        ...this.sessionRequests.keys(),
+      ]))
+        if (key.startsWith(`${scope}|`)) {
+          this.conversations.delete(key);
+          this.options.clearSession?.(key);
+        }
+      this.cache.clear();
+      this.ledger.clearScope(scope);
+      await this.options.onRecords?.(this.ledger.list());
+      return { ok: true };
+    }
     const sessionKey =
       "sessionId" in request ? `${scope}|${request.sessionId}` : "";
     if (request.kind === "clear-session") {
@@ -85,31 +123,49 @@ export class TranslationService {
       this.busy.add(sessionKey);
       this.sessionRequests.set(sessionKey, queueId);
     }
+    this.requests.set(queueId, scope);
     try {
       return await this.queue.submit(
         queueId,
         async (signal) => {
           const modelKey = JSON.stringify(settings.model);
-          if (request.kind === "translate") {
-            const cached = request.units.map((unit) =>
-              this.cache.get(
-                cacheKey(scope, unit, modelKey, settings.glossary),
-              ),
-            );
-            if (cached.every((text) => text !== undefined))
-              return {
-                ok: true,
-                results: request.units.map((unit, index) => ({
-                  id: unit.id,
-                  revision: unit.revision,
-                  text: cached[index]!,
-                })),
-              };
-          }
+          const cached =
+            request.kind === "translate"
+              ? request.units.map((unit) =>
+                  this.cache.get(
+                    cacheKey(scope, unit, modelKey, settings.glossary),
+                  ),
+                )
+              : [];
+          if (
+            request.kind === "translate" &&
+            cached.every((text) => text !== undefined)
+          )
+            return {
+              ok: true,
+              results: request.units.map((unit, index) => ({
+                id: unit.id,
+                revision: unit.revision,
+                text: cached[index]!,
+              })),
+            };
           const content =
             request.kind === "translate"
-              ? JSON.stringify(request.units)
-              : request.question + request.context;
+              ? JSON.stringify(
+                  request.units.filter(
+                    (_unit, index) => cached[index] === undefined,
+                  ),
+                )
+              : JSON.stringify({
+                  question: request.question,
+                  context: request.context,
+                  priorTurns: this.conversations.get(sessionKey)?.turns ?? [],
+                }) +
+                (this.options.ask
+                  ? request.context.repeat(
+                      this.conversations.get(sessionKey)?.turns.length ?? 0,
+                    )
+                  : "");
           const estimate =
             new TextEncoder().encode(content).length +
             settings.model.maxOutputTokens +
@@ -149,11 +205,21 @@ export class TranslationService {
             if (request.kind === "translate") {
               const result = await translate(
                 client,
-                request.units,
+                request.units.filter(
+                  (_unit, index) => cached[index] === undefined,
+                ),
                 settings.glossary,
                 signal,
               );
               metrics = result.metrics;
+              const translated = new Map(
+                result.results.map((item) => [item.id, item.text]),
+              );
+              const results = request.units.map((unit, index) => ({
+                id: unit.id,
+                revision: unit.revision,
+                text: cached[index] ?? translated.get(unit.id)!,
+              }));
               for (let index = 0; index < request.units.length; index++)
                 this.cache.set(
                   cacheKey(
@@ -162,9 +228,9 @@ export class TranslationService {
                     modelKey,
                     settings.glossary,
                   ),
-                  result.results[index]!.text,
+                  results[index]!.text,
                 );
-              reply = { ok: true, ...result };
+              reply = { ok: true, results, metrics };
             } else {
               if (
                 this.conversations.size >= 50 &&
@@ -233,6 +299,7 @@ export class TranslationService {
         error: error instanceof Error ? error.message : "Request failed",
       };
     } finally {
+      this.requests.delete(queueId);
       if (request.kind === "ask") {
         this.busy.delete(sessionKey);
         this.sessionRequests.delete(sessionKey);

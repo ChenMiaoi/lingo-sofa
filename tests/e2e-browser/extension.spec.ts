@@ -182,6 +182,67 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     });
     await expect(page.locator("[data-lingo-sofa]")).toHaveCount(0);
     await expect(page.locator("p").first()).toHaveText("Edited fetch()");
+    const qa = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const preview = (await api.runtime.sendMessage({
+        action: "page",
+        command: "context",
+      })) as { text: string };
+      const tabs = await api.tabs.query({});
+      const tab = tabs.find((tab) => tab.url?.startsWith("http://127.0.0.1"))!;
+      const request = {
+        kind: "ask",
+        requestId: crypto.randomUUID(),
+        sessionId: "preview-session",
+        context: preview.text,
+        question: "Explain",
+      };
+      const reply = await api.runtime.sendMessage({
+        action: "ask",
+        tabId: tab.id,
+        request,
+      });
+      return { reply, tabId: tab.id, request };
+    });
+    expect(qa.reply).toMatchObject({ ok: true, text: "这是模拟回答。" });
+    const beforeReload = model.requests.length;
+    await page.reload();
+    const stale = await options.evaluate(async (qa) => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      return await api.runtime.sendMessage({
+        action: "ask",
+        tabId: qa.tabId,
+        request: { ...qa.request, requestId: crypto.randomUUID() },
+      });
+    }, qa);
+    expect(stale).toMatchObject({ ok: false });
+    expect(model.requests.length).toBe(beforeReload);
+    const changed = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const state = (await api.runtime.sendMessage({ action: "state" })) as {
+        settings: { model: Record<string, unknown> };
+        usage: unknown[];
+      };
+      await api.runtime.sendMessage({
+        action: "save",
+        settings: {
+          ...state.settings,
+          model: {
+            ...state.settings.model,
+            endpoint: "https://api.deepseek.com",
+          },
+        },
+      });
+      return (await api.runtime.sendMessage({ action: "state" })) as {
+        hasKey: boolean;
+        usage: unknown[];
+      };
+    });
+    expect(changed.hasKey).toBe(false);
+    expect(changed.usage).toHaveLength(4);
   } finally {
     await context.close();
     await model.close();
