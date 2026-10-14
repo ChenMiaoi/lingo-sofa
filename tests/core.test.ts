@@ -119,6 +119,61 @@ describe("translation protection and alignment", () => {
       cacheKey("web:a", a, "m2", []),
     );
   });
+  it("accepts echoed input metadata while returning only aligned translation fields", async () => {
+    const result = await translate(
+      {
+        complete: async (_system, input) => {
+          const items = JSON.parse(input) as {
+            id: string;
+            text: string;
+            targetLanguage: string;
+            context: string;
+          }[];
+          return {
+            text: JSON.stringify(
+              items.map((item) => ({
+                id: item.id,
+                text: item.text,
+                targetLanguage: item.targetLanguage,
+                context: item.context,
+              })),
+            ),
+            metrics,
+          };
+        },
+      },
+      [unit],
+      [],
+      new AbortController().signal,
+    );
+    expect(result.results).toEqual([
+      { id: unit.id, revision: unit.revision, text: unit.text },
+    ]);
+    expect(result.results[0]).not.toHaveProperty("targetLanguage");
+    expect(result.results[0]).not.toHaveProperty("context");
+  });
+  it("continues rejecting arbitrary result fields and malformed echoed metadata", async () => {
+    for (const extra of [
+      { confidence: 1 },
+      { targetLanguage: 123 },
+      { targetLanguage: "x".repeat(65) },
+      { context: 123 },
+      { context: "x".repeat(16_001) },
+    ]) {
+      await expect(
+        translate(
+          client(
+            JSON.stringify([
+              { id: unit.id, text: protect(unit.text).text, ...extra },
+            ]),
+          ),
+          [unit],
+          [],
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow();
+    }
+  });
 });
 describe("bounded cancellable queue", () => {
   it("prioritizes pending manual work and limits concurrency", async () => {

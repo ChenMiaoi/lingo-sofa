@@ -8,7 +8,7 @@ import { modelServer } from "../fixtures/model-server.js";
 type ExtensionApi = typeof import("wxt/browser").browser;
 test("loads MV3, translates through Pi, restores DOM and keeps secrets out of content scripts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-sofa-e2e-"));
-  const model = await modelServer();
+  const model = await modelServer({ echoMetadata: true });
   const site = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });
     response.end(

@@ -1,7 +1,12 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 export async function modelServer(
-  options: { reply?: string; status?: number; delay?: number } = {},
+  options: {
+    reply?: string;
+    status?: number;
+    delay?: number;
+    echoMetadata?: boolean;
+  } = {},
 ) {
   const requests: unknown[] = [];
   const server = createServer(async (request, response) => {
@@ -18,9 +23,20 @@ export async function modelServer(
     if (answer === undefined) {
       const prompt = body.messages.at(-1)!.content;
       try {
-        const units = JSON.parse(prompt) as { id: string; text: string }[];
+        const units = JSON.parse(prompt) as {
+          id: string;
+          text: string;
+          targetLanguage?: string;
+          context?: string;
+        }[];
         answer = JSON.stringify(
-          units.map((unit) => ({ id: unit.id, text: `译文 ${unit.text}` })),
+          units.map((unit) => ({
+            id: unit.id,
+            text: `译文 ${unit.text}`,
+            ...(options.echoMetadata
+              ? { targetLanguage: unit.targetLanguage, context: unit.context }
+              : {}),
+          })),
         );
       } catch {
         answer = "这是模拟回答。";

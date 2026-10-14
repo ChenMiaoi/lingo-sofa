@@ -6,10 +6,85 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
+import { replySchema } from "@lingo-sofa/protocol";
 import { createBridge } from "../apps/pi-bridge/src/server.js";
 import { bridgeConfigSchema } from "../apps/pi-bridge/src/config.js";
 import { NativeDecoder, nativeFrame } from "../apps/pi-bridge/src/native.js";
 import { modelServer } from "./fixtures/model-server.js";
+it("normalizes echoed model input metadata before returning a strict Bridge reply", async () => {
+  const model = await modelServer({
+    reply: JSON.stringify([
+      { id: "echo", text: "你好", targetLanguage: "简体中文", context: "" },
+    ]),
+  });
+  const directory = await mkdtemp(join(tmpdir(), "lingo-echo-"));
+  const config = bridgeConfigSchema.parse({
+    settings: {
+      mode: "bridge",
+      model: {
+        provider: "openai-compatible",
+        model: "fixture",
+        endpoint: model.endpoint,
+      },
+    },
+  });
+  const token = "fixture-echo-token-00000000000000000000";
+  const bridge = createBridge(
+    config,
+    "fixture-key",
+    token,
+    Date.now() + 60_000,
+    directory,
+  );
+  try {
+    await new Promise<void>((resolve) =>
+      bridge.server.listen(0, "127.0.0.1", resolve),
+    );
+    config.port = (bridge.server.address() as AddressInfo).port;
+    const response = await fetch(`http://127.0.0.1:${config.port}/v1/request`, {
+      method: "POST",
+      headers: {
+        Origin: "https://discord.com",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        version: 1,
+        sourceKind: "discord",
+        scope: "fixture:echo",
+        request: {
+          kind: "translate",
+          requestId: crypto.randomUUID(),
+          units: [
+            {
+              id: "echo",
+              revision: "1",
+              sourceKind: "discord",
+              text: "Hello",
+              targetLanguage: "简体中文",
+              protectedParts: [],
+            },
+          ],
+        },
+      }),
+    });
+    expect(response.status).toBe(200);
+    const reply = replySchema.parse(await response.json());
+    if (!reply.ok) throw new Error(reply.error);
+    expect(reply).toMatchObject({
+      ok: true,
+      results: [{ id: "echo", revision: "1", text: "你好" }],
+    });
+    expect(reply.results?.[0]).not.toHaveProperty("targetLanguage");
+    expect(reply.results?.[0]).not.toHaveProperty("context");
+  } finally {
+    bridge.server.closeAllConnections();
+    await new Promise<void>((resolve) => bridge.server.close(() => resolve()));
+    bridge.sessions.dispose();
+    await model.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 it("rejects invalid native framing and decodes split/multiple frames", () => {
   const decoder = new NativeDecoder();
   const frame = nativeFrame({ request: 1 });

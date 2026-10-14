@@ -13,7 +13,15 @@ export const translationUnitSchema = z.strictObject({
 });
 export type TranslationUnit = z.infer<typeof translationUnitSchema>;
 export const translationOutputSchema = z
-  .array(z.strictObject({ id: z.string(), text }))
+  .array(
+    z.strictObject({
+      id: z.string(),
+      text,
+      // Some models echo this input metadata; it is never part of the result.
+      targetLanguage: z.string().min(1).max(64).optional(),
+      context: z.string().max(16_000).optional(),
+    }),
+  )
   .min(1)
   .max(16);
 export const pricesSchema = z.strictObject({
