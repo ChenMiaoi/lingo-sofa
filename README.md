@@ -2,7 +2,7 @@
 
 统一双语翻译与 Pi 助手：保留网页或 Discord 原文，就地显示译文，围绕用户预览的内容提问。浏览器扩展、Vencord 插件和可选本地 Pi Bridge 分别构建。
 
-目前提供可构建、可自动验证的开发版本，已完成真实 DeepSeek 和本机 MV3/Native Bridge 验证，尚未完成全部 Windows/macOS 客户端发布验收。详见 [验收记录](docs/acceptance.md) 和 [兼容性清单](docs/compatibility.md)。
+目前提供可构建、可自动验证的开发版本，已完成真实 DeepSeek、本机 MV3/Native Bridge 和原 Discord 验证，尚未完成全部 Windows/macOS 客户端发布验收。详见 [验收记录](docs/acceptance.md) 和 [兼容性清单](docs/compatibility.md)。
 
 ## 开发与验证
 
@@ -28,7 +28,7 @@ npm run benchmark
 4. 在普通网页点击翻译页面或翻译选中。关闭翻译会移除本工具节点；原文不被替换。
 5. 自动模式需要逐网站添加并保存授权。问答必须先预览文章或选中文本。
 
-可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成验收和许可决定。
+可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成真机矩阵验收和第三方许可交付。
 
 默认模型为官方当前 `deepseek-flash`（DeepSeek-V4.1-Flash），验收使用此模型。Pi 目录含计价；费用按请求开始时的官方峰/谷费率估算，预算预留按峰时上限，详见 [价格记录](docs/compatibility.md#已选择的真实验收模型与价格)。
 
@@ -67,7 +67,7 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 
 执行 `npm run build --workspace @lingo-sofa/discord-vencord`，产物是 `apps/discord-vencord/dist/lingoSofa/index.tsx`。将整个 `lingoSofa` 目录放入自行维护的 Vencord checkout 的 `src/userplugins/` 后，按该宿主的构建流程使用。
 
-非官方客户端修改需要用户自行决定并明确授权安装。本项目未自动安装或注入 Discord。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答及草稿预览。先在插件设置配对本地 Bridge；令牌仅保留至插件停止或客户端关闭。模型和预算由 Bridge 配置。生成草稿仅供复制，不自动发送。
+非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答及草稿预览。先在插件设置配对本地 Bridge；令牌仅保留至插件停止或客户端关闭。模型和预算由 Bridge 配置。生成草稿仅供复制，不自动发送。
 
 ## 文档
 

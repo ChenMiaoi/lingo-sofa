@@ -11,7 +11,7 @@
 | Pi AI / Coding Agent | 1.2.0                                    | 模拟 SSE 翻译、工具为空的 SDK 会话、usage/session stats |
 | Zod                  | 4.6.7                                    | 协议校验；浏览器禁用 JIT 的构建适配                     |
 | Playwright           | 1.64.0                                   | Chromium 扩展测试                                       |
-| Vencord              | 16ec4ea838899706019e7f472e45f055070abeb1 | 上游类型检查和集成构建；未注入真实 Discord              |
+| Vencord              | 16ec4ea838899706019e7f472e45f055070abeb1 | 上游类型检查、集成构建及原 Discord 真实交互通过         |
 
 ## Provider 能力
 
@@ -24,7 +24,7 @@
 
 已核对 Pi `AssistantMessage.usage` 的 input/output/cacheRead/cacheWrite/totalTokens/cost、可选 reasoning/durationMs，以及文本/思考/完成/失败事件。模拟数据验证总输入 32、输出 12、总 tokens 44，不把缓存或 reasoning 重复计数。Provider 不返回 usage 时显示未知；单次输出或无有效时间窗口时 TPS 不可用。
 
-费用来源为锁定 Pi 模型目录或用户显式输入的 USD 单价，标为估算；目录是随依赖版本固定的静态快照，自定义端点无价格时不能视作免费。账户余额仅在浏览器直连 DeepSeek 官方端点按需查询，30 秒内复用结果；失败保留界面旧值及更新时间。额度/重置时间没有统一实现时显示未提供，Bridge 余额目前未实现。
+费用来源为官方 DeepSeek 峰/谷单价、锁定 Pi 模型目录或用户显式输入的 USD 单价，标为估算；目录是随依赖版本固定的静态快照，自定义端点无价格时不能视作免费。账户余额仅在浏览器直连 DeepSeek 官方端点按需查询，30 秒内复用结果；失败保留界面旧值及更新时间。额度/重置时间没有统一实现时显示未提供，Bridge 余额目前未实现。
 
 ## 已选择的真实验收模型与价格
 
