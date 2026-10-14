@@ -52,9 +52,12 @@ const markdown = new Marked({
 });
 
 const styles: Record<string, string> = {
-  p: "margin:0.35em 0;color:inherit;font:inherit",
-  ul: "margin:0.35em 0;padding-inline-start:1.5em",
-  ol: "margin:0.35em 0;padding-inline-start:1.5em",
+  ul: "margin:0.35em 0;padding-inline-start:1.5em;list-style-type:disc",
+  ol: "margin:0.35em 0;padding-inline-start:1.5em;list-style-type:decimal",
+  li: "display:list-item;margin:0.15em 0;list-style-type:inherit",
+  strong: "font-weight:700",
+  em: "font-style:italic",
+  del: "text-decoration:line-through",
   blockquote:
     "margin:0.35em 0;padding-inline-start:0.7em;border-inline-start:2px solid currentColor",
   pre: "margin:0.35em 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:0.9em",
@@ -67,10 +70,10 @@ const styles: Record<string, string> = {
 export function renderTranslationMarkdown(text: string): string {
   const html = (markdown.parse(text) as string).trim();
   return html.replace(
-    /<(p|ul|ol|blockquote|pre|code|table|th|td)(?=[\s>])/g,
+    /<(ul|ol|li|strong|em|del|blockquote|pre|code|table|th|td)(?=[\s>])/g,
     (_, tag: string) => `<${tag} style="${styles[tag]}"`,
   );
 }
 
 export const inlineTranslationStyle =
-  "display:block;margin-block:0.5em;padding-block-start:0.4em;border-block-start:1px solid color-mix(in srgb,currentColor 18%,transparent);color:inherit;font:inherit;overflow-wrap:anywhere";
+  "display:block;margin-block:0.5em;padding-block-start:0.4em;border-block-start:1px solid color-mix(in srgb,currentColor 18%,transparent);color:inherit;font:inherit;line-height:1.5;overflow-wrap:anywhere";

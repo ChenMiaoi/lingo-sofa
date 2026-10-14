@@ -6,9 +6,9 @@ test("keeps Discord translations and controls readable across current and legacy
   page,
 }) => {
   await page.setContent(
-    `<style>body { color: black } p { color: black }</style><style>${pluginStyles}</style><section class="lingo-sofa-accessory"><div>${renderTranslationMarkdown("**译文** `fetch()`\n\n- 第一项\n- 第二项")}</div></section><div class="lingo-sofa-dock"><button class="lingo-sofa-launcher">入口</button><section class="lingo-sofa-channel-panel lingo-sofa-panel"><h3>频道控制</h3><label>目标语言<input value="draft"></label><button>提问</button></section></div>`,
+    `<style>body { color: black } p { color: black } ul,ol { list-style:none } li { display:block;list-style:none } strong { font-weight:inherit } em { font-style:normal } del { text-decoration:none }</style><style>${pluginStyles}</style><section class="lingo-sofa-accessory"><div>${renderTranslationMarkdown("**译文** *说明* ~~旧文~~ `fetch()`\n\n- 第一项\n- 第二项\n\n1. 按顺序\n2. 阅读")}</div></section><div class="lingo-sofa-dock"><button class="lingo-sofa-launcher">入口</button><section class="lingo-sofa-channel-panel lingo-sofa-panel"><h3>频道控制</h3><label>目标语言<input value="draft"></label><button>提问</button></section></div>`,
   );
-  await expect(page.locator(".lingo-sofa-accessory li")).toHaveCount(2);
+  await expect(page.locator(".lingo-sofa-accessory li")).toHaveCount(4);
   await expect(page.locator(".lingo-sofa-accessory code")).toHaveText(
     "fetch()",
   );
@@ -17,6 +17,46 @@ test("keeps Discord translations and controls readable across current and legacy
       .locator(".lingo-sofa-accessory")
       .evaluate((node) => getComputedStyle(node).borderBlockStartWidth),
   ).toBe("1px");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory ul")
+      .evaluate((node) => getComputedStyle(node).listStyleType),
+  ).toBe("disc");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory ol")
+      .evaluate((node) => getComputedStyle(node).listStyleType),
+  ).toBe("decimal");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory li")
+      .first()
+      .evaluate((node) => getComputedStyle(node).display),
+  ).toBe("list-item");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory strong")
+      .evaluate((node) => getComputedStyle(node).fontWeight),
+  ).toBe("700");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory em")
+      .evaluate((node) => getComputedStyle(node).fontStyle),
+  ).toBe("italic");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory del")
+      .evaluate((node) => getComputedStyle(node).textDecorationLine),
+  ).toBe("line-through");
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory")
+      .evaluate(
+        (node) =>
+          Number.parseFloat(getComputedStyle(node).lineHeight) /
+          Number.parseFloat(getComputedStyle(node).fontSize),
+      ),
+  ).toBe(1.5);
   for (const legacy of [false, true]) {
     for (const dark of [true, false]) {
       const foreground = dark ? "rgb(219, 222, 225)" : "rgb(49, 51, 56)";
