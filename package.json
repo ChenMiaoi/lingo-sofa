@@ -19,7 +19,8 @@
     "test:e2e": "playwright test",
     "verify:vencord": "node scripts/verify-vencord.mjs",
     "verify:extension": "node scripts/verify-extension.mjs",
-    "benchmark": "tsx scripts/benchmark.mjs"
+    "benchmark": "tsx scripts/benchmark.mjs",
+    "verify:real": "tsx scripts/verify-real-provider.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

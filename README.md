@@ -2,7 +2,7 @@
 
 统一双语翻译与 Pi 助手：保留网页或 Discord 原文，就地显示译文，围绕用户预览的内容提问。浏览器扩展、Vencord 插件和可选本地 Pi Bridge 分别构建。
 
-目前提供可构建、可自动验证的开发版本，尚未完成真实供应商和 Windows/macOS 客户端发布验收。详见 [验收记录](docs/acceptance.md) 和 [兼容性清单](docs/compatibility.md)。
+目前提供可构建、可自动验证的开发版本，已完成真实 DeepSeek 和本机 MV3/Native Bridge 验证，尚未完成全部 Windows/macOS 客户端发布验收。详见 [验收记录](docs/acceptance.md) 和 [兼容性清单](docs/compatibility.md)。
 
 ## 开发与验证
 
@@ -17,6 +17,8 @@ npm run benchmark
 ```
 
 `check` 包含 lint、格式、类型、单元/集成测试、三个应用构建与 MV3 产物审计。首次运行浏览器测试前执行 `npx playwright install chromium`。Vencord 验证下载锁定的上游源码到 `.cache/vencord` 并集成构建，不修改已安装的 Discord。基准测试仅使用合成页面和本地模拟模型。
+
+真实供应商验收为显式操作：在被 Git 忽略的 `.env` 中配置 `API_KEY` 后执行 `npm run package:native --workspace @lingo-sofa/pi-bridge` 和 `npm run verify:real`。它使用临时浏览器 profile 和合成文本发起 5 次真实模型请求，查询一次余额，临时注册 Native Host 并在退出时清理；不会记录密钥或余额金额。目前脚本支持 macOS/Linux，Windows 尚待实现。详见 [真实验收记录](docs/real-provider-acceptance.md)。
 
 ## 浏览器扩展
 
