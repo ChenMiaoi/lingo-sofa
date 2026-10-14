@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@lingo-sofa/protocol": "0.1.0"
+    "@lingo-sofa/protocol": "0.1.0",
+    "marked": "18.0.11"
   }
 }

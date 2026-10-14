@@ -1,3 +1,7 @@
+import {
+  renderTranslationMarkdown,
+  inlineTranslationStyle,
+} from "@lingo-sofa/ui-shared";
 export const TRANSLATION_ATTRIBUTE = "data-lingo-sofa";
 export const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote";
 const EXCLUDED =
@@ -24,6 +28,7 @@ function visible(
 export function textOf(
   element: HTMLElement,
   cache = new WeakMap<HTMLElement, boolean>(),
+  skipCode = false,
 ): string {
   const walker = element.ownerDocument.createTreeWalker(element, 4);
   const parts: string[] = [];
@@ -32,6 +37,7 @@ export function textOf(
     if (
       node.parentElement &&
       !node.parentElement.closest(EXCLUDED) &&
+      (!skipCode || !node.parentElement.closest("code")) &&
       visible(node.parentElement, cache)
     )
       parts.push(node.textContent ?? "");
@@ -45,9 +51,17 @@ export function extract(root: ParentNode): Block[] {
   ];
   return elements
     .filter((element) => {
-      if (element.closest(EXCLUDED) || element.querySelector(BLOCKS))
+      if (
+        element.closest(`${EXCLUDED},code`) ||
+        [...element.querySelectorAll(BLOCKS)].some(
+          (block) => !block.closest("[data-lingo-sofa]"),
+        )
+      )
         return false;
-      return visible(element, visibility);
+      return (
+        Boolean(textOf(element, visibility, true)) &&
+        visible(element, visibility)
+      );
     })
     .map((element) => ({
       element,
@@ -69,7 +83,8 @@ export function selectedContent(document: Document): {
   const ancestor = range.commonAncestorContainer;
   const root =
     ancestor instanceof HTMLElement ? ancestor : ancestor.parentElement;
-  if (!root || root.closest(EXCLUDED)) return { text: "", protectedParts: [] };
+  if (!root || root.closest(`${EXCLUDED},code`))
+    return { text: "", protectedParts: [] };
   const walker = document.createTreeWalker(root, 4);
   const cache = new WeakMap<HTMLElement, boolean>();
   const parts: string[] = [];
@@ -350,9 +365,8 @@ export class PageTranslator {
           this.options.targetLanguage === "简体中文"
             ? "zh-CN"
             : this.options.targetLanguage;
-        node.style.cssText =
-          "display:block;margin-block:0.4em;color:inherit;font:inherit;white-space:pre-wrap";
-        node.textContent = text;
+        node.style.cssText = inlineTranslationStyle;
+        node.innerHTML = renderTranslationMarkdown(text);
         node.setAttribute("aria-label", "LingoSofa 译文");
         element.append(node);
         state.result = node;

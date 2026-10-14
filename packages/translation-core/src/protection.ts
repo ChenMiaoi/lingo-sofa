@@ -1,3 +1,4 @@
+import { codeFragments } from "./code.js";
 export interface ProtectedText {
   text: string;
   fragments: ReadonlyMap<string, string>;
@@ -14,7 +15,9 @@ export function protect(
     fragments.set(marker, value);
     return marker;
   };
-  const explicit = [...new Set(parts)].sort((a, b) => b.length - a.length);
+  const explicit = [...new Set([...codeFragments(text), ...parts])].sort(
+    (a, b) => b.length - a.length,
+  );
   let result = text;
   for (const part of explicit) {
     if (part) result = result.split(part).join(replace(part));

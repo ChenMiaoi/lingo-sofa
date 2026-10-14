@@ -9,7 +9,7 @@ type ExtensionApi = typeof import("wxt/browser").browser;
 
 test("keeps bilingual reading inline with lightweight paragraph/page controls and separate selected-content questions", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-inline-"));
-  const model = await modelServer({ delay: 1500 });
+  const model = await modelServer({ delay: 1500, markdown: true });
   const site = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });
     response.end(
@@ -87,6 +87,14 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     await expect(page.locator("#second")).toHaveText(
       "Second paragraph remains unchanged.",
     );
+    await expect(
+      page.locator("#first [data-lingo-sofa=translation] strong"),
+    ).toHaveText("译文");
+    expect(
+      await page
+        .locator("#first [data-lingo-sofa=translation]")
+        .evaluate((node) => getComputedStyle(node).borderBlockStartWidth),
+    ).toBe("1px");
     expect(model.requests).toHaveLength(1);
     expect(
       await page

@@ -1,3 +1,7 @@
+import {
+  renderTranslationMarkdown,
+  inlineTranslationStyle,
+} from "@lingo-sofa/ui-shared";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
 import {
@@ -327,9 +331,8 @@ export default defineContentScript({
             const node = document.createElement("span");
             node.setAttribute("data-lingo-sofa", "selection");
             node.setAttribute("aria-label", "LingoSofa 选区译文");
-            node.style.cssText =
-              "display:block;margin-block:0.4em;font:inherit;color:inherit;white-space:pre-wrap";
-            node.textContent = translation;
+            node.style.cssText = inlineTranslationStyle;
+            node.innerHTML = renderTranslationMarkdown(translation);
             selectionNodes.get(anchor)?.node.remove();
             anchor.append(node);
             selectionNodes.set(anchor, { node, original });

@@ -24,7 +24,11 @@ import {
   messageContextMatches,
   type MessageRef,
 } from "./controller.js";
-import { formatTokens, formatCost } from "@lingo-sofa/ui-shared";
+import {
+  formatTokens,
+  formatCost,
+  renderTranslationMarkdown,
+} from "@lingo-sofa/ui-shared";
 
 const settings = definePluginSettings({
   modelRevision: {
@@ -290,7 +294,7 @@ function Accessory({ message }: { message: Message }) {
       {state && !translations.isOriginalOnly(scope(ref)) && (
         <section aria-label="LingoSofa 译文" className="lingo-sofa-accessory">
           {!folded && (
-            <p
+            <div
               role={
                 state.status === "failed"
                   ? "alert"
@@ -298,14 +302,18 @@ function Accessory({ message }: { message: Message }) {
                     ? undefined
                     : "status"
               }
-              style={{ whiteSpace: "pre-wrap" }}
+              dangerouslySetInnerHTML={
+                state.status === "success"
+                  ? { __html: renderTranslationMarkdown(state.text ?? "") }
+                  : undefined
+              }
             >
               {state.status === "success"
-                ? state.text
+                ? undefined
                 : state.status === "failed"
                   ? state.error
                   : "翻译中…"}
-            </p>
+            </div>
           )}
           {state.status === "failed" && (
             <button

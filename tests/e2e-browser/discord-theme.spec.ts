@@ -1,12 +1,22 @@
 import { test, expect } from "@playwright/test";
+import { renderTranslationMarkdown } from "@lingo-sofa/ui-shared";
 import { pluginStyles } from "../../apps/discord-vencord/src/styles.js";
 
 test("keeps Discord translations and controls readable across current and legacy theme changes", async ({
   page,
 }) => {
   await page.setContent(
-    `<style>body { color: black } p { color: black }</style><style>${pluginStyles}</style><section class="lingo-sofa-accessory"><p>译文</p></section><div class="lingo-sofa-dock"><button class="lingo-sofa-launcher">入口</button><section class="lingo-sofa-channel-panel lingo-sofa-panel"><h3>频道控制</h3><label>目标语言<input value="draft"></label><button>提问</button></section></div>`,
+    `<style>body { color: black } p { color: black }</style><style>${pluginStyles}</style><section class="lingo-sofa-accessory"><div>${renderTranslationMarkdown("**译文** `fetch()`\n\n- 第一项\n- 第二项")}</div></section><div class="lingo-sofa-dock"><button class="lingo-sofa-launcher">入口</button><section class="lingo-sofa-channel-panel lingo-sofa-panel"><h3>频道控制</h3><label>目标语言<input value="draft"></label><button>提问</button></section></div>`,
   );
+  await expect(page.locator(".lingo-sofa-accessory li")).toHaveCount(2);
+  await expect(page.locator(".lingo-sofa-accessory code")).toHaveText(
+    "fetch()",
+  );
+  expect(
+    await page
+      .locator(".lingo-sofa-accessory")
+      .evaluate((node) => getComputedStyle(node).borderBlockStartWidth),
+  ).toBe("1px");
   for (const legacy of [false, true]) {
     for (const dark of [true, false]) {
       const foreground = dark ? "rgb(219, 222, 225)" : "rgb(49, 51, 56)";
@@ -28,7 +38,7 @@ test("keeps Discord translations and controls readable across current and legacy
         { legacy, foreground, background, dark },
       );
       for (const selector of [
-        ".lingo-sofa-accessory > p",
+        ".lingo-sofa-accessory strong",
         ".lingo-sofa-launcher",
         ".lingo-sofa-panel h3",
         ".lingo-sofa-panel input",
@@ -42,7 +52,7 @@ test("keeps Discord translations and controls readable across current and legacy
       }
       expect(
         await page
-          .locator(".lingo-sofa-accessory > p")
+          .locator(".lingo-sofa-accessory strong")
           .evaluate((node) => getComputedStyle(node).opacity),
       ).toBe("1");
       for (const selector of [

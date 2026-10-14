@@ -251,7 +251,25 @@ it("translates message prose without sending fenced code blocks and skips code-o
     "中文",
   );
   await wait();
-  expect(captured).toHaveLength(1);
+  store.translate(
+    { ...message, id: "inline-code", content: "``fetch(`x`)``" },
+    "中文",
+  );
+  store.translate(
+    { ...message, id: "tilde-code", content: "~~~~js\nprivateKey();\n~~~~" },
+    "中文",
+  );
+  store.translate(
+    {
+      ...message,
+      id: "tilde-prose",
+      content: "Review this.\n~~~js\nprivateKey();\n~~~\nThanks.",
+    },
+    "中文",
+  );
+  await wait();
+  expect(captured).toHaveLength(2);
+  expect(captured[1]!.units[0]!.text).toBe("Review this.\n\nThanks.");
   store.clear();
 });
 

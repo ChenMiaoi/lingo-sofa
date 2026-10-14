@@ -26,3 +26,7 @@ export function formatPricing(pricing?: PricingSnapshot): string {
   }[pricing.period];
   return `${source} · ${period}${pricing.updatedAt ? ` · 更新/核对 ${pricing.updatedAt}` : " · 更新时间未提供"}`;
 }
+export {
+  renderTranslationMarkdown,
+  inlineTranslationStyle,
+} from "./markdown.js";

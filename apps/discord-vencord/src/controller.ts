@@ -1,8 +1,8 @@
 import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
-import { TaskQueue } from "@lingo-sofa/translation-core";
+import { TaskQueue, withoutCode } from "@lingo-sofa/translation-core";
 import type { DiscordBridgeClient } from "./client.js";
 export function messageTranslationText(content: string): string {
-  return content.replace(/(`{3,})[\s\S]*?(?:\1`*|$)/g, "").trim();
+  return withoutCode(content, true);
 }
 export interface MessageRef {
   account: string;
@@ -103,7 +103,7 @@ export class MessageTranslations {
   translate(message: MessageRef, language: string, automatic = false): void {
     if (message.deliveryState && message.deliveryState !== "SENT") return;
     const text = messageTranslationText(message.content);
-    if (!text) return;
+    if (!text || !withoutCode(text)) return;
     const key = this.key(message);
     const messageScope = `discord:${message.account}:${message.channel}`;
     if (automatic && this.originalOnlyScopes.has(messageScope)) return;

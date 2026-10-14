@@ -6,6 +6,7 @@ export async function modelServer(
     status?: number;
     delay?: number;
     echoMetadata?: boolean;
+    markdown?: boolean;
   } = {},
 ) {
   const requests: unknown[] = [];
@@ -32,7 +33,7 @@ export async function modelServer(
         answer = JSON.stringify(
           units.map((unit) => ({
             id: unit.id,
-            text: `译文 ${unit.text}`,
+            text: `${options.markdown ? "**译文**" : "译文"} ${unit.text}`,
             ...(options.echoMetadata
               ? { targetLanguage: unit.targetLanguage, context: unit.context }
               : {}),
