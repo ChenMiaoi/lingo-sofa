@@ -180,6 +180,12 @@ export class TranslationService {
                 id: unit.id,
                 revision: unit.revision,
                 text: cached[index]!,
+                billing: {
+                  source: "cache" as const,
+                  batchSize: 1,
+                  tokens: 0,
+                  cost: 0,
+                },
               })),
             };
           const content =
@@ -260,6 +266,23 @@ export class TranslationService {
                 id: unit.id,
                 revision: unit.revision,
                 text: cached[index] ?? translated.get(unit.id)!,
+                billing:
+                  cached[index] !== undefined
+                    ? {
+                        source: "cache" as const,
+                        batchSize: 1,
+                        tokens: 0,
+                        cost: 0,
+                      }
+                    : {
+                        source: "request" as const,
+                        batchSize: result.results.length,
+                        tokens: metrics.usage?.totalTokens ?? null,
+                        cost: metrics.costKnown
+                          ? (metrics.usage?.cost.total ?? null)
+                          : null,
+                        pricing: metrics.pricing,
+                      },
               }));
               for (let index = 0; index < request.units.length; index++)
                 this.cache.set(

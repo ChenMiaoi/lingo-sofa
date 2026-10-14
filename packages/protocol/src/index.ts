@@ -183,10 +183,18 @@ export interface UsageRecord extends Metrics {
   timestamp: number;
   sessionId?: string | undefined;
 }
+export interface TranslationBilling {
+  source: "request" | "cache";
+  batchSize: number;
+  tokens: number | null;
+  cost: number | null;
+  pricing?: PricingSnapshot | undefined;
+}
 export interface TranslationResult {
   id: string;
   revision: string;
   text: string;
+  billing?: TranslationBilling | undefined;
 }
 export interface ModelReply {
   text: string;
@@ -246,6 +254,20 @@ export const metricsSchema = z.strictObject({
   tps: z.number().nonnegative().nullable(),
   pricing: pricingSnapshotSchema.optional(),
 });
+export const translationBillingSchema = z
+  .strictObject({
+    source: z.enum(["request", "cache"]),
+    batchSize: z.number().int().min(1).max(16),
+    tokens: count.nullable(),
+    cost: money.nullable(),
+    pricing: pricingSnapshotSchema.optional(),
+  })
+  .refine(
+    (value) =>
+      value.source !== "cache" ||
+      (value.tokens === 0 && value.cost === 0 && value.batchSize === 1),
+    "Cache hits cannot carry new charges",
+  );
 export const usageRecordSchema = metricsSchema.extend({
   requestId: z.uuid(),
   scope: z.string().max(1024),
@@ -266,6 +288,7 @@ export const replySchema = z.discriminatedUnion("ok", [
           id: z.string().max(128),
           revision: z.string().max(128),
           text: z.string().max(32_000),
+          billing: translationBillingSchema.optional(),
         }),
       )
       .max(16)

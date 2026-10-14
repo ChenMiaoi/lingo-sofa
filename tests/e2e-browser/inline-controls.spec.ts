@@ -95,6 +95,9 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
         .locator("#first [data-lingo-sofa=translation]")
         .evaluate((node) => getComputedStyle(node).borderBlockStartWidth),
     ).toBe("1px");
+    await expect(page.locator("#first .lingo-sofa-inline-usage")).toHaveText(
+      "44 Tokens · ≈ $0.000000",
+    );
     expect(model.requests).toHaveLength(1);
     expect(
       await page
@@ -134,6 +137,9 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     ).toBeVisible();
     await automatic.check();
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    await expect(
+      page.locator("#second .lingo-sofa-inline-usage"),
+    ).toContainText("同批 2 段合计");
     await expect(page.getByText("更多操作", { exact: true })).toHaveCount(0);
     await expect(page.locator("pre code")).toHaveText("const untouched = 1;");
     await expect(page.getByRole("textbox")).toHaveValue("draft");
@@ -162,7 +168,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     expect(selectionReply.ok).toBe(true);
     await expect(
       page.locator("#second [data-lingo-sofa=selection]"),
-    ).toHaveText("译文 Second");
+    ).toContainText("译文 Second");
     expect(
       await page
         .locator("#second [data-lingo-sofa=selection]")

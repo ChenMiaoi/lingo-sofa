@@ -28,6 +28,7 @@ import {
   formatTokens,
   formatCost,
   renderTranslationMarkdown,
+  formatTranslationBilling,
 } from "@lingo-sofa/ui-shared";
 
 const settings = definePluginSettings({
@@ -313,6 +314,14 @@ function Accessory({ message }: { message: Message }) {
                 : state.status === "failed"
                   ? state.error
                   : "翻译中…"}
+            </div>
+          )}
+          {state.status === "success" && !folded && (
+            <div
+              className="lingo-sofa-inline-usage"
+              title={formatTranslationBilling(state.billing).title}
+            >
+              {formatTranslationBilling(state.billing).text}
             </div>
           )}
           {state.status === "failed" && (

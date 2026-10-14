@@ -1,12 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { renderTranslationMarkdown } from "@lingo-sofa/ui-shared";
+import {
+  renderTranslationMarkdown,
+  formatTranslationBilling,
+} from "@lingo-sofa/ui-shared";
 import { pluginStyles } from "../../apps/discord-vencord/src/styles.js";
 
 test("keeps Discord translations and controls readable across current and legacy theme changes", async ({
   page,
 }) => {
   await page.setContent(
-    `<style>body { color: black } p { color: black } ul,ol { list-style:none } li { display:block;list-style:none } strong { font-weight:inherit } em { font-style:normal } del { text-decoration:none }</style><style>${pluginStyles}</style><section class="lingo-sofa-accessory"><div>${renderTranslationMarkdown("**译文** *说明* ~~旧文~~ `fetch()`\n\n- 第一项\n- 第二项\n\n1. 按顺序\n2. 阅读")}</div></section><div class="lingo-sofa-dock"><button class="lingo-sofa-launcher">入口</button><section class="lingo-sofa-channel-panel lingo-sofa-panel"><h3>频道控制</h3><label>目标语言<input value="draft"></label><button>提问</button></section></div>`,
+    `<style>body { color: black } p { color: black } ul,ol { list-style:none } li { display:block;list-style:none } strong { font-weight:inherit } em { font-style:normal } del { text-decoration:none }</style><style>${pluginStyles}</style><section class="lingo-sofa-accessory"><div>${renderTranslationMarkdown("**译文** *说明* ~~旧文~~ `fetch()`\n\n- 第一项\n- 第二项\n\n1. 按顺序\n2. 阅读")}</div><div class="lingo-sofa-inline-usage">${formatTranslationBilling({ source: "request", batchSize: 1, tokens: 265, cost: 0.0001596 }).text}</div></section><div class="lingo-sofa-dock"><button class="lingo-sofa-launcher">入口</button><section class="lingo-sofa-channel-panel lingo-sofa-panel"><h3>频道控制</h3><label>目标语言<input value="draft"></label><button>提问</button></section></div>`,
   );
   await expect(page.locator(".lingo-sofa-accessory li")).toHaveCount(4);
   await expect(page.locator(".lingo-sofa-accessory code")).toHaveText(
@@ -79,6 +82,7 @@ test("keeps Discord translations and controls readable across current and legacy
       );
       for (const selector of [
         ".lingo-sofa-accessory strong",
+        ".lingo-sofa-inline-usage",
         ".lingo-sofa-launcher",
         ".lingo-sofa-panel h3",
         ".lingo-sofa-panel input",

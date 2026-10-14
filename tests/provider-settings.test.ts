@@ -268,7 +268,17 @@ it("uses the newly configured provider for subsequent translation requests", asy
     if (!reply.ok) throw new Error(reply.error);
     if (reply.ok)
       expect(reply.results).toEqual([
-        { id: "provider", revision: "1", text: "你好" },
+        {
+          id: "provider",
+          revision: "1",
+          text: "你好",
+          billing: expect.objectContaining({
+            source: "request",
+            batchSize: 1,
+            tokens: 44,
+            cost: null,
+          }),
+        },
       ]);
     expect((await client.usage("fixture:provider"))[0]?.provider).toBe("groq");
   } finally {

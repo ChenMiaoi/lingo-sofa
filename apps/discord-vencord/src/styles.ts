@@ -37,6 +37,7 @@ export const pluginStyles = `
 .lingo-sofa-panel summary { cursor: pointer; }
 .lingo-sofa-turn { border-left: 3px solid var(--brand-500, #5865f2); background: var(--lingo-surface); border-radius: 0 8px 8px 0; padding: 4px 14px; margin: 16px 0; }
 .lingo-sofa-accessory { position: relative; margin: 6px 0; padding-block-start: 6px; border-block-start: 1px solid var(--lingo-border); font: inherit; line-height: 1.5; color: var(--lingo-text); }
+.lingo-sofa-inline-usage { margin-top: 6px; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--text-muted, var(--lingo-text)); }
 .lingo-sofa-accessory > p { margin: 4px 0; color: inherit; opacity: 1; }
 .lingo-sofa-translation-actions { position: absolute; right: 0; top: 0; background: var(--lingo-surface); border-radius: 6px; z-index: 1; }
 .lingo-sofa-translation-actions:not([open]) { background: transparent; }

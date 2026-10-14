@@ -1,4 +1,8 @@
-import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
+import type {
+  Reply,
+  TranslationUnit,
+  TranslationBilling,
+} from "@lingo-sofa/protocol";
 import { TaskQueue, withoutCode } from "@lingo-sofa/translation-core";
 import type { DiscordBridgeClient } from "./client.js";
 export function messageTranslationText(content: string): string {
@@ -31,6 +35,7 @@ export interface MessageState {
   language: string;
   status: "queued" | "running" | "success" | "failed";
   text?: string;
+  billing?: TranslationBilling | undefined;
   error?: string;
   requestId: string;
   scope: string;
@@ -159,6 +164,7 @@ export class MessageTranslations {
         if (!result) throw new Error("Bridge 返回了不匹配的消息版本");
         state.status = "success";
         state.text = result.text;
+        state.billing = result.billing;
         this.emit(key);
       })
       .catch((error: unknown) => {

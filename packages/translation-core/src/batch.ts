@@ -2,7 +2,7 @@ import type { TranslationUnit, TranslationResult } from "@lingo-sofa/protocol";
 interface Pending {
   unit: TranslationUnit;
   signal: AbortSignal;
-  resolve: (text: string) => void;
+  resolve: (result: TranslationResult) => void;
   reject: (error: unknown) => void;
   abort: () => void;
 }
@@ -20,6 +20,12 @@ export class TranslationBatcher {
     private readonly maxBytes = 4_000,
   ) {}
   translate(unit: TranslationUnit, signal: AbortSignal): Promise<string> {
+    return this.translateResult(unit, signal).then((result) => result.text);
+  }
+  translateResult(
+    unit: TranslationUnit,
+    signal: AbortSignal,
+  ): Promise<TranslationResult> {
     if (signal.aborted) return Promise.reject(signal.reason);
     if (this.pending.length >= this.capacity)
       return Promise.reject(
@@ -99,7 +105,7 @@ export class TranslationBatcher {
           "Batch returned missing, duplicate or stale paragraph results",
         );
       batch.forEach((item, index) => {
-        if (!item.signal.aborted) item.resolve(aligned[index]![0]!.text);
+        if (!item.signal.aborted) item.resolve(aligned[index]![0]!);
       });
     } catch (error) {
       for (const item of batch) item.reject(error);

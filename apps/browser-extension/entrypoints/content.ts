@@ -1,6 +1,7 @@
 import {
   renderTranslationMarkdown,
   inlineTranslationStyle,
+  appendTranslationBilling,
 } from "@lingo-sofa/ui-shared";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
@@ -15,7 +16,11 @@ import {
 import { TranslationBatcher } from "@lingo-sofa/translation-core/batch";
 import { createPageControls } from "../src/page-controls.js";
 import { showSelectionAsk } from "../src/selection-ask.js";
-import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
+import type {
+  Reply,
+  TranslationUnit,
+  TranslationResult,
+} from "@lingo-sofa/protocol";
 export default defineContentScript({
   registration: "runtime",
   main(ctx) {
@@ -81,7 +86,7 @@ export default defineContentScript({
     async function translate(
       unit: TranslationUnit,
       signal: AbortSignal,
-    ): Promise<string> {
+    ): Promise<TranslationResult> {
       const requestId = crypto.randomUUID();
       const cancel = () => {
         void browser.runtime.sendMessage({ kind: "cancel", requestId });
@@ -102,7 +107,7 @@ export default defineContentScript({
             result.id === unit.id && result.revision === unit.revision,
         );
         if (!result) throw new Error("收到不匹配的段落版本");
-        return result.text;
+        return result;
       } finally {
         signal.removeEventListener("abort", cancel);
       }
@@ -148,7 +153,7 @@ export default defineContentScript({
             reason instanceof Error ? reason.message : "翻译失败",
           ),
         translate: (block, id, revision, signal) =>
-          batcher.translate(
+          batcher.translateResult(
             {
               id,
               revision,
@@ -332,7 +337,8 @@ export default defineContentScript({
             node.setAttribute("data-lingo-sofa", "selection");
             node.setAttribute("aria-label", "LingoSofa 选区译文");
             node.style.cssText = inlineTranslationStyle;
-            node.innerHTML = renderTranslationMarkdown(translation);
+            node.innerHTML = renderTranslationMarkdown(translation.text);
+            appendTranslationBilling(node, translation.billing);
             selectionNodes.get(anchor)?.node.remove();
             anchor.append(node);
             selectionNodes.set(anchor, { node, original });

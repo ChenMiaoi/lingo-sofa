@@ -1,6 +1,8 @@
+import type { TranslationBilling } from "@lingo-sofa/protocol";
 import {
   renderTranslationMarkdown,
   inlineTranslationStyle,
+  appendTranslationBilling,
 } from "@lingo-sofa/ui-shared";
 export const TRANSLATION_ATTRIBUTE = "data-lingo-sofa";
 export const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote";
@@ -145,7 +147,9 @@ export interface PageTranslatorOptions {
     id: string,
     revision: string,
     signal: AbortSignal,
-  ) => Promise<string>;
+  ) => Promise<
+    string | { text: string; billing?: TranslationBilling | undefined }
+  >;
   onError?: (error: unknown) => void;
   observeVisibility?: boolean;
   manual?: boolean;
@@ -366,7 +370,11 @@ export class PageTranslator {
             ? "zh-CN"
             : this.options.targetLanguage;
         node.style.cssText = inlineTranslationStyle;
-        node.innerHTML = renderTranslationMarkdown(text);
+        node.innerHTML = renderTranslationMarkdown(
+          typeof text === "string" ? text : text.text,
+        );
+        if (typeof text !== "string")
+          appendTranslationBilling(node, text.billing);
         node.setAttribute("aria-label", "LingoSofa 译文");
         element.append(node);
         state.result = node;
