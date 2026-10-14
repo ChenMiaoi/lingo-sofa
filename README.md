@@ -1,17 +1,79 @@
 # LingoSofa
 
-统一双语翻译与 Pi 助手。技术方案见 [项目规划](docs/lingo-sofa-plan.md)，协作规范见 [AGENTS.md](AGENTS.md)。
+统一双语翻译与 Pi 助手：保留网页或 Discord 原文，就地显示译文，围绕用户预览的内容提问。浏览器扩展、Vencord 插件和可选本地 Pi Bridge 分别构建。
 
-## 开发
+目前提供可构建、可自动验证的开发版本，尚未完成真实供应商和 Windows/macOS 客户端发布验收。详见 [验收记录](docs/acceptance.md) 和 [兼容性清单](docs/compatibility.md)。
 
-使用 Node.js 24 和 npm。首次安装使用 `npm ci`。
+## 开发与验证
+
+使用 Node.js 24 和 npm，依赖固定在单一锁文件中。
 
 ```sh
+npm ci
 npm run check
+npm run test:e2e
+npm run verify:vencord
+npm run benchmark
 ```
 
-提交前执行上述命令，依次检查 lint、format、TypeScript 类型和测试。使用 `npm run format` 自动格式化；使用 `npm run test:watch` 在开发时运行测试。
+`check` 包含 lint、格式、类型、单元/集成测试、三个应用构建与 MV3 产物审计。首次运行浏览器测试前执行 `npx playwright install chromium`。Vencord 验证下载锁定的上游源码到 `.cache/vencord` 并集成构建，不修改已安装的 Discord。基准测试仅使用合成页面和本地模拟模型。
 
-当前仅完成工程初始化，`src/index.ts` 是空入口，尚无业务代码和测试。测试脚本允许此阶段没有测试文件；添加测试后会自动执行，失败时返回非零状态。测试文件使用 `*.test.ts` 命名。
+## 浏览器扩展
 
-GitHub Actions 在 push 和 pull request 时安装锁定依赖并执行相同检查。
+1. 执行 `npm run build`。
+2. 在 Chrome/Edge 扩展管理页启用开发者模式，加载 `apps/browser-extension/.output/chrome-mv3` 目录。
+3. 打开扩展设置，填写模型、端点和自己的 API Key，点击授权并保存。默认只在浏览器会话保留密钥。
+4. 在普通网页点击翻译页面或翻译选中。关闭翻译会移除本工具节点；原文不被替换。
+5. 自动模式需要逐网站添加并保存授权。问答必须先预览文章或选中文本。
+
+可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成验收和许可决定。
+
+默认模型为官方当前 `deepseek-flash`（DeepSeek-V4.1-Flash），验收使用此模型。Pi 目录含计价；默认费用按官网峰时单价估算，谷时折扣未自动计算，详见 [价格记录](docs/compatibility.md#已选择的真实验收模型与价格)。
+
+浏览器直连目前使用 DeepSeek 或 OpenAI 兼容端点，其他 Pi provider 使用 Bridge。授权范围、内容边界和清理行为见 [隐私说明](docs/privacy.md)。Firefox、PDF、移动端和跨域 iframe 尚不支持。
+
+## 本地 Pi Bridge
+
+Bridge 不随扩展自动安装。以下操作仅用于决定使用本地模式的用户。
+
+```sh
+npm run build --workspace @lingo-sofa/pi-bridge
+npm run init --workspace @lingo-sofa/pi-bridge
+npm run pair --workspace @lingo-sofa/pi-bridge
+```
+
+默认配置位于 `~/.config/lingo-sofa/config.json`，可用 `LINGO_SOFA_HOME` 指定目录。编辑其中 `settings.model` 的 provider、模型及端点，设置预算，按需填写 `allowedExtensions`。API Key 通过启动进程的 `LINGO_SOFA_API_KEY` 环境变量提供；不要提交密钥或配对文件。
+
+```sh
+npm run start --workspace @lingo-sofa/pi-bridge
+```
+
+服务只监听 `127.0.0.1`，默认端口 43187。配对令牌有效期一小时；重新配对后需重启服务并更新 Discord 插件中的令牌。`usePiAuth: true` 可显式复用 Pi 认证文件；默认不读取 Pi CLI 认证。`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。`shareBudget` 也默认关闭，独立控制是否跨前端合并预算；两端显示执行端计算的预算状态。正文缓存始终按上下文隔离。`settings.persistUsage` 控制是否写入 `usage.json`，保留期为 `settings.retentionDays`。
+
+浏览器接入还需要 Native Messaging host：
+
+```sh
+npm run package:native --workspace @lingo-sofa/pi-bridge
+npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
+```
+
+将同一扩展 ID 加入 Bridge 的 `allowedExtensions`，重启 Bridge，并在扩展设置选择本地模式。安装脚本注册用户级 Native Messaging manifest，Windows 还注册 HKCU 项；不会安装 Discord。保留当前 checkout 和 native host 路径，移动目录后需要更新注册。安装不会覆盖已有 manifest；更新前应核对并移除旧注册。
+
+卸载时关闭 Bridge，移除 `com.lingosofa.bridge.json` 用户级 manifest，Windows 同时移除对应 Chrome/Edge 的 HKCU NativeMessagingHosts 项；不再需要配置时删除 `LINGO_SOFA_HOME` 目录。密钥若由系统环境管理，也应在对应环境中清理。
+
+## Discord / Vencord
+
+执行 `npm run build --workspace @lingo-sofa/discord-vencord`，产物是 `apps/discord-vencord/dist/lingoSofa/index.tsx`。将整个 `lingoSofa` 目录放入自行维护的 Vencord checkout 的 `src/userplugins/` 后，按该宿主的构建流程使用。
+
+非官方客户端修改需要用户自行决定并明确授权安装。本项目未自动安装或注入 Discord。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答及草稿预览。先在插件设置配对本地 Bridge；令牌仅保留至插件停止或客户端关闭。模型和预算由 Bridge 配置。生成草稿仅供复制，不自动发送。
+
+## 文档
+
+- [技术设计与里程碑](docs/lingo-sofa-plan.md)
+- [架构和协议](docs/architecture.md)
+- [隐私与凭证](docs/privacy.md)
+- [版本、平台与限制](docs/compatibility.md)
+- [验收证据及剩余发布条件](docs/acceptance.md)
+- [协作与提交规范](AGENTS.md)
+
+项目许可证尚待维护者决定；不能将当前开发产物视为已完成许可核对的公开发布包。
