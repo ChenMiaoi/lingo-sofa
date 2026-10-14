@@ -10,7 +10,11 @@ it("extracts legal leaf blocks and excludes hidden and editable contents", () =>
     "nested",
     "cell",
   ]);
-  expect(blocks[0]!.protectedParts).toEqual(["world", "fetch()"]);
+  expect(blocks[0]!.protectedParts).toEqual(["⟦LS-WEB-LINK:0⟧", "` fetch() `"]);
+  expect(blocks[0]!.markdown).toBe(
+    "Hello [world](⟦LS-WEB-LINK:0⟧) ` fetch() `",
+  );
+  expect(blocks[0]!.links).toEqual({ "⟦LS-WEB-LINK:0⟧": "https://x.test/" });
 });
 it("discards a late result after editing and removes only owned nodes on stop", async () => {
   document.body.innerHTML = "<p>Hello</p>";
@@ -195,4 +199,100 @@ it("allows an explicit paragraph translation while automatic work is paused", as
   ).toBe("译文 First");
   expect(translator.progress.paused).toBe(true);
   translator.stop();
+});
+
+it("preserves inline structure, translates link labels and collapses HTML source wrapping", async () => {
+  document.body.innerHTML = `<article><p>Read
+    <strong>the guide</strong> with <a href="https://example.test/docs?private=never-send">useful instructions</a> and <em>care</em>.<br>Next <code>fetch(\`x\`)</code><span hidden>secret</span>.</p></article>`;
+  const original = document.querySelector("p")!.innerHTML;
+  const block = extract(document)[0]!;
+  expect(block.markdown).toContain("Read **the guide**");
+  expect(block.markdown).not.toContain("never-send");
+  expect(block.markdown).not.toContain("secret");
+  expect(block.markdown).toContain("  \nNext");
+  const { protect, restore } = await import("@lingo-sofa/translation-core");
+  const protectedText = protect(block.markdown, block.protectedParts);
+  expect(protectedText.text).toContain("useful instructions");
+  expect(protectedText.text).not.toContain("fetch(");
+  expect(protectedText.text).not.toContain("never-send");
+  const translator = new PageTranslator(document, {
+    targetLanguage: "简体中文",
+    observeVisibility: false,
+    translate: async () =>
+      restore(
+        protectedText.text
+          .replace("the guide", "指南")
+          .replace("useful instructions", "使用说明")
+          .replace("care", "仔细"),
+        protectedText,
+      ),
+  });
+  translator.start();
+  await wait();
+  const result = document.querySelector('[data-lingo-sofa="translation"]')!;
+  expect(result.querySelector("strong")?.textContent).toBe("指南");
+  expect(result.querySelector("em")?.textContent).toBe("仔细");
+  expect(result.querySelector("a")?.textContent).toBe("使用说明");
+  expect(result.querySelector("a")?.href).toBe(
+    "https://example.test/docs?private=never-send",
+  );
+  expect(result.querySelector("code")?.textContent).toBe("fetch(`x`)");
+  expect(result.querySelectorAll("br")).toHaveLength(1);
+  translator.stop();
+  expect(document.querySelector("p")!.innerHTML).toBe(original);
+});
+it("invalidates results when a source destination or emphasis changes without a text edit", async () => {
+  document.body.innerHTML = '<p>Read <a href="https://one.test">guide</a></p>';
+  const pending: {
+    block: ReturnType<typeof extract>[number];
+    done: (text: string) => void;
+  }[] = [];
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    observeVisibility: false,
+    translate: (block) =>
+      new Promise((resolve) => pending.push({ block, done: resolve })),
+  });
+  translator.start();
+  document.querySelector("a")!.href = "https://two.test";
+  await wait();
+  expect(pending).toHaveLength(2);
+  pending[0]!.done(pending[0]!.block.markdown);
+  pending[1]!.done(pending[1]!.block.markdown);
+  await wait();
+  expect(
+    document
+      .querySelector('[data-lingo-sofa="translation"] a')
+      ?.getAttribute("href"),
+  ).toBe("https://two.test/");
+  document.querySelector("p > a")!.innerHTML = "<strong>guide</strong>";
+  await wait();
+  expect(pending).toHaveLength(3);
+  pending[2]!.done(pending[2]!.block.markdown);
+  await wait();
+  expect(
+    document.querySelector('[data-lingo-sofa="translation"] a strong')
+      ?.textContent,
+  ).toBe("guide");
+  translator.stop();
+});
+it("does not include hidden code children, unsafe destinations or alter formulas", () => {
+  document.body.innerHTML =
+    '<p>Keep $x_1$ <code>safe<span hidden>secret</span></code> <a href="javascript:evil()">read me</a> *literal* [brackets]</p>';
+  const block = extract(document)[0]!;
+  expect(block.markdown).toContain("$x_1$");
+  expect(block.markdown).not.toContain("secret");
+  expect(block.links).toEqual({});
+  expect(block.markdown).toContain("read me");
+  expect(block.markdown).toContain("\\*literal\\*");
+  expect(block.markdown).toContain("\\[brackets\\]");
+});
+
+it("retains visible URL and formula spelling when escaping plain Markdown characters", () => {
+  document.body.innerHTML =
+    "<p>Visit https://example.test/a_b?q=(x) and keep $x_1$ with **literal stars**.</p>";
+  const block = extract(document)[0]!;
+  expect(block.markdown).toContain("https://example.test/a_b?q=(x)");
+  expect(block.markdown).toContain("$x_1$");
+  expect(block.markdown).toContain("\\*\\*literal stars\\*\\*");
 });

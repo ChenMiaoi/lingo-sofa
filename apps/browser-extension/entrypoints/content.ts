@@ -160,7 +160,7 @@ export default defineContentScript({
               id,
               revision,
               sourceKind: "web",
-              text: block.text,
+              text: block.markdown,
               targetLanguage,
               protectedParts: block.protectedParts,
             },
@@ -387,6 +387,7 @@ export default defineContentScript({
               [...anchor.querySelectorAll<HTMLElement>("code")]
                 .filter((code) => !code.closest("[data-lingo-sofa]"))
                 .map((code) => textOf(code)),
+              { breaks: false },
             );
             appendTranslationBilling(node, translation.billing);
             selectionNodes.get(anchor)?.node.remove();

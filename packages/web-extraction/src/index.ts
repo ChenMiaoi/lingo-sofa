@@ -4,6 +4,7 @@ import {
   inlineTranslationStyle,
   appendTranslationBilling,
 } from "@lingo-sofa/ui-shared";
+import { inlineMarkdown } from "./inline-markdown.js";
 export const TRANSLATION_ATTRIBUTE = "data-lingo-sofa";
 export const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote";
 const EXCLUDED =
@@ -12,6 +13,8 @@ export interface Block {
   element: HTMLElement;
   text: string;
   protectedParts: string[];
+  markdown: string;
+  links: Record<string, string>;
 }
 function visible(
   element: HTMLElement,
@@ -68,12 +71,17 @@ export function extract(root: ParentNode): Block[] {
     .map((element) => ({
       element,
       text: textOf(element, visibility),
-      protectedParts: [...element.querySelectorAll("code,a")]
-        .filter((node) => !node.closest(EXCLUDED))
-        .map((node) => textOf(node as HTMLElement, visibility))
-        .filter(Boolean),
+      ...inlineMarkdown(
+        element,
+        (node) => !node.closest(EXCLUDED) && visible(node, visibility),
+      ),
     }))
-    .filter((block) => block.text.length > 0 && block.text.length <= 16_000);
+    .filter(
+      (block) =>
+        block.text.length > 0 &&
+        block.text.length <= 16_000 &&
+        block.markdown.length <= 16_000,
+    );
 }
 export function selectedContent(document: Document): {
   text: string;
@@ -106,7 +114,7 @@ export function selectedContent(document: Document): {
       node === range.endContainer ? range.endOffset : text.length,
     );
     parts.push(selected);
-    const protectedElement = node.parentElement.closest("code,a");
+    const protectedElement = node.parentElement.closest("code");
     if (protectedElement)
       protectedParts.set(
         protectedElement,
@@ -124,10 +132,13 @@ export function selectedContent(document: Document): {
 export function selectedText(document: Document): string {
   return selectedContent(document).text;
 }
+function fingerprint(block: Block | undefined): string | undefined {
+  return block && JSON.stringify([block.text, block.markdown, block.links]);
+}
 interface State {
+  fingerprint: string | undefined;
   id: string;
   revision: number;
-  text: string;
   result?: HTMLElement;
   pending?: string;
   controller?: AbortController;
@@ -230,6 +241,7 @@ export class PageTranslator {
         "hidden",
         "aria-hidden",
         "contenteditable",
+        "href",
         "class",
         "style",
       ],
@@ -319,13 +331,13 @@ export class PageTranslator {
       }
     for (const block of candidates) {
       const previous = this.states.get(block.element);
-      if (previous?.text === block.text) continue;
+      if (previous?.fingerprint === fingerprint(block)) continue;
       previous?.controller?.abort();
       previous?.result?.remove();
       const state: State = {
+        fingerprint: fingerprint(block),
         id: previous?.id ?? `block-${++this.sequence}`,
         revision: (previous?.revision ?? 0) + 1,
-        text: block.text,
       };
       this.states.set(block.element, state);
       if (this.intersection) {
@@ -360,7 +372,9 @@ export class PageTranslator {
           this.stopped ||
           !element.isConnected ||
           this.states.get(element) !== state ||
-          textOf(element) !== state.text
+          fingerprint(
+            extract(element).find((candidate) => candidate.element === element),
+          ) !== state.fingerprint
         )
           return;
         const node = this.document.createElement("span");
@@ -375,6 +389,7 @@ export class PageTranslator {
           [...element.querySelectorAll<HTMLElement>("code")]
             .filter((code) => !code.closest("[data-lingo-sofa]"))
             .map((code) => textOf(code)),
+          { breaks: false, links: block.links },
         );
         if (typeof text !== "string")
           appendTranslationBilling(node, text.billing);
@@ -386,7 +401,9 @@ export class PageTranslator {
         if (
           !controller.signal.aborted &&
           element.isConnected &&
-          textOf(element) === state.text &&
+          fingerprint(
+            extract(element).find((candidate) => candidate.element === element),
+          ) === state.fingerprint &&
           !this.stopped &&
           this.states.get(element) === state
         ) {

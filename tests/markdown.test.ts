@@ -98,3 +98,42 @@ describe("code protection", () => {
     expect(() => restore("使用", content)).toThrow("Protected content");
   });
 });
+
+it("flows web soft line breaks while preserving explicit breaks and Discord lines", () => {
+  const text = "First\nsecond\nthird  \nnext";
+  const web = document.createElement("div");
+  web.innerHTML = renderTranslationMarkdown(text, [], { breaks: false });
+  expect(web.querySelectorAll("br")).toHaveLength(1);
+  const discord = rendered(text);
+  expect(discord.querySelectorAll("br")).toHaveLength(3);
+});
+it("restores local source URLs safely without changing escaped destinations", () => {
+  const web = document.createElement("div");
+  web.innerHTML = renderTranslationMarkdown(
+    "[指南](⟦LS-WEB-LINK:0⟧) [拒绝](⟦LS-WEB-LINK:1⟧)",
+    [],
+    {
+      breaks: false,
+      links: {
+        "⟦LS-WEB-LINK:0⟧": "https://example.test/a_(b)?q=%22x%22",
+        "⟦LS-WEB-LINK:1⟧": "javascript:evil()",
+      },
+    },
+  );
+  expect(web.querySelectorAll("a")).toHaveLength(1);
+  expect(web.querySelector("a")?.href).toBe(
+    "https://example.test/a_(b)?q=%22x%22",
+  );
+});
+
+it("does not parse local destination dollar signs as mathematical formulas", () => {
+  const node = document.createElement("div");
+  node.innerHTML = renderTranslationMarkdown("[指南](⟦LS-WEB-LINK:0⟧)", [], {
+    breaks: false,
+    links: { "⟦LS-WEB-LINK:0⟧": "https://example.test/$token$/a_(b)" },
+  });
+  expect(node.querySelector("a")?.href).toBe(
+    "https://example.test/$token$/a_(b)",
+  );
+  expect(node.querySelector("math")).toBeNull();
+});

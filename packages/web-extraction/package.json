@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@lingo-sofa/ui-shared": "0.1.0",
-    "@lingo-sofa/protocol": "0.1.0"
+    "@lingo-sofa/protocol": "0.1.0",
+    "@lingo-sofa/translation-core": "0.1.0"
   }
 }

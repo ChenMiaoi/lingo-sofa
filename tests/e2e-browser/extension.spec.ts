@@ -99,7 +99,10 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
       2,
     );
-    await expect(page.locator("p code")).toHaveText("fetch()");
+    await expect(page.locator("p > code")).toHaveText("fetch()");
+    await expect(
+      page.locator("p [data-lingo-sofa=translation] code"),
+    ).toHaveText("fetch()");
     expect(await page.locator("article [hidden]").textContent()).toBe("secret");
     const requestCount = model.requests.length;
     await page.evaluate(() => {

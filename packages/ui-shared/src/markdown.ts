@@ -1,6 +1,6 @@
 import katex from "katex";
 import { mathFragments, mathMatches } from "@lingo-sofa/translation-core/math";
-import { Marked } from "marked";
+import { Marked, type MarkedExtension } from "marked";
 
 function escapeHtml(text: string): string {
   return text.replace(
@@ -19,7 +19,7 @@ function escapeHtml(text: string): string {
 // Model output is untrusted. Only the parser's generated formatting is HTML;
 // source HTML stays text, links have an explicit protocol allowlist, and images
 // stay labels rather than causing unsolicited network requests.
-const markdown = new Marked({
+const markdownOptions: MarkedExtension = {
   async: false,
   gfm: true,
   breaks: true,
@@ -51,7 +51,9 @@ const markdown = new Marked({
       return `<span style="display:block;margin:0.35em 0"><strong>${this.parser.parseInline(tokens)}</strong></span>`;
     },
   },
-});
+};
+const markdown = new Marked(markdownOptions);
+const flowingMarkdown = new Marked({ ...markdownOptions, breaks: false });
 
 const styles: Record<string, string> = {
   ul: "margin:0.35em 0;padding-inline-start:1.5em;list-style-type:disc",
@@ -72,6 +74,7 @@ const styles: Record<string, string> = {
 export function renderTranslationMarkdown(
   text: string,
   literalCode: readonly string[] = [],
+  options: { breaks?: boolean; links?: Readonly<Record<string, string>> } = {},
 ): string {
   let prefix = "⟦LS-CODE:";
   while (text.includes(prefix)) prefix += ":";
@@ -117,7 +120,26 @@ export function renderTranslationMarkdown(
     }
     formulas.set(marker, rendered);
   }
-  let html = (markdown.parse(text) as string).trim();
+  const parser = Object.keys(options.links ?? {}).length
+    ? new Marked({
+        ...markdownOptions,
+        breaks: options.breaks ?? true,
+        renderer: {
+          ...markdownOptions.renderer,
+          link(token) {
+            // Resolve only at rendering time, so URL punctuation and dollar
+            // signs cannot become Markdown delimiters or mathematical formulas.
+            return markdownOptions.renderer!.link!.call(this, {
+              ...token,
+              href: options.links?.[token.href] ?? token.href,
+            });
+          },
+        },
+      })
+    : options.breaks === false
+      ? flowingMarkdown
+      : markdown;
+  let html = (parser.parse(text) as string).trim();
   for (const [marker, formula] of formulas)
     html = html.split(marker).join(formula);
   for (const [marker, literal] of literals)

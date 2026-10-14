@@ -91,7 +91,10 @@ test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV
       1000,
       { timeout: 30_000 },
     );
-    await expect(page.locator("p code")).toHaveCount(1000);
+    await expect(page.locator("p > code")).toHaveCount(1000);
+    await expect(
+      page.locator("p [data-lingo-sofa=translation] code"),
+    ).toHaveCount(1000);
     const firstPassMs = Date.now() - started;
     const firstRequests = model.requests.length;
     for (let view = 0; view < 100; view++) {

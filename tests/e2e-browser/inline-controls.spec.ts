@@ -13,7 +13,8 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
   const site = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });
     response.end(
-      `<style>article{max-width:600px;margin:40px auto;font:18px/1.7 Georgia}p{margin:12px 0}</style><article><p id="first">Hello $x^2$ <code>fetch()</code></p><p id="second">Second paragraph remains unchanged.</p><p id="third">Third paragraph.</p><pre><code>const untouched = 1;</code></pre><input value="draft"></article>`,
+      `<style>article{max-width:600px;margin:40px auto;font:18px/1.7 Georgia}p{margin:12px 0}</style><article><p id="first">Hello
+    $x^2$ <code>fetch()</code> with <em>care</em> and <a href="https://example.test/docs?local=only">documentation</a>.<br>Next line.</p><p id="second">Second paragraph remains unchanged.</p><p id="third">Third paragraph.</p><pre><code>const untouched = 1;</code></pre><input value="draft"></article>`,
     );
   });
   await new Promise<void>((done) => site.listen(0, "127.0.0.1", done));
@@ -103,6 +104,16 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       page.locator("#first [data-lingo-sofa=translation] math"),
     ).toHaveCount(1);
     expect(model.requests).toHaveLength(1);
+    await expect(
+      page.locator("#first [data-lingo-sofa=translation] em"),
+    ).toHaveText("care");
+    await expect(
+      page.locator("#first [data-lingo-sofa=translation] a"),
+    ).toHaveAttribute("href", "https://example.test/docs?local=only");
+    await expect(
+      page.locator("#first [data-lingo-sofa=translation] br"),
+    ).toHaveCount(1);
+    expect(JSON.stringify(model.requests[0])).not.toContain("example.test");
     expect(
       await page
         .locator("#first [data-lingo-sofa=translation]")
