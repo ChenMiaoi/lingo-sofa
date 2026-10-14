@@ -305,8 +305,12 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     await expect(options.getByRole("alert")).toContainText(
       "Bridge 用量暂不可用",
     );
-    await expect(options.locator(".stats")).toContainText("Input 未知");
-    await expect(options.locator(".stats")).toContainText("Output 未知");
+    await expect(
+      options.getByText("输入 tokens", { exact: true }).locator(".."),
+    ).toContainText("未知");
+    await expect(
+      options.getByText("输出 tokens", { exact: true }).locator(".."),
+    ).toContainText("未知");
   } finally {
     await context.close();
     await model.close();

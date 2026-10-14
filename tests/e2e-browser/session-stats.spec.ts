@@ -33,7 +33,7 @@ test("clears previous session totals while a new answer is pending and after can
           if (message.action === "page")
             return Promise.resolve({ text: "Selected synthetic context" });
           if (message.action === "ask") {
-            if (++calls === 1)
+            if (++calls <= 2)
               return Promise.resolve({
                 ok: true,
                 text: "Fixture answer",
@@ -55,6 +55,18 @@ test("clears previous session totals while a new answer is pending and after can
       .getByRole("button", { name: "预览文章 / 选中内容并提问" })
       .click();
     await options.getByLabel("问题", { exact: true }).fill("First question");
+    await options.getByRole("button", { name: "提问", exact: true }).click();
+    await expect(options.getByText(/Pi 会话汇总/)).toContainText("999");
+    await options
+      .getByRole("button", { name: "清除缓存、会话与用量", exact: true })
+      .click();
+    await expect(options.getByText(/Pi 会话汇总/)).toHaveCount(0);
+    await expect(
+      options.getByText("Fixture answer", { exact: true }),
+    ).toHaveCount(0);
+    await options
+      .getByLabel("问题", { exact: true })
+      .fill("Fresh session question");
     await options.getByRole("button", { name: "提问", exact: true }).click();
     await expect(options.getByText(/Pi 会话汇总/)).toContainText("999");
     await options.getByLabel("问题", { exact: true }).fill("Second question");

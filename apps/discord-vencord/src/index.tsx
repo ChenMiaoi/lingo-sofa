@@ -11,6 +11,7 @@ import {
   openModal,
 } from "@webpack/common";
 import type { Message } from "@vencord/discord-types";
+import { pluginStyles } from "./styles.js";
 import { DiscordBridgeClient } from "./client.js";
 import { MessageTranslations, type MessageRef } from "./controller.js";
 import { budgetStatus, summarize } from "@lingo-sofa/translation-core";
@@ -129,19 +130,27 @@ function Ask({ message }: { message: MessageRef }) {
     }
   }
   return (
-    <section style={{ padding: 16 }}>
+    <section
+      className="lingo-sofa-panel lingo-sofa-ask"
+      aria-busy={Boolean(running)}
+    >
       <h2>LingoSofa · 询问消息</h2>
       <label>
         将发送的上下文
-        <textarea value={message.content} readOnly style={{ width: "100%" }} />
+        <textarea value={message.content} readOnly rows={4} />
       </label>
       <p>仅发送这条消息及本会话的提问，不读取频道历史或附件。</p>
-      {turns.map((turn, index) => (
-        <div key={index}>
-          <p>{turn.question}</p>
-          <p style={{ whiteSpace: "pre-wrap" }}>{turn.answer}</p>
-        </div>
-      ))}
+      <div aria-live="polite">
+        {turns.map((turn, index) => (
+          <div className="lingo-sofa-turn" key={index}>
+            <p>
+              <strong>你：</strong>
+              {turn.question}
+            </p>
+            <p style={{ whiteSpace: "pre-wrap" }}>{turn.answer}</p>
+          </div>
+        ))}
+      </div>
       {sessionStats && (
         <p>
           Pi 会话汇总：{formatTokens(sessionStats.tokens)} tokens ·{" "}
@@ -155,12 +164,18 @@ function Ask({ message }: { message: MessageRef }) {
         <textarea
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
-          style={{ width: "100%" }}
+          maxLength={16_000}
+          rows={3}
         />
       </label>
-      <button disabled={Boolean(running)} onClick={() => void ask()}>
+      <button
+        className="lingo-sofa-primary"
+        disabled={Boolean(running) || !question.trim()}
+        onClick={() => void ask()}
+      >
         提问
       </button>
+      {running && <p role="status">正在生成回答…</p>}
       {running && (
         <button
           onClick={() =>
@@ -228,15 +243,8 @@ function Accessory({ message }: { message: Message }) {
   return (
     <div ref={element} style={{ minHeight: 1 }}>
       {state && (
-        <section
-          aria-label="LingoSofa 译文"
-          style={{
-            borderInlineStart: "2px solid #238363",
-            paddingInlineStart: 8,
-            marginBlock: 6,
-          }}
-        >
-          <button onClick={() => setFolded(!folded)}>
+        <section aria-label="LingoSofa 译文" className="lingo-sofa-accessory">
+          <button aria-expanded={!folded} onClick={() => setFolded(!folded)}>
             {folded ? "展开译文" : "折叠译文"}
           </button>
           {!folded && (
@@ -281,6 +289,7 @@ function SettingsPanel() {
   const [budgets, setBudgets] = React.useState<string[]>([]);
   const [draft, setDraft] = React.useState("");
   const [translated, setTranslated] = React.useState("");
+  const [previewRunning, setPreviewRunning] = React.useState(false);
   const current = () => ({
     account: UserStore.getCurrentUser()?.id ?? "",
     channel: SelectedChannelStore.getChannelId(),
@@ -288,7 +297,8 @@ function SettingsPanel() {
     content: draft,
   });
   return (
-    <section>
+    <section className="lingo-sofa-panel">
+      <h3>连接本地助手</h3>
       <p>
         模型、provider、Pi 登录和预算由本地 Bridge
         配置。配对令牌只保留到插件停止或客户端关闭。
@@ -359,6 +369,7 @@ function SettingsPanel() {
           <p key={index}>{record}</p>
         ))}
       </details>
+      <h3>先预览，再复制</h3>
       <label>
         草稿翻译预览
         <textarea
@@ -367,7 +378,10 @@ function SettingsPanel() {
         />
       </label>
       <button
+        className="lingo-sofa-primary"
+        disabled={previewRunning || !draft.trim()}
         onClick={() => {
+          setPreviewRunning(true);
           const requestId = crypto.randomUUID();
           const ref = current();
           void client
@@ -390,10 +404,11 @@ function SettingsPanel() {
               if (!reply.ok) throw new Error(reply.error);
               setTranslated(reply.results?.[0]?.text ?? "");
             })
-            .catch((reason: Error) => setNotice(reason.message));
+            .catch((reason: Error) => setNotice(reason.message))
+            .finally(() => setPreviewRunning(false));
         }}
       >
-        预览翻译
+        {previewRunning ? "翻译中…" : "预览翻译"}
       </button>
       <textarea value={translated} readOnly aria-label="草稿译文" />
       <button
@@ -483,7 +498,15 @@ export default definePlugin({
       translations.remove(reference(message)),
     CONNECTION_OPEN: () => translations.clear(),
   },
+  start: () => {
+    document.getElementById("lingo-sofa-styles")?.remove();
+    const style = document.createElement("style");
+    style.id = "lingo-sofa-styles";
+    style.textContent = pluginStyles;
+    document.head.append(style);
+  },
   stop: () => {
+    document.getElementById("lingo-sofa-styles")?.remove();
     translations.clear();
     pairingToken = "";
   },

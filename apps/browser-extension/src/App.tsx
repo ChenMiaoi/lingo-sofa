@@ -64,6 +64,7 @@ export function App() {
   const [glossary, setGlossary] = useState("");
   const [balance, setBalance] = useState<string>("未查询");
   const [autoOrigin, setAutoOrigin] = useState("");
+  const [priceInput, setPriceInput] = useState("");
   function applyState(data: {
     settings: Settings;
     usage: UsageRecord[];
@@ -96,6 +97,17 @@ export function App() {
       .then((data) => {
         applyState(data);
         setSettings(data.settings);
+        const prices = data.settings.model.prices;
+        setPriceInput(
+          prices
+            ? [
+                prices.input,
+                prices.output,
+                prices.cacheRead,
+                prices.cacheWrite,
+              ].join(",")
+            : "",
+        );
 
         setGlossary(
           data.settings.glossary
@@ -168,7 +180,33 @@ export function App() {
             target: line.slice(index + 1).trim(),
           };
         });
-      const next = settingsSchema.parse({ ...settings, glossary: terms });
+      const values = priceInput.split(",").map((value) => value.trim());
+      if (
+        priceInput.trim() &&
+        (values.length !== 4 ||
+          values.some(
+            (value) =>
+              !value || !Number.isFinite(Number(value)) || Number(value) < 0,
+          ))
+      )
+        throw new Error(
+          "单价请填写四个非负数：输入、输出、缓存读、缓存写；或留空使用默认计价",
+        );
+      const next = settingsSchema.parse({
+        ...settings,
+        glossary: terms,
+        model: {
+          ...settings.model,
+          prices: priceInput.trim()
+            ? {
+                input: Number(values[0]),
+                output: Number(values[1]),
+                cacheRead: Number(values[2]),
+                cacheWrite: Number(values[3]),
+              }
+            : null,
+        },
+      });
       const origins = [
         ...new Set([
           ...(next.mode === "direct"
@@ -184,6 +222,7 @@ export function App() {
         settings: next,
         ...(key ? { apiKey: key } : {}),
       });
+      setSettings(next);
       setBalance("未查询");
       setKey("");
       setHasKey(hasKey || Boolean(key));
@@ -257,31 +296,81 @@ export function App() {
       ),
     }));
   return (
-    <main>
-      <header>
-        <h1>LingoSofa</h1>
-        <p>原文在上，理解在旁。</p>
+    <main id="top">
+      <a className="skip-link" href="#translate">
+        跳到翻译操作
+      </a>
+      <header className="brand-header">
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">
+            文
+          </span>
+          <div>
+            <h1>LingoSofa</h1>
+            <p>原文在上，理解在旁。</p>
+          </div>
+        </div>
+        <span className="mode-badge">
+          {settings.mode === "bridge" ? "本地 Bridge" : "模型直连"}
+        </span>
       </header>
+      <nav className="page-nav" aria-label="页面导航">
+        <a href="#translate">翻译与问答</a>
+        <a href="#usage">用量</a>
+        <a
+          href="#settings"
+          onClick={() => {
+            const panel = document.getElementById("settings");
+            if (panel instanceof HTMLDetailsElement) panel.open = true;
+          }}
+        >
+          设置
+        </a>
+      </nav>
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <section aria-label="页面翻译">
+      <section
+        id="translate"
+        tabIndex={-1}
+        className="translation-card"
+        aria-label="页面翻译"
+      >
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">阅读助手</span>
+            <h2>让理解，就在原文旁边。</h2>
+          </div>
+        </div>
+        <p className="muted">翻译当前页面或选中文字，随时恢复原页面。</p>
         <div className="actions">
-          <button onClick={() => void act(() => page("page"))}>翻译页面</button>
+          <button
+            className="primary"
+            onClick={() => void act(() => page("page"))}
+          >
+            翻译页面
+          </button>
           <button onClick={() => void act(() => page("selection"))}>
             翻译选中
           </button>
           <button onClick={() => void act(() => page("stop"))}>关闭翻译</button>
         </div>
-        <button onClick={() => void act(() => page("context"))}>
+        <button
+          className="context-action"
+          onClick={() => void act(() => page("context"))}
+        >
           预览文章 / 选中内容并提问
         </button>
       </section>
       {tabId && (
-        <section aria-label="内容问答">
+        <section
+          className="qa-card"
+          aria-label="内容问答"
+          aria-busy={Boolean(running)}
+        >
           <h2>先确认发送范围</h2>
           {sessionStats && (
             <p>
@@ -299,7 +388,7 @@ export function App() {
           </p>
           <div aria-live="polite">
             {turns.map((turn, index) => (
-              <div key={index}>
+              <div className="conversation-turn" key={index}>
                 <p>
                   <strong>你：</strong>
                   {turn.question}
@@ -318,7 +407,17 @@ export function App() {
                 maxLength={16_000}
               />
             </label>
-            <button disabled={Boolean(running) || !context}>提问</button>
+            <button
+              className="primary"
+              disabled={Boolean(running) || !context || !question.trim()}
+            >
+              提问
+            </button>
+            {running && (
+              <span className="muted" role="status">
+                正在生成回答…
+              </span>
+            )}
             {running && (
               <button
                 type="button"
@@ -355,7 +454,7 @@ export function App() {
           </button>
         </section>
       )}
-      <section aria-label="用量监控">
+      <section id="usage" aria-label="用量监控">
         <h2>用量与预算</h2>
         {bridgeError && <p role="alert">{bridgeError}</p>}
         <p>
@@ -392,14 +491,25 @@ export function App() {
             {budget.warning ? " · 达到提醒阈值或需要处理未知消耗" : ""}
           </p>
         ))}
-        <p className="stats">
-          {queue.running > 0 && "运行中用量统计中 · "}Input{" "}
-          {formatTokens(bridgeError ? null : totals.input)} · Output{" "}
-          {formatTokens(bridgeError ? null : totals.output)}
-          <br />
-          {formatSpeed(bridgeError ? null : totals.tps)} ·{" "}
-          {formatCost(bridgeError ? null : totals.cost)}
-        </p>
+        <div className="metric-grid stats" aria-label="用量摘要">
+          <div>
+            <span>输入 tokens</span>
+            <strong>{formatTokens(bridgeError ? null : totals.input)}</strong>
+          </div>
+          <div>
+            <span>输出 tokens</span>
+            <strong>{formatTokens(bridgeError ? null : totals.output)}</strong>
+          </div>
+          <div>
+            <span>估算费用 · USD</span>
+            <strong>{formatCost(bridgeError ? null : totals.cost)}</strong>
+          </div>
+          <div>
+            <span>生成速度</span>
+            <strong>{formatSpeed(bridgeError ? null : totals.tps)}</strong>
+          </div>
+        </div>
+        {queue.running > 0 && <p role="status">运行中，用量正在统计…</p>}
         <p>
           本地译文缓存：{cacheStats.hits} / {cacheStats.lookups} 段命中（
           {cacheStats.ratio === null
@@ -407,71 +517,80 @@ export function App() {
             : `${Math.round(cacheStats.ratio * 100)}%`}
           ）；仅当前执行进程保留的范围，不计入模型账单。
         </p>
-        <label>
-          查看范围
-          <select
-            value={range}
-            onChange={(event) => setRange(event.target.value)}
-          >
-            <option value="session">当前可观测记录</option>
-            <option value="qa">当前问答会话</option>
-            <option value="day">今日</option>
-            <option value="month">本月</option>
-          </select>
-        </label>
-        <label>
-          页面 / 频道范围
-          <select
-            value={scopeFilter}
-            onChange={(event) => setScopeFilter(event.target.value)}
-          >
-            <option value="">全部已观测范围</option>
-            {[...new Set(usage.map((record) => record.scope))].map((scope) => (
-              <option key={scope} value={scope}>
-                {scope.includes("web")
-                  ? `${scope.includes("web-qa") ? "文章问答" : "网页翻译"} · ${scope.match(/web(?:-qa)?:\d+:(https?:\/\/[^/|]+):[^:|]+$/)?.[1] ?? "页面"}`
-                  : `Discord · 频道 ${scope.split(":").at(-1)}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          模型
-          <select
-            value={modelFilter}
-            onChange={(event) => setModelFilter(event.target.value)}
-          >
-            <option value="">全部模型</option>
-            {[...new Set(usage.map((record) => record.model))].map((model) => (
-              <option key={model}>{model}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          来源
-          <select
-            value={sourceFilter}
-            onChange={(event) => setSourceFilter(event.target.value)}
-          >
-            <option value="">全部</option>
-            <option value="web">浏览器</option>
-            <option value="discord">Discord</option>
-          </select>
-        </label>
-        <label>
-          供应商
-          <select
-            value={providerFilter}
-            onChange={(event) => setProviderFilter(event.target.value)}
-          >
-            <option value="">全部</option>
-            {[...new Set(usage.map((record) => record.provider))].map(
-              (provider) => (
-                <option key={provider}>{provider}</option>
-              ),
-            )}
-          </select>
-        </label>
+        <details className="usage-filters">
+          <summary>筛选用量记录</summary>
+          <div className="form-grid">
+            <label>
+              查看范围
+              <select
+                value={range}
+                onChange={(event) => setRange(event.target.value)}
+              >
+                <option value="session">当前可观测记录</option>
+                <option value="qa">当前问答会话</option>
+                <option value="day">今日</option>
+                <option value="month">本月</option>
+              </select>
+            </label>
+            <label>
+              页面 / 频道范围
+              <select
+                value={scopeFilter}
+                onChange={(event) => setScopeFilter(event.target.value)}
+              >
+                <option value="">全部已观测范围</option>
+                {[...new Set(usage.map((record) => record.scope))].map(
+                  (scope) => (
+                    <option key={scope} value={scope}>
+                      {scope.includes("web")
+                        ? `${scope.includes("web-qa") ? "文章问答" : "网页翻译"} · ${scope.match(/web(?:-qa)?:\d+:(https?:\/\/[^/|]+):[^:|]+$/)?.[1] ?? "页面"}`
+                        : `Discord · 频道 ${scope.split(":").at(-1)}`}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            <label>
+              模型
+              <select
+                value={modelFilter}
+                onChange={(event) => setModelFilter(event.target.value)}
+              >
+                <option value="">全部模型</option>
+                {[...new Set(usage.map((record) => record.model))].map(
+                  (model) => (
+                    <option key={model}>{model}</option>
+                  ),
+                )}
+              </select>
+            </label>
+            <label>
+              来源
+              <select
+                value={sourceFilter}
+                onChange={(event) => setSourceFilter(event.target.value)}
+              >
+                <option value="">全部</option>
+                <option value="web">浏览器</option>
+                <option value="discord">Discord</option>
+              </select>
+            </label>
+            <label>
+              供应商
+              <select
+                value={providerFilter}
+                onChange={(event) => setProviderFilter(event.target.value)}
+              >
+                <option value="">全部</option>
+                {[...new Set(usage.map((record) => record.provider))].map(
+                  (provider) => (
+                    <option key={provider}>{provider}</option>
+                  ),
+                )}
+              </select>
+            </label>
+          </div>
+        </details>
         <details>
           <summary>每日趋势（当前可观测记录）</summary>
           <table>
@@ -596,298 +715,311 @@ export function App() {
             </table>
           </div>
         </details>
-        <p>
-          费用按请求开始时的官方峰/谷费率、Pi
-          目录或用户单价估算（USD），不代表账单实扣。官方价格核对时间见每条记录；跨时段请求以开始时间估算，预算预留按峰时上限。TPS
-          为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
-        </p>
-        <p>供应商余额：{balance}；订阅额度 / 重置时间：未提供</p>
+        <details className="help-panel">
+          <summary>费用与统计如何计算</summary>
+          <p>
+            费用按请求开始时的官方峰/谷费率、Pi
+            目录或用户单价估算（USD），不代表账单实扣。官方价格核对时间见每条记录；跨时段请求以开始时间估算，预算预留按峰时上限。TPS
+            为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
+          </p>
+        </details>
+        <div className="account-summary">
+          <p>供应商余额：{balance}；订阅额度 / 重置时间：未提供</p>
+          <button
+            onClick={() =>
+              void act(async () => {
+                const reply = await send<{
+                  unavailable?: boolean;
+                  data?: {
+                    balance_infos?: {
+                      currency: string;
+                      total_balance: string;
+                    }[];
+                  };
+                  updatedAt?: number;
+                }>({ action: "balance" });
+                setBalance(
+                  reply.unavailable
+                    ? "当前执行模式未提供账户数据"
+                    : `${reply.data?.balance_infos?.map((info) => `${info.total_balance} ${info.currency}`).join(" / ") ?? "未知"}（DeepSeek 官方，${new Date(reply.updatedAt ?? Date.now()).toLocaleString()} 更新）`,
+                );
+              })
+            }
+          >
+            查询余额
+          </button>
+        </div>
         <button
-          onClick={() =>
-            void act(async () => {
-              const reply = await send<{
-                unavailable?: boolean;
-                data?: {
-                  balance_infos?: { currency: string; total_balance: string }[];
-                };
-                updatedAt?: number;
-              }>({ action: "balance" });
-              setBalance(
-                reply.unavailable
-                  ? "当前执行模式未提供账户数据"
-                  : `${reply.data?.balance_infos?.map((info) => `${info.total_balance} ${info.currency}`).join(" / ") ?? "未知"}（DeepSeek 官方，${new Date(reply.updatedAt ?? Date.now()).toLocaleString()} 更新）`,
-              );
-            })
-          }
-        >
-          查询余额
-        </button>
-        <button
+          className="quiet danger"
+          disabled={Boolean(running)}
           onClick={() =>
             void act(async () => {
               await send({ action: "clear" });
               setUsage([]);
               setTurns([]);
+              setSessionStats(undefined);
+              setSessionId(crypto.randomUUID());
             })
           }
         >
           清除缓存、会话与用量
         </button>
       </section>
-      <details>
+      <details id="settings" className="settings-card">
         <summary>模型、网站与隐私设置</summary>
         <form onSubmit={(event) => void save(event)}>
-          <label>
-            目标语言
-            <input
-              value={settings.targetLanguage}
-              onChange={(event) => update("targetLanguage", event.target.value)}
-              required
-            />
-          </label>
-          <label>
-            运行方式
-            <select
-              value={settings.mode}
-              onChange={(event) =>
-                update("mode", event.target.value as Settings["mode"])
-              }
-            >
-              <option value="direct">直接调用模型</option>
-              <option value="bridge">本地 Pi Bridge</option>
-            </select>
-          </label>
-          <label>
-            供应商
-            <select
-              value={settings.model.provider}
-              onChange={(event) =>
-                update("model", {
-                  ...settings.model,
-                  provider: event.target.value as Settings["model"]["provider"],
+          <fieldset>
+            <legend>模型连接</legend>
+            <p className="muted">
+              直连密钥仅在当前浏览器会话保留。本地模式的模型与预算由 Bridge
+              管理。
+            </p>
+            <label>
+              目标语言
+              <input
+                value={settings.targetLanguage}
+                onChange={(event) =>
+                  update("targetLanguage", event.target.value)
+                }
+                required
+              />
+            </label>
+            <label>
+              运行方式
+              <select
+                value={settings.mode}
+                onChange={(event) =>
+                  update("mode", event.target.value as Settings["mode"])
+                }
+              >
+                <option value="direct">直接调用模型</option>
+                <option value="bridge">本地 Pi Bridge</option>
+              </select>
+            </label>
+            <label>
+              供应商
+              <select
+                value={settings.model.provider}
+                onChange={(event) =>
+                  update("model", {
+                    ...settings.model,
+                    provider: event.target
+                      .value as Settings["model"]["provider"],
+                  })
+                }
+              >
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai-compatible">OpenAI 兼容端点</option>
+              </select>
+            </label>
+            <label>
+              模型名称
+              <input
+                value={settings.model.model}
+                onChange={(event) =>
+                  update("model", {
+                    ...settings.model,
+                    model: event.target.value,
+                  })
+                }
+                required
+              />
+            </label>
+            <label>
+              模型端点
+              <input
+                value={settings.model.endpoint}
+                onChange={(event) =>
+                  update("model", {
+                    ...settings.model,
+                    endpoint: event.target.value,
+                  })
+                }
+                type="url"
+                required
+              />
+            </label>
+            <label>
+              API Key（{hasKey ? "已设置" : "未设置"}）
+              <input
+                type="password"
+                value={key}
+                autoComplete="off"
+                onChange={(event) => setKey(event.target.value)}
+                placeholder="仅在本次浏览器会话保留"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                void act(async () => {
+                  await send({ action: "forget-key" });
+                  setHasKey(false);
                 })
               }
             >
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai-compatible">OpenAI 兼容端点</option>
-            </select>
-          </label>
-          <label>
-            模型名称
-            <input
-              value={settings.model.model}
-              onChange={(event) =>
-                update("model", {
-                  ...settings.model,
-                  model: event.target.value,
+              清除 API Key
+            </button>
+          </fieldset>
+          <fieldset>
+            <legend>阅读偏好</legend>
+            <label>
+              自动翻译网站
+              <input
+                value={autoOrigin}
+                onChange={(event) => setAutoOrigin(event.target.value)}
+                placeholder="https://example.com"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                void act(async () => {
+                  const origin = new URL(autoOrigin).origin;
+                  update("autoOrigins", [
+                    ...new Set([...settings.autoOrigins, origin]),
+                  ]);
+                  setAutoOrigin("");
                 })
               }
-              required
-            />
-          </label>
-          <label>
-            模型端点
-            <input
-              value={settings.model.endpoint}
-              onChange={(event) =>
-                update("model", {
-                  ...settings.model,
-                  endpoint: event.target.value,
-                })
-              }
-              type="url"
-              required
-            />
-          </label>
-          <label>
-            API Key（{hasKey ? "已设置" : "未设置"}）
-            <input
-              type="password"
-              value={key}
-              autoComplete="off"
-              onChange={(event) => setKey(event.target.value)}
-              placeholder="仅在本次浏览器会话保留"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() =>
-              void act(async () => {
-                await send({ action: "forget-key" });
-                setHasKey(false);
-              })
-            }
-          >
-            清除 API Key
-          </button>
-          <label>
-            自动翻译网站
-            <input
-              value={autoOrigin}
-              onChange={(event) => setAutoOrigin(event.target.value)}
-              placeholder="https://example.com"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() =>
-              void act(async () => {
-                const origin = new URL(autoOrigin).origin;
-                update("autoOrigins", [
-                  ...new Set([...settings.autoOrigins, origin]),
-                ]);
-                setAutoOrigin("");
-              })
-            }
-          >
-            添加网站（保存后授权）
-          </button>
-          <ul>
-            {settings.autoOrigins.map((origin) => (
-              <li key={origin}>
-                {origin}{" "}
-                <button
-                  type="button"
-                  onClick={() =>
-                    update(
-                      "autoOrigins",
-                      settings.autoOrigins.filter((item) => item !== origin),
-                    )
+            >
+              添加网站（保存后授权）
+            </button>
+            <ul>
+              {settings.autoOrigins.map((origin) => (
+                <li key={origin}>
+                  {origin}{" "}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update(
+                        "autoOrigins",
+                        settings.autoOrigins.filter((item) => item !== origin),
+                      )
+                    }
+                  >
+                    移除
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p>
+              自动翻译会发送已授权网站的可见正文到上述模型端点。手动翻译只处理当前页面。
+            </p>
+            <label>
+              术语表（每行 原词 = 译词）
+              <textarea
+                value={glossary}
+                onChange={(event) => setGlossary(event.target.value)}
+                rows={4}
+              />
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>预算与计价</legend>
+            <div className="form-grid">
+              {(
+                [
+                  "dailyTokens",
+                  "monthlyTokens",
+                  "dailyCost",
+                  "monthlyCost",
+                ] as const
+              ).map((field) => (
+                <label key={field}>
+                  {
+                    {
+                      dailyTokens: "日 token 预算",
+                      monthlyTokens: "月 token 预算",
+                      dailyCost: "日费用预算（USD）",
+                      monthlyCost: "月费用预算（USD）",
+                    }[field]
                   }
-                >
-                  移除
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p>
-            自动翻译会发送已授权网站的可见正文到上述模型端点。手动翻译只处理当前页面。
-          </p>
-          <label>
-            术语表（每行 原词 = 译词）
-            <textarea
-              value={glossary}
-              onChange={(event) => setGlossary(event.target.value)}
-              rows={4}
-            />
-          </label>
-          {(
-            [
-              "dailyTokens",
-              "monthlyTokens",
-              "dailyCost",
-              "monthlyCost",
-            ] as const
-          ).map((field) => (
-            <label key={field}>
-              {
-                {
-                  dailyTokens: "日 token 预算",
-                  monthlyTokens: "月 token 预算",
-                  dailyCost: "日费用预算（USD）",
-                  monthlyCost: "月费用预算（USD）",
-                }[field]
-              }
+                  <input
+                    type="number"
+                    min="0"
+                    step={field.endsWith("Cost") ? "0.01" : "1"}
+                    value={settings[field] ?? ""}
+                    onChange={(event) =>
+                      update(
+                        field,
+                        event.target.value ? Number(event.target.value) : null,
+                      )
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <label>
+              单价（每百万 tokens，USD；留空使用官方或目录价格）
+              <input
+                placeholder="input,output,cacheRead,cacheWrite"
+                value={priceInput}
+                onChange={(event) => setPriceInput(event.target.value)}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.strictBudget}
+                onChange={(event) =>
+                  update("strictBudget", event.target.checked)
+                }
+              />
+              消耗未知时暂停预算任务
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>隐私与历史</legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.persistUsage}
+                onChange={(event) =>
+                  update("persistUsage", event.target.checked)
+                }
+              />
+              本地保存用量历史（不保存正文）
+            </label>
+            <label>
+              历史保留天数
               <input
                 type="number"
-                min="0"
-                step={field.endsWith("Cost") ? "0.01" : "1"}
-                value={settings[field] ?? ""}
+                min="1"
+                max="90"
+                value={settings.retentionDays}
                 onChange={(event) =>
-                  update(
-                    field,
-                    event.target.value ? Number(event.target.value) : null,
-                  )
+                  update("retentionDays", Number(event.target.value))
                 }
               />
             </label>
-          ))}
-          <label>
-            单价（每百万 tokens，USD；留空显示未知）
-            <input
-              placeholder="input,output,cacheRead,cacheWrite"
-              value={
-                settings.model.prices
-                  ? [
-                      settings.model.prices.input,
-                      settings.model.prices.output,
-                      settings.model.prices.cacheRead,
-                      settings.model.prices.cacheWrite,
-                    ].join(",")
-                  : ""
-              }
-              onChange={(event) => {
-                const values = event.target.value.split(",").map(Number);
-                if (!event.target.value)
-                  update("model", { ...settings.model, prices: null });
-                else if (
-                  values.length === 4 &&
-                  values.every((value) => Number.isFinite(value) && value >= 0)
-                )
-                  update("model", {
-                    ...settings.model,
-                    prices: {
-                      input: values[0]!,
-                      output: values[1]!,
-                      cacheRead: values[2]!,
-                      cacheWrite: values[3]!,
-                    },
-                  });
-              }}
-            />
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={settings.strictBudget}
-              onChange={(event) => update("strictBudget", event.target.checked)}
-            />
-            消耗未知时暂停预算任务
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={settings.persistUsage}
-              onChange={(event) => update("persistUsage", event.target.checked)}
-            />
-            本地保存用量历史（不保存正文）
-          </label>
-          <label>
-            历史保留天数
-            <input
-              type="number"
-              min="1"
-              max="90"
-              value={settings.retentionDays}
-              onChange={(event) =>
-                update("retentionDays", Number(event.target.value))
-              }
-            />
-          </label>
-          <label>
-            预算提醒阈值
-            <input
-              type="number"
-              min="0.1"
-              max="1"
-              step="0.05"
-              value={settings.warningRatio}
-              onChange={(event) =>
-                update("warningRatio", Number(event.target.value))
-              }
-            />
-          </label>
-          <label>
-            统计时区
-            <input
-              value={settings.timeZone}
-              onChange={(event) => update("timeZone", event.target.value)}
-            />
-          </label>
-          <button type="submit">授权并保存设置</button>
+            <label>
+              预算提醒阈值
+              <input
+                type="number"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={settings.warningRatio}
+                onChange={(event) =>
+                  update("warningRatio", Number(event.target.value))
+                }
+              />
+            </label>
+            <label>
+              统计时区
+              <input
+                value={settings.timeZone}
+                onChange={(event) => update("timeZone", event.target.value)}
+              />
+            </label>
+          </fieldset>
+          <button className="primary" type="submit">
+            授权并保存设置
+          </button>
         </form>
       </details>
-      <footer>
+      <footer className="page-footer">
         <button onClick={() => void browser.runtime.openOptionsPage()}>
           在完整页面中打开
         </button>
