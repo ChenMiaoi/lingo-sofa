@@ -15,7 +15,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { ModelConfig, Metrics } from "@lingo-sofa/protocol";
 import { resolveModel, ModelFailure } from "@lingo-sofa/provider-pi/node";
-import { measure } from "@lingo-sofa/provider-pi";
+import { measure, failureMessage } from "@lingo-sofa/provider-pi";
 
 export class SafePiSessions {
   private sessions = new Map<
@@ -211,7 +211,9 @@ export class SafePiSessions {
         final.stopReason === "length"
       )
         throw new ModelFailure(
-          "Pi request failed, stopped or reached the output limit",
+          final.stopReason === "length"
+            ? "Model output limit reached"
+            : failureMessage(final),
           metrics,
         );
       return { text: session.getLastAssistantText() ?? "", metrics };

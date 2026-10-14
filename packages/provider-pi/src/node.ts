@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { ModelConfig, ModelClient, Metrics } from "@lingo-sofa/protocol";
 import { resolveModel as compatibleModel, ModelFailure } from "./browser.js";
-import { measure } from "./index.js";
+import { measure, failureMessage } from "./index.js";
 export { ModelFailure };
 const catalog = builtinModels();
 export function resolveModel(config: ModelConfig): {
@@ -102,7 +102,9 @@ export function createPiClient(
       onMetrics?.(metrics);
       if (["error", "aborted", "length"].includes(final.stopReason))
         throw new ModelFailure(
-          "Pi request failed, stopped or reached the output limit",
+          final.stopReason === "length"
+            ? "Model output limit reached"
+            : failureMessage(final),
           metrics,
         );
       return {

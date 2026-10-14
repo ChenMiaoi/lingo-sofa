@@ -52,7 +52,7 @@ it("does not retry failed requests and preserves error accounting", async () => 
         "hello",
         new AbortController().signal,
       ),
-    ).rejects.toBeInstanceOf(ModelFailure);
+    ).rejects.toThrow("429");
     expect(server.requests).toHaveLength(1);
   } finally {
     await server.close();
@@ -74,6 +74,25 @@ it("propagates cancellation to the provider", async () => {
     );
     setTimeout(() => controller.abort(), 40);
     await expect(promise).rejects.toThrow("cancelled");
+  } finally {
+    await server.close();
+  }
+});
+it("times out slow output without retrying or inventing usage", async () => {
+  const server = await modelServer({ delay: 2000 });
+  try {
+    const config = modelConfigSchema.parse({
+      provider: "openai-compatible",
+      endpoint: server.endpoint,
+      model: "fixture",
+      timeoutMs: 1000,
+    });
+    const error = await createPiClient(config, "fixture")
+      .complete("system", "hello", new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(ModelFailure);
+    expect((error as ModelFailure).metrics.usage).toBeNull();
+    expect(server.requests).toHaveLength(1);
   } finally {
     await server.close();
   }

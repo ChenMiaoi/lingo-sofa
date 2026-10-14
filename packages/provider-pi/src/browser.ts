@@ -3,7 +3,7 @@ import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import type { ModelClient, ModelConfig, Metrics } from "@lingo-sofa/protocol";
-import { measure } from "./index.js";
+import { measure, failureMessage } from "./index.js";
 
 export class ModelFailure extends Error {
   constructor(
@@ -112,12 +112,7 @@ export function createPiClient(
       );
       onMetrics?.(metrics);
       if (final.stopReason === "error" || final.stopReason === "aborted")
-        throw new ModelFailure(
-          final.stopReason === "aborted"
-            ? "Request cancelled or timed out"
-            : "Model request failed; check credentials, endpoint and provider availability",
-          metrics,
-        );
+        throw new ModelFailure(failureMessage(final), metrics);
       if (final.stopReason === "length")
         throw new ModelFailure("Model output limit reached", metrics);
       return {
