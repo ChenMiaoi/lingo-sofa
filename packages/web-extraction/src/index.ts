@@ -344,7 +344,7 @@ export class PageTranslator {
             ? "zh-CN"
             : this.options.targetLanguage;
         node.style.cssText =
-          "display:block;margin-block:0.4em;color:inherit;font:inherit;opacity:0.85;white-space:pre-wrap";
+          "display:block;margin-block:0.4em;color:inherit;font:inherit;white-space:pre-wrap";
         node.textContent = text;
         node.setAttribute("aria-label", "LingoSofa 译文");
         element.append(node);

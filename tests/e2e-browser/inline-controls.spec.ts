@@ -93,6 +93,22 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
         .locator("#first [data-lingo-sofa=translation]")
         .evaluate((node) => getComputedStyle(node).borderInlineStartWidth),
     ).toBe("0px");
+    for (const color of ["rgb(238, 238, 238)", "rgb(34, 34, 34)"]) {
+      await page.evaluate((color) => {
+        document.body.style.color = color;
+        document.body.style.background =
+          color === "rgb(238, 238, 238)" ? "#111" : "#fff";
+      }, color);
+      const appearance = await page
+        .locator("#first [data-lingo-sofa=translation]")
+        .evaluate((node) => ({
+          color: getComputedStyle(node).color,
+          originalColor: getComputedStyle(node.parentElement!).color,
+          opacity: getComputedStyle(node).opacity,
+        }));
+      expect(appearance).toEqual({ color, originalColor: color, opacity: "1" });
+    }
+    expect(model.requests).toHaveLength(1);
     const launcher = page.getByRole("button", {
       name: "LingoSofa 页面控制，可拖动或用方向键移动",
       exact: true,
@@ -136,6 +152,14 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     await expect(
       page.locator("#second [data-lingo-sofa=selection]"),
     ).toHaveText("译文 Second");
+    expect(
+      await page
+        .locator("#second [data-lingo-sofa=selection]")
+        .evaluate((node) => ({
+          color: getComputedStyle(node).color,
+          opacity: getComputedStyle(node).opacity,
+        })),
+    ).toEqual({ color: "rgb(34, 34, 34)", opacity: "1" });
     await expect(page.locator("dialog")).toHaveCount(0);
     await page.getByText("更多操作", { exact: true }).click();
     await page
