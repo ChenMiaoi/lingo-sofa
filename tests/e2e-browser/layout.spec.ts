@@ -1,5 +1,5 @@
 import { test, expect, chromium } from "@playwright/test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -27,11 +27,38 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(
         page.getByRole("heading", { name: "LingoSofa", exact: true }),
       ).toBeVisible();
+      await page.evaluate(() => {
+        const fixture = globalThis as typeof globalThis & {
+          uiFeedback: number[];
+        };
+        fixture.uiFeedback = [];
+        document.addEventListener(
+          "click",
+          (event) => {
+            if (
+              !(event.target instanceof Element) ||
+              !event.target.closest(".page-nav a")
+            )
+              return;
+            const started = performance.now();
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() =>
+                fixture.uiFeedback.push(performance.now() - started),
+              ),
+            );
+          },
+          true,
+        );
+      });
       await page.keyboard.press("Tab");
       await expect(
         page.getByRole("link", { name: "跳到翻译操作" }),
       ).toBeFocused();
       await page.keyboard.press("Enter");
+      await page.keyboard.press("Tab");
+      await expect(
+        page.getByRole("button", { name: "在页面中打开控制", exact: true }),
+      ).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(
         page.getByRole("button", { name: "翻译页面", exact: true }),
@@ -64,7 +91,29 @@ for (const colorScheme of ["light", "dark"] as const) {
         ),
       ).toBe(true);
       await page.getByRole("link", { name: "翻译与问答", exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          (globalThis as typeof globalThis & { uiFeedback: number[] })
+            .uiFeedback.length === 3,
+      );
+      const samples = await page.evaluate(
+        () =>
+          (globalThis as typeof globalThis & { uiFeedback: number[] })
+            .uiFeedback,
+      );
       await mkdir(".cache/ui", { recursive: true });
+      await writeFile(
+        `.cache/ui/feedback-${colorScheme}.json`,
+        JSON.stringify(
+          {
+            samplesMs: samples,
+            method:
+              "Native navigation click capture to second requestAnimationFrame, includes settings expansion/anchor layout; approximates local paint readiness and excludes model/network",
+          },
+          null,
+          2,
+        ),
+      );
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: `.cache/ui/options-${colorScheme}.png` });
       await page.goto(`chrome-extension://${id}/popup.html`);

@@ -94,3 +94,77 @@ it("removes translations when a containing region becomes hidden", async () => {
   expect(document.querySelectorAll("[data-lingo-sofa]")).toHaveLength(1);
   translator.stop();
 });
+
+it("translates only the requested paragraph and keeps its inline layout", async () => {
+  document.body.innerHTML =
+    "<article><p>First <code>fetch()</code></p><p>Second</p></article>";
+  const requests: string[] = [];
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    manual: true,
+    observeVisibility: false,
+    translate: async (block) => {
+      requests.push(block.text);
+      return "第一段 fetch()";
+    },
+  });
+  translator.start();
+  expect(requests).toEqual([]);
+  translator.translateElement(document.querySelector("p")!);
+  await wait();
+  expect(requests).toEqual(["First fetch()"]);
+  expect(
+    document.querySelectorAll("[data-lingo-sofa='translation']"),
+  ).toHaveLength(1);
+  expect(document.querySelector("code")!.textContent).toBe("fetch()");
+  const node = document.querySelector<HTMLElement>(
+    "[data-lingo-sofa='translation']",
+  )!;
+  expect(node.parentElement).toBe(document.querySelector("p"));
+  expect(node.style.borderInlineStart).toBe("");
+  expect(translator.progress).toMatchObject({
+    completed: 1,
+    pending: 0,
+    total: 1,
+  });
+  translator.stop();
+});
+
+it("pauses pending work without removing completed text and rejects late results before resume", async () => {
+  document.body.innerHTML = "<p>First</p><p>Second</p>";
+  const pending: { text: string; resolve: (text: string) => void }[] = [];
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    observeVisibility: false,
+    translate: (block) =>
+      new Promise((resolve) => pending.push({ text: block.text, resolve })),
+  });
+  translator.start();
+  pending[0]!.resolve("第一段");
+  await wait();
+  translator.pause();
+  expect(translator.progress).toMatchObject({
+    paused: true,
+    completed: 1,
+    pending: 0,
+  });
+  pending[1]!.resolve("取消后的旧结果");
+  await wait();
+  expect(
+    document.querySelectorAll("[data-lingo-sofa='translation']"),
+  ).toHaveLength(1);
+  document.querySelectorAll("p")[1]!.firstChild!.textContent = "Updated";
+  await wait();
+  expect(pending).toHaveLength(2);
+  translator.resume();
+  expect(pending[2]!.text).toBe("Updated");
+  pending[2]!.resolve("更新后的译文");
+  await wait();
+  expect(translator.progress).toMatchObject({
+    paused: false,
+    completed: 2,
+    pending: 0,
+  });
+  expect(document.body.textContent).not.toContain("取消后的旧结果");
+  translator.stop();
+});

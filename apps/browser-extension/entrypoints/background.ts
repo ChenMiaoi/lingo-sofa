@@ -172,12 +172,50 @@ export default defineBackground(() => {
         tabId?: number;
         request?: unknown;
         context?: string;
+        targetLanguage?: unknown;
       };
       if (data.action === "auto-state" && sender.tab && sender.url)
         return {
           enabled: settings.autoOrigins.includes(new URL(sender.url).origin),
           targetLanguage: settings.targetLanguage,
         };
+      if (
+        ["page-language", "open-options"].includes(data.action) &&
+        sender.tab &&
+        sender.frameId === 0 &&
+        sender.url &&
+        ["http:", "https:"].includes(new URL(sender.url).protocol)
+      ) {
+        if (data.action === "open-options")
+          await browser.runtime.openOptionsPage();
+        else {
+          const targetLanguage = settingsSchema.shape.targetLanguage.parse(
+            data.targetLanguage,
+          );
+          await browser.storage.local.set({
+            settings: { ...settings, targetLanguage },
+          });
+          for (const tab of await browser.tabs.query({})) {
+            if (
+              !tab.id ||
+              tab.id === sender.tab.id ||
+              !tab.url ||
+              !/^https?:/.test(tab.url)
+            )
+              continue;
+            await browser.tabs
+              .sendMessage(tab.id, {
+                action: "settings-changed",
+                targetLanguage,
+                automatic: settings.autoOrigins.includes(
+                  new URL(tab.url).origin,
+                ),
+              })
+              .catch(() => undefined);
+          }
+        }
+        return { ok: true };
+      }
       if (!trustedUI(sender))
         throw new Error(
           "Settings and account data are restricted to extension pages",
@@ -284,7 +322,9 @@ export default defineBackground(() => {
           if (tab.id && tab.url && /^https?:/.test(tab.url)) {
             await browser.tabs
               .sendMessage(tab.id, {
-                action: "settings-changed",
+                action: removed.includes(`${new URL(tab.url).origin}/*`)
+                  ? "disable"
+                  : "settings-changed",
                 targetLanguage: next.targetLanguage,
                 automatic: next.autoOrigins.includes(new URL(tab.url).origin),
               })
@@ -319,10 +359,16 @@ export default defineBackground(() => {
         });
         if (!tab?.id || !tab.url || !/^https?:/.test(tab.url))
           throw new Error("当前页面不支持翻译");
-        await browser.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["/content-scripts/content.js"],
-        });
+        // Reinjecting WXT creates a new context and invalidates its predecessor.
+        // Keep the live reader and its selection when the current document already has one.
+        const peer = (await browser.tabs
+          .sendMessage(tab.id, { action: "context-token" })
+          .catch(() => undefined)) as { documentToken?: unknown } | undefined;
+        if (typeof peer?.documentToken !== "string")
+          await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["/content-scripts/content.js"],
+          });
         const result = await browser.tabs.sendMessage(tab.id, {
           action: data.command,
           targetLanguage: settings.targetLanguage,

@@ -163,7 +163,11 @@ export function App() {
       setSessionId(crypto.randomUUID());
     } else
       setNotice(
-        command === "stop" ? "已恢复原页面" : "翻译任务已开始，可随时关闭",
+        command === "stop"
+          ? "已恢复原页面"
+          : command === "controls"
+            ? "页面控制已打开，尚未发送内容"
+            : "翻译任务已开始，可随时关闭",
       );
   }
   async function save(event: FormEvent) {
@@ -346,13 +350,14 @@ export function App() {
           </div>
         </div>
         <p className="muted">翻译当前页面或选中文字，随时恢复原页面。</p>
+        <button
+          className="primary context-action"
+          onClick={() => void act(() => page("controls"))}
+        >
+          在页面中打开控制
+        </button>
         <div className="actions">
-          <button
-            className="primary"
-            onClick={() => void act(() => page("page"))}
-          >
-            翻译页面
-          </button>
+          <button onClick={() => void act(() => page("page"))}>翻译页面</button>
           <button onClick={() => void act(() => page("selection"))}>
             翻译选中
           </button>

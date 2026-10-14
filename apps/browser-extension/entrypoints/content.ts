@@ -2,11 +2,15 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
 import {
   PageTranslator,
+  BLOCKS,
+  extract,
   textOf,
   selectedText,
   selectedContent,
 } from "@lingo-sofa/web-extraction";
 import { TranslationBatcher } from "@lingo-sofa/translation-core/batch";
+import { createPageControls } from "../src/page-controls.js";
+import { showSelectionAsk } from "../src/selection-ask.js";
 import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
 export default defineContentScript({
   registration: "runtime",
@@ -20,13 +24,55 @@ export default defineContentScript({
     let translator: PageTranslator | undefined;
     let automaticMode = false;
     let selectionController: AbortController | undefined;
-    const dialogs = new Set<HTMLDialogElement>();
+    const selectionNodes = new Map<
+      HTMLElement,
+      { node: HTMLElement; original: string }
+    >();
+    const selectionObserver = new MutationObserver(() => {
+      for (const [anchor, state] of selectionNodes)
+        if (
+          !anchor.isConnected ||
+          textOf(anchor) !== state.original ||
+          !extract(anchor).some((block) => block.element === anchor)
+        ) {
+          state.node.remove();
+          selectionNodes.delete(anchor);
+        }
+    });
+    const askCleanups = new Set<() => void>();
+    let targetLanguage = "简体中文";
+    let mode: "page" | "manual" = "manual";
+    let selectedPreview:
+      | { text: string; root: HTMLElement; original: string; url: string }
+      | undefined;
+    function captureSelection() {
+      const text = selectedContent(document).text;
+      if (!text) {
+        if (!document.activeElement?.closest("[data-lingo-sofa=controls]"))
+          selectedPreview = undefined;
+        return;
+      }
+      const range = document.getSelection()!.getRangeAt(0);
+      const node = range.commonAncestorContainer;
+      const root = node instanceof HTMLElement ? node : node.parentElement;
+      if (root)
+        selectedPreview = {
+          text,
+          root,
+          original: textOf(root),
+          url: location.href,
+        };
+    }
+    document.addEventListener("selectionchange", captureSelection);
     function stop() {
       translator?.stop();
       translator = undefined;
       selectionController?.abort();
-      for (const dialog of dialogs) dialog.remove();
-      dialogs.clear();
+      for (const state of selectionNodes.values()) state.node.remove();
+      selectionNodes.clear();
+      selectionObserver.disconnect();
+      for (const cleanup of askCleanups) cleanup();
+      askCleanups.clear();
     }
     async function translate(
       unit: TranslationUnit,
@@ -57,7 +103,14 @@ export default defineContentScript({
         signal.removeEventListener("abort", cancel);
       }
     }
-    function start(targetLanguage: string, automatic = false) {
+    function start(language: string, automatic = false, manual = false) {
+      targetLanguage = language;
+      if (translator && mode === "manual" && !manual && !automatic) {
+        mode = "page";
+        translator.translatePage();
+        return;
+      }
+      mode = manual ? "manual" : "page";
       stop();
       automaticMode = automatic;
       const batcher = new TranslationBatcher(async (units, signal) => {
@@ -83,6 +136,12 @@ export default defineContentScript({
       });
       translator = new PageTranslator(document, {
         targetLanguage,
+        manual,
+        onChange: (progress) => controls.update(progress, mode),
+        onError: (reason) =>
+          controls.setNotice(
+            reason instanceof Error ? reason.message : "翻译失败",
+          ),
         translate: (block, id, revision, signal) =>
           batcher.translate(
             {
@@ -98,7 +157,53 @@ export default defineContentScript({
       });
       translator.start();
     }
-    browser.runtime.onMessage.addListener((message: unknown) => {
+    const controls = createPageControls(document, {
+      page: () => start(targetLanguage),
+      pause: () => translator?.pause(),
+      resume: () => translator?.resume(),
+      restore: stop,
+      paragraph: (element) => {
+        if (!translator) start(targetLanguage, false, true);
+        translator?.translateElement(element);
+      },
+      ask: () => {
+        captureSelection();
+        const preview = selectedPreview;
+        if (!preview) {
+          controls.setNotice("请先选中要解释或询问的正文");
+          return;
+        }
+        const { text, root, original, url } = preview;
+        const cleanup = showSelectionAsk(
+          document,
+          text,
+          () =>
+            location.href === url &&
+            root.isConnected &&
+            textOf(root) === original,
+          async (request) =>
+            (await browser.runtime.sendMessage(request)) as Reply,
+          () => askCleanups.delete(cleanup),
+        );
+        askCleanups.add(cleanup);
+      },
+      language: async (language) => {
+        const reply = (await browser.runtime.sendMessage({
+          action: "page-language",
+          targetLanguage: language,
+        })) as Reply;
+        if (!reply.ok) throw new Error(reply.error);
+        const active = Boolean(translator);
+        const manual = mode === "manual";
+        stop();
+        targetLanguage = language;
+        if (active && !manual) start(language, automaticMode);
+      },
+      options: () => {
+        void browser.runtime.sendMessage({ action: "open-options" });
+      },
+    });
+    const onMessage = (message: unknown) => {
       if (!message || typeof message !== "object" || !("action" in message))
         return;
       const data = message as {
@@ -106,7 +211,18 @@ export default defineContentScript({
         targetLanguage?: string;
         automatic?: boolean;
       };
+      if (data.action === "disable") {
+        ctx.abort();
+        return Promise.resolve({ ok: true });
+      }
+      if (data.action === "controls") {
+        controls.setLanguage(data.targetLanguage ?? targetLanguage);
+        controls.open();
+        return Promise.resolve({ ok: true });
+      }
       if (data.action === "settings-changed") {
+        targetLanguage = data.targetLanguage ?? "简体中文";
+        controls.setLanguage(targetLanguage);
         stop();
         if (data.automatic) start(data.targetLanguage ?? "简体中文", true);
         return Promise.resolve({ ok: true });
@@ -138,7 +254,20 @@ export default defineContentScript({
             ok: false,
             error: "请先选中可见正文文本；不翻译表单、代码块或编辑区域",
           });
+        const range = document.getSelection()?.getRangeAt(0);
+        const end = range?.endContainer;
+        const anchor = (
+          end instanceof HTMLElement ? end : end?.parentElement
+        )?.closest<HTMLElement>(BLOCKS);
+        if (!anchor || !anchor.isConnected)
+          return Promise.resolve({
+            ok: false,
+            error: "请选中正文段落中的内容",
+          });
+        const original = textOf(anchor);
+        const pageUrl = location.href;
         selectionController?.abort();
+        const controller = (selectionController = new AbortController());
         return translate(
           {
             id: "selection",
@@ -148,25 +277,39 @@ export default defineContentScript({
             targetLanguage: data.targetLanguage ?? "简体中文",
             protectedParts,
           },
-          (selectionController = new AbortController()).signal,
+          controller.signal,
         )
           .then((translation) => {
-            const dialog = document.createElement("dialog");
-            dialog.setAttribute("data-lingo-sofa", "selection");
-            const content = document.createElement("p");
-            content.textContent = translation;
-            const close = document.createElement("button");
-            close.textContent = "关闭译文";
-            const remove = () => {
-              dialogs.delete(dialog);
-              dialog.remove();
-            };
-            close.onclick = remove;
-            dialog.append(content, close);
-            dialog.addEventListener("close", remove);
-            dialogs.add(dialog);
-            document.body.append(dialog);
-            dialog.showModal();
+            if (
+              controller.signal.aborted ||
+              !anchor.isConnected ||
+              textOf(anchor) !== original ||
+              location.href !== pageUrl ||
+              !extract(anchor).some((block) => block.element === anchor)
+            )
+              return { ok: false, error: "选中内容已变化，请重新选择" };
+            const node = document.createElement("span");
+            node.setAttribute("data-lingo-sofa", "selection");
+            node.setAttribute("aria-label", "LingoSofa 选区译文");
+            node.style.cssText =
+              "display:block;margin-block:0.4em;font:inherit;color:inherit;opacity:0.85;white-space:pre-wrap";
+            node.textContent = translation;
+            selectionNodes.get(anchor)?.node.remove();
+            anchor.append(node);
+            selectionNodes.set(anchor, { node, original });
+            selectionObserver.observe(document.body, {
+              childList: true,
+              characterData: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: [
+                "hidden",
+                "aria-hidden",
+                "class",
+                "style",
+                "contenteditable",
+              ],
+            });
             return { ok: true };
           })
           .catch((error: unknown) => ({
@@ -174,15 +317,23 @@ export default defineContentScript({
             error: error instanceof Error ? error.message : "翻译失败",
           }));
       }
-    });
+    };
+    browser.runtime.onMessage.addListener(onMessage);
     ctx.onInvalidated(() => {
+      browser.runtime.onMessage.removeListener(onMessage);
       stop();
+      controls.destroy();
+      document.removeEventListener("selectionchange", captureSelection);
+      selectedPreview = undefined;
       delete lifecycle.lingoSofaLoaded;
     });
     void browser.runtime
       .sendMessage({ action: "auto-state" })
       .then((response: { enabled: boolean; targetLanguage: string }) => {
-        if (response.enabled) start(response.targetLanguage, true);
+        if (ctx.isInvalid) return;
+        targetLanguage = response.targetLanguage;
+        controls.setLanguage(targetLanguage);
+        if (response.enabled) start(targetLanguage, true);
       });
   },
 });

@@ -115,6 +115,14 @@ interface State {
   pending?: string;
   controller?: AbortController;
 }
+export interface PageProgress {
+  active: boolean;
+  paused: boolean;
+  total: number;
+  completed: number;
+  pending: number;
+  failed: number;
+}
 export interface PageTranslatorOptions {
   targetLanguage: string;
   translate: (
@@ -125,17 +133,24 @@ export interface PageTranslatorOptions {
   ) => Promise<string>;
   onError?: (error: unknown) => void;
   observeVisibility?: boolean;
+  manual?: boolean;
+  onChange?: (progress: PageProgress) => void;
 }
 export class PageTranslator {
   private states = new Map<HTMLElement, State>();
   private observer: MutationObserver | undefined;
   private intersection: IntersectionObserver | undefined;
   private stopped = true;
+  private paused = false;
+  private manual: boolean;
+  private visibleElements = new Set<HTMLElement>();
   private sequence = 0;
   constructor(
     private readonly document: Document,
     private readonly options: PageTranslatorOptions,
-  ) {}
+  ) {
+    this.manual = options.manual ?? false;
+  }
   get trackedCount(): number {
     return this.states.size;
   }
@@ -148,12 +163,17 @@ export class PageTranslator {
     )
       this.intersection = new IntersectionObserver(
         (entries) => {
-          for (const entry of entries)
-            if (entry.isIntersecting) this.enqueue(entry.target as HTMLElement);
+          for (const entry of entries) {
+            const element = entry.target as HTMLElement;
+            if (entry.isIntersecting) {
+              this.visibleElements.add(element);
+              this.enqueue(element);
+            } else this.visibleElements.delete(element);
+          }
         },
         { rootMargin: "200px" },
       );
-    this.scan(this.document);
+    if (!this.manual) this.scan(this.document);
     this.observer = new MutationObserver((mutations) => {
       const roots = new Set<HTMLElement>();
       for (const mutation of mutations) {
@@ -177,8 +197,10 @@ export class PageTranslator {
           state.controller?.abort();
           this.intersection?.unobserve(element);
           this.states.delete(element);
+          this.visibleElements.delete(element);
         }
       for (const root of roots) this.scan(root);
+      this.notify();
     });
     this.observer.observe(this.document.body, {
       childList: true,
@@ -193,6 +215,57 @@ export class PageTranslator {
         "style",
       ],
     });
+    this.notify();
+  }
+  translateElement(element: HTMLElement): void {
+    if (this.stopped) this.start();
+    this.scan(element, true);
+    this.notify();
+  }
+  translatePage(): void {
+    this.manual = false;
+    if (this.stopped) this.start();
+    else {
+      this.scan(this.document);
+      this.notify();
+    }
+  }
+  pause(): void {
+    this.paused = true;
+    for (const state of this.states.values()) {
+      state.controller?.abort();
+      delete state.controller;
+      delete state.pending;
+    }
+    this.notify();
+  }
+  resume(): void {
+    if (this.stopped) return;
+    this.paused = false;
+    for (const element of this.states.keys())
+      if (!this.intersection || this.visibleElements.has(element))
+        this.enqueue(element);
+    this.notify();
+  }
+  get progress(): PageProgress {
+    const states = [...this.states.values()];
+    return {
+      active: !this.stopped,
+      paused: this.paused,
+      total: states.length,
+      completed: states.filter(
+        (state) =>
+          state.result?.getAttribute(TRANSLATION_ATTRIBUTE) === "translation",
+      ).length,
+      failed: states.filter(
+        (state) =>
+          state.result?.getAttribute(TRANSLATION_ATTRIBUTE) === "error",
+      ).length,
+      pending: states.filter((state) => state.pending).length,
+    };
+  }
+  private notify(): void {
+    this.options.onChange?.(this.progress);
   }
   stop(): void {
     this.stopped = true;
@@ -203,9 +276,14 @@ export class PageTranslator {
       state.result?.remove();
     }
     this.states.clear();
+    this.visibleElements.clear();
+    this.paused = false;
+    this.notify();
   }
-  private scan(root: ParentNode): void {
-    const candidates = extract(root);
+  private scan(root: ParentNode, explicit = false): void {
+    const candidates = extract(root).filter(
+      (block) => !this.manual || explicit || this.states.has(block.element),
+    );
     const eligible = new Set(candidates.map((block) => block.element));
     for (const [element, state] of this.states)
       if (
@@ -217,6 +295,7 @@ export class PageTranslator {
         state.result?.remove();
         this.intersection?.unobserve(element);
         this.states.delete(element);
+        this.visibleElements.delete(element);
       }
     for (const block of candidates) {
       const previous = this.states.get(block.element);
@@ -237,7 +316,8 @@ export class PageTranslator {
   }
   private enqueue(element: HTMLElement): void {
     const state = this.states.get(element);
-    if (!state || state.pending || state.result || this.stopped) return;
+    if (!state || state.pending || state.result || this.stopped || this.paused)
+      return;
     const block = extract(element).find(
       (candidate) => candidate.element === element,
     );
@@ -245,6 +325,7 @@ export class PageTranslator {
     const controller = new AbortController();
     state.controller = controller;
     state.pending = `${state.revision}`;
+    this.notify();
     void this.options
       .translate(block, state.id, `${state.revision}`, controller.signal)
       .then((text) => {
@@ -263,7 +344,7 @@ export class PageTranslator {
             ? "zh-CN"
             : this.options.targetLanguage;
         node.style.cssText =
-          "display:block;margin-block:0.4em;color:inherit;opacity:0.88;border-inline-start:2px solid #238363;padding-inline-start:0.6em;white-space:pre-wrap";
+          "display:block;margin-block:0.4em;color:inherit;font:inherit;opacity:0.85;white-space:pre-wrap";
         node.textContent = text;
         node.setAttribute("aria-label", "LingoSofa 译文");
         element.append(node);
@@ -294,7 +375,11 @@ export class PageTranslator {
         }
       })
       .finally(() => {
-        delete state.pending;
+        if (state.controller === controller) {
+          delete state.pending;
+          delete state.controller;
+        }
+        this.notify();
       });
   }
 }

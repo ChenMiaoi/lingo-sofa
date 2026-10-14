@@ -99,7 +99,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       2,
     );
     await expect(page.locator("p code")).toHaveText("fetch()");
-    expect(await page.locator("[hidden]").textContent()).toBe("secret");
+    expect(await page.locator("article [hidden]").textContent()).toBe("secret");
     const requestCount = model.requests.length;
     await page.evaluate(() => {
       document.querySelector("p")!.firstChild!.textContent = "Edited ";
@@ -189,7 +189,11 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       state: { ok: false },
       storageAccessible: false,
     });
-    await expect(page.locator("[data-lingo-sofa]")).toHaveCount(0);
+    await expect(
+      page.locator(
+        "[data-lingo-sofa=translation],[data-lingo-sofa=error],[data-lingo-sofa=selection]",
+      ),
+    ).toHaveCount(0);
     await expect(page.locator("p").first()).toHaveText("Edited fetch()");
     const qa = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
@@ -270,7 +274,12 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       };
     });
     expect(changed.hasKey).toBe(false);
-    await expect(page.locator("[data-lingo-sofa]")).toHaveCount(0);
+    await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(0);
+    await expect(
+      page.locator(
+        "[data-lingo-sofa=translation],[data-lingo-sofa=error],[data-lingo-sofa=selection]",
+      ),
+    ).toHaveCount(0);
     expect(changed.usage).toHaveLength(5);
     expect(
       await options.evaluate(
