@@ -614,7 +614,7 @@ export function App() {
               setBalance(
                 reply.unavailable
                   ? "当前执行模式未提供账户数据"
-                  : `${reply.data?.balance_infos?.map((info) => `${info.total_balance} ${info.currency}`).join(" / ") ?? "未知"}（${new Date(reply.updatedAt ?? Date.now()).toLocaleTimeString()} 更新）`,
+                  : `${reply.data?.balance_infos?.map((info) => `${info.total_balance} ${info.currency}`).join(" / ") ?? "未知"}（DeepSeek 官方，${new Date(reply.updatedAt ?? Date.now()).toLocaleString()} 更新）`,
               );
             })
           }
