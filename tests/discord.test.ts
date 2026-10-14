@@ -56,6 +56,45 @@ it("retains translations across virtual unmounts without duplicate requests", as
   await wait();
   expect(calls).toBe(2);
 });
+it("waits for sent messages and keeps translations through metadata-only updates", async () => {
+  let calls = 0;
+  const store = new MessageTranslations({
+    request: async (_scope, request) => {
+      if (request.kind !== "translate") return { ok: true };
+      calls++;
+      return {
+        ok: true,
+        results: request.units.map((unit) => ({
+          id: unit.id,
+          revision: unit.revision,
+          text: "译文",
+        })),
+      };
+    },
+  });
+  store.translate(
+    { ...message, id: "temporary", deliveryState: "SENDING" },
+    "中文",
+    true,
+  );
+  await wait();
+  expect(calls).toBe(0);
+  store.translate({ ...message, deliveryState: "SENT" }, "中文", true);
+  await wait();
+  store.update({
+    account: message.account,
+    channel: message.channel,
+    id: message.id,
+  });
+  store.update(message);
+  store.translate(message, "中文", true);
+  await wait();
+  expect(calls).toBe(1);
+  expect(store.get(message)?.text).toBe("译文");
+  store.update({ ...message, content: "Edited" });
+  expect(store.get(message)).toBeUndefined();
+  store.clear();
+});
 it("discards edited/deleted message results and cancels remote work", async () => {
   const pending: {
     request: Extract<Request, { kind: "translate" }>;

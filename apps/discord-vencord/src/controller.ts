@@ -10,6 +10,7 @@ export interface MessageRef {
   id: string;
   content: string;
   sourceContent?: string;
+  deliveryState?: string;
 }
 export function messageContextMatches(
   selected: MessageRef,
@@ -100,6 +101,7 @@ export class MessageTranslations {
     );
   }
   translate(message: MessageRef, language: string, automatic = false): void {
+    if (message.deliveryState && message.deliveryState !== "SENT") return;
     const text = messageTranslationText(message.content);
     if (!text) return;
     const key = this.key(message);
@@ -178,6 +180,16 @@ export class MessageTranslations {
     }
     this.states.delete(key);
     this.emit(key);
+  }
+  update(
+    message: Pick<MessageRef, "account" | "channel" | "id"> & {
+      content?: string;
+    },
+  ): void {
+    if (typeof message.content !== "string") return;
+    const key = `${message.account}:${message.channel}:${message.id}`;
+    const state = this.states.get(key);
+    if (state && state.content !== message.content) this.remove(message);
   }
   clear(): void {
     for (const [key, state] of this.states) {

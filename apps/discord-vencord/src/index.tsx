@@ -58,6 +58,7 @@ function reference(message: Message): MessageRef {
     channel: message.channel_id,
     id: message.id,
     content: message.content,
+    deliveryState: message.state,
   };
 }
 function scope(message: MessageRef): string {
@@ -263,6 +264,7 @@ function Accessory({ message }: { message: Message }) {
     ref.channel,
     ref.id,
     ref.content,
+    ref.deliveryState,
     configuration.autoChannels,
     configuration.targetLanguage,
   ]);
@@ -793,7 +795,7 @@ export default definePlugin({
         id,
       }),
     MESSAGE_UPDATE: ({ message }: { message: Message }) =>
-      translations.remove(reference(message)),
+      translations.update(reference(message)),
     CONNECTION_OPEN: () => translations.clear(),
   },
   start: () => {
