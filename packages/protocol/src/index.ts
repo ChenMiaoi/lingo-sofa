@@ -16,6 +16,26 @@ export const translationOutputSchema = z
   .array(z.strictObject({ id: z.string(), text }))
   .min(1)
   .max(16);
+export const pricesSchema = z.strictObject({
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  cacheRead: z.number().nonnegative(),
+  cacheWrite: z.number().nonnegative(),
+});
+const priceSourceUrl = z
+  .url()
+  .refine((value) => new URL(value).protocol === "https:");
+export const pricingSnapshotSchema = z.strictObject({
+  source: z.enum(["official", "catalog", "custom", "unknown"]),
+  period: z.enum(["peak", "off-peak", "conservative", "fixed", "unknown"]),
+  prices: pricesSchema.nullable(),
+  sampledAt: z.number().int().nonnegative(),
+  sourceUrl: priceSourceUrl.optional(),
+  updatedAt: z.iso.date().optional(),
+  calendarSourceUrl: priceSourceUrl.optional(),
+  calendarYear: z.number().int().optional(),
+});
+export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
 export const modelConfigSchema = z.strictObject({
   provider: z.string().min(1).max(100),
   model: z.string().min(1).max(200),
@@ -33,15 +53,7 @@ export const modelConfigSchema = z.strictObject({
   }, "Use HTTPS, or HTTP on loopback, without credentials or query parameters"),
   maxOutputTokens: z.number().int().min(128).max(8_192).default(2_048),
   timeoutMs: z.number().int().min(1_000).max(45_000).default(30_000),
-  prices: z
-    .strictObject({
-      input: z.number().nonnegative(),
-      output: z.number().nonnegative(),
-      cacheRead: z.number().nonnegative(),
-      cacheWrite: z.number().nonnegative(),
-    })
-    .nullable()
-    .default(null),
+  prices: pricesSchema.nullable().default(null),
 });
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 export const settingsSchema = z.strictObject({
@@ -142,6 +154,7 @@ export interface Metrics {
   firstTextMs: number | null;
   generationMs: number | null;
   tps: number | null;
+  pricing?: PricingSnapshot | undefined;
 }
 export interface BudgetSnapshot {
   window: "day" | "month";
@@ -223,6 +236,7 @@ export const metricsSchema = z.strictObject({
   firstTextMs: z.number().nonnegative().nullable(),
   generationMs: z.number().nonnegative().nullable(),
   tps: z.number().nonnegative().nullable(),
+  pricing: pricingSnapshotSchema.optional(),
 });
 export const usageRecordSchema = metricsSchema.extend({
   requestId: z.uuid(),

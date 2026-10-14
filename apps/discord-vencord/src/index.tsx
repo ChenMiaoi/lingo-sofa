@@ -14,7 +14,12 @@ import type { Message } from "@vencord/discord-types";
 import { DiscordBridgeClient } from "./client.js";
 import { MessageTranslations, type MessageRef } from "./controller.js";
 import { budgetStatus, summarize } from "@lingo-sofa/translation-core";
-import { formatTokens, formatCost, formatSpeed } from "@lingo-sofa/ui-shared";
+import {
+  formatTokens,
+  formatCost,
+  formatSpeed,
+  formatPricing,
+} from "@lingo-sofa/ui-shared";
 
 const settings = definePluginSettings({
   port: {
@@ -320,7 +325,7 @@ function SettingsPanel() {
                   .reverse()
                   .map(
                     (record) =>
-                      `${record.model} · ${record.status} · Input ${formatTokens(record.usage ? record.usage.input + record.usage.cacheRead + record.usage.cacheWrite : null)} / Output ${formatTokens(record.usage?.output ?? null)} · 缓存读 ${formatTokens(record.usage?.cacheRead ?? null)} / 写 ${formatTokens(record.usage?.cacheWrite ?? null)} · 首输出 ${record.firstTextMs === null ? "不可用" : `${Math.round(record.firstTextMs)}ms`} / 耗时 ${Math.round(record.durationMs)}ms · ${formatSpeed(record.tps)} · ${formatCost(record.costKnown ? (record.usage?.cost.total ?? null) : null)}`,
+                      `${record.model} · ${record.status} · Input ${formatTokens(record.usage ? record.usage.input + record.usage.cacheRead + record.usage.cacheWrite : null)} / Output ${formatTokens(record.usage?.output ?? null)} · 缓存读 ${formatTokens(record.usage?.cacheRead ?? null)} / 写 ${formatTokens(record.usage?.cacheWrite ?? null)} · 首输出 ${record.firstTextMs === null ? "不可用" : `${Math.round(record.firstTextMs)}ms`} / 耗时 ${Math.round(record.durationMs)}ms · ${formatSpeed(record.tps)} · ${formatCost(record.costKnown ? (record.usage?.cost.total ?? null) : null)} · ${formatPricing(record.pricing)}${record.pricing?.sourceUrl ? ` · ${record.pricing.sourceUrl}` : ""}`,
                   ),
               );
               setBudgets(

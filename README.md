@@ -28,7 +28,7 @@ npm run benchmark
 
 可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成验收和许可决定。
 
-默认模型为官方当前 `deepseek-flash`（DeepSeek-V4.1-Flash），验收使用此模型。Pi 目录含计价；默认费用按官网峰时单价估算，谷时折扣未自动计算，详见 [价格记录](docs/compatibility.md#已选择的真实验收模型与价格)。
+默认模型为官方当前 `deepseek-flash`（DeepSeek-V4.1-Flash），验收使用此模型。Pi 目录含计价；费用按请求开始时的官方峰/谷费率估算，预算预留按峰时上限，详见 [价格记录](docs/compatibility.md#已选择的真实验收模型与价格)。
 
 浏览器直连目前使用 DeepSeek 或 OpenAI 兼容端点，其他 Pi provider 使用 Bridge。授权范围、内容边界和清理行为见 [隐私说明](docs/privacy.md)。Firefox、PDF、移动端和跨域 iframe 尚不支持。
 

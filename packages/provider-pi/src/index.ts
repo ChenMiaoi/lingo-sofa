@@ -1,5 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { Metrics } from "@lingo-sofa/protocol";
+import type { Metrics, PricingSnapshot } from "@lingo-sofa/protocol";
+import { priceUsage } from "./pricing.js";
+export { resolvePricing, priceUsage } from "./pricing.js";
 export function measure(
   message: AssistantMessage,
   elapsed: number,
@@ -8,14 +10,21 @@ export function measure(
   last: number | null,
   chunks: number,
   costKnown: boolean,
+  pricing?: PricingSnapshot,
 ): Metrics {
   const generationMs =
     first !== null && last !== null && chunks > 1 && last > first
       ? last - first
       : null;
   return {
-    usage: message.usage.totalTokens > 0 ? message.usage : null,
+    usage:
+      message.usage.totalTokens > 0
+        ? pricing
+          ? priceUsage(message.usage, pricing)
+          : message.usage
+        : null,
     costKnown,
+    ...(pricing ? { pricing } : {}),
     durationMs: message.durationMs ?? elapsed,
     firstOutputMs: first,
     firstTextMs: firstText,

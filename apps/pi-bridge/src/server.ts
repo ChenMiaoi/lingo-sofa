@@ -52,7 +52,7 @@ export function createBridge(
       await checkpoint();
     },
     pricing: (settings) => {
-      const resolved = resolveModel(settings.model);
+      const resolved = resolveModel(settings.model, Date.now(), true);
       return resolved.costKnown ? resolved.model.cost : null;
     },
     client: async (settings, onMetrics) =>
@@ -224,9 +224,7 @@ export function createBridge(
           result.sessionStats = {
             tokens: stats.tokens.total,
             messages: stats.totalMessages,
-            cost: resolveModel(config.settings.model).costKnown
-              ? stats.cost
-              : null,
+            cost: stats.cost,
           };
       }
       reply(200, result);

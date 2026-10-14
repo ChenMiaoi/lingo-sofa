@@ -8,7 +8,12 @@ import {
   type BudgetSnapshot,
 } from "@lingo-sofa/protocol";
 import { summarize, period, budgetStatus } from "@lingo-sofa/translation-core";
-import { formatTokens, formatCost, formatSpeed } from "@lingo-sofa/ui-shared";
+import {
+  formatTokens,
+  formatCost,
+  formatSpeed,
+  formatPricing,
+} from "@lingo-sofa/ui-shared";
 
 async function send<T>(message: unknown): Promise<T> {
   const reply = (await browser.runtime.sendMessage(message)) as T & {
@@ -568,6 +573,21 @@ export function App() {
                             ? (record.usage?.cost.total ?? null)
                             : null,
                         )}
+                        <br />
+                        <small>{formatPricing(record.pricing)}</small>
+                        {record.pricing?.sourceUrl && (
+                          <>
+                            {" "}
+                            ·{" "}
+                            <a
+                              href={record.pricing.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              价格来源
+                            </a>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -576,7 +596,8 @@ export function App() {
           </div>
         </details>
         <p>
-          费用为 Pi 模型目录或用户单价估算（USD）；TPS
+          费用按请求开始时的官方峰/谷费率、Pi
+          目录或用户单价估算（USD），不代表账单实扣。官方价格核对时间见每条记录；跨时段请求以开始时间估算，预算预留按峰时上限。TPS
           为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
         </p>
         <p>供应商余额：{balance}；订阅额度 / 重置时间：未提供</p>

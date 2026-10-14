@@ -19,7 +19,7 @@ export default defineBackground(() => {
   const inFlight = new Map<string, UsageRecord>();
   const service = new TranslationService({
     pricing: (settings) => {
-      const resolved = resolveModel(settings.model);
+      const resolved = resolveModel(settings.model, Date.now(), true);
       return resolved.costKnown ? resolved.model.cost : null;
     },
     onFinish: async (id) => {

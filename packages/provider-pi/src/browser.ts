@@ -2,7 +2,13 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import type { ModelClient, ModelConfig, Metrics } from "@lingo-sofa/protocol";
+import type {
+  ModelClient,
+  ModelConfig,
+  Metrics,
+  PricingSnapshot,
+} from "@lingo-sofa/protocol";
+import { resolvePricing } from "./pricing.js";
 import { measure, failureMessage } from "./index.js";
 
 export class ModelFailure extends Error {
@@ -13,9 +19,14 @@ export class ModelFailure extends Error {
     super(message);
   }
 }
-export function resolveModel(config: ModelConfig): {
+export function resolveModel(
+  config: ModelConfig,
+  sampledAt = Date.now(),
+  conservative = false,
+): {
   model: Model<"openai-completions">;
   costKnown: boolean;
+  pricing: PricingSnapshot;
 } {
   if (!["deepseek", "openai-compatible"].includes(config.provider))
     throw new Error("This provider requires local Pi Bridge mode");
@@ -25,6 +36,7 @@ export function resolveModel(config: ModelConfig): {
           .getModels()
           .find((model) => model.id === config.model)
       : undefined;
+  const pricing = resolvePricing(config, catalog, sampledAt, conservative);
   const model: Model<"openai-completions"> = {
     ...(catalog ?? {
       id: config.model,
@@ -39,14 +51,17 @@ export function resolveModel(config: ModelConfig): {
     }),
     baseUrl: config.endpoint,
     id: config.model,
-    cost: config.prices ??
-      catalog?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: pricing.prices ?? {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
   };
   return {
     model,
-    costKnown:
-      config.prices !== null ||
-      (catalog !== undefined && config.endpoint === catalog.baseUrl),
+    costKnown: pricing.prices !== null,
+    pricing,
   };
 }
 export function createPiClient(
@@ -55,9 +70,10 @@ export function createPiClient(
   fetcher?: typeof fetch,
   onMetrics?: (metrics: Metrics) => void,
 ): ModelClient {
-  const { model, costKnown } = resolveModel(config);
+  resolveModel(config);
   return {
     async complete(system, prompt, signal, onText) {
+      const { model, costKnown, pricing } = resolveModel(config);
       const started = performance.now();
       let first: number | null = null,
         firstText: number | null = null,
@@ -109,6 +125,7 @@ export function createPiClient(
         last,
         chunks,
         costKnown,
+        pricing,
       );
       onMetrics?.(metrics);
       if (final.stopReason === "error" || final.stopReason === "aborted")

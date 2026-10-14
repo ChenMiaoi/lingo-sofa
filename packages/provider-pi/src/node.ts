@@ -5,28 +5,47 @@ import type {
   Models,
   AssistantMessage,
 } from "@earendil-works/pi-ai";
-import type { ModelConfig, ModelClient, Metrics } from "@lingo-sofa/protocol";
+import type {
+  ModelConfig,
+  ModelClient,
+  Metrics,
+  PricingSnapshot,
+} from "@lingo-sofa/protocol";
 import { resolveModel as compatibleModel, ModelFailure } from "./browser.js";
+import { resolvePricing } from "./pricing.js";
 import { measure, failureMessage } from "./index.js";
 export { ModelFailure };
 const catalog = builtinModels();
-export function resolveModel(config: ModelConfig): {
+export function resolveModel(
+  config: ModelConfig,
+  sampledAt = Date.now(),
+  conservative = false,
+): {
   model: Model<Api>;
   costKnown: boolean;
+  pricing: PricingSnapshot;
 } {
-  if (config.provider === "openai-compatible") return compatibleModel(config);
+  if (config.provider === "openai-compatible")
+    return compatibleModel(config, sampledAt, conservative);
   const known = catalog.getModel(config.provider, config.model);
   if (!known)
     throw new Error(
       "Model is absent from the installed Pi catalog; select a catalog model or configure an OpenAI-compatible endpoint",
     );
+  const pricing = resolvePricing(config, known, sampledAt, conservative);
   return {
     model: {
       ...known,
       baseUrl: config.endpoint,
-      cost: config.prices ?? known.cost,
+      cost: pricing.prices ?? {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
     },
-    costKnown: config.prices !== null || config.endpoint === known.baseUrl,
+    costKnown: pricing.prices !== null,
+    pricing,
   };
 }
 export function listModels() {
@@ -45,9 +64,10 @@ export function createPiClient(
   runtime: Models,
   onMetrics?: (metrics: Metrics) => void,
 ): ModelClient {
-  const { model, costKnown } = resolveModel(config);
+  resolveModel(config);
   return {
     async complete(system, prompt, signal, onText) {
+      const { model, costKnown, pricing } = resolveModel(config);
       const started = performance.now();
       let first: number | null = null,
         firstText: number | null = null,
@@ -98,6 +118,7 @@ export function createPiClient(
         last,
         chunks,
         costKnown,
+        pricing,
       );
       onMetrics?.(metrics);
       if (["error", "aborted", "length"].includes(final.stopReason))

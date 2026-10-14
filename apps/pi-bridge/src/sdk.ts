@@ -22,6 +22,7 @@ export class SafePiSessions {
     string,
     { session: AgentSession; lastUsed: number }
   >();
+  private costs = new Map<string, number | null>();
   constructor(
     private readonly config: ModelConfig,
     private readonly apiKey: string,
@@ -147,6 +148,7 @@ export class SafePiSessions {
       throw new Error("Unexpected active tools");
     }
     this.sessions.set(key, { session, lastUsed: Date.now() });
+    this.costs.set(key, 0);
     return session;
   }
   async ask(
@@ -162,6 +164,7 @@ export class SafePiSessions {
     ]);
     const session = await this.get(key);
     signal.throwIfAborted();
+    const resolved = resolveModel(this.config);
     const started = performance.now();
     let first: number | null = null,
       firstText: number | null = null,
@@ -201,8 +204,20 @@ export class SafePiSessions {
         firstText,
         last,
         chunks,
-        resolveModel(this.config).costKnown,
+        resolved.costKnown,
+        resolved.pricing,
       );
+      const previous = this.costs.get(key);
+      if (this.sessions.get(key)?.session === session)
+        this.costs.set(
+          key,
+          previous !== null &&
+            previous !== undefined &&
+            metrics.costKnown &&
+            metrics.usage
+            ? previous + metrics.usage.cost.total
+            : null,
+        );
       onMetrics(metrics);
       if (
         signal.aborted ||
@@ -218,12 +233,15 @@ export class SafePiSessions {
         );
       return { text: session.getLastAssistantText() ?? "", metrics };
     } finally {
+      if (!final && this.sessions.get(key)?.session === session)
+        this.costs.set(key, null);
       unsubscribe();
       signal.removeEventListener("abort", abort);
     }
   }
   stats(key: string) {
-    return this.sessions.get(key)?.session.getSessionStats();
+    const stats = this.sessions.get(key)?.session.getSessionStats();
+    return stats ? { ...stats, cost: this.costs.get(key) ?? null } : undefined;
   }
   clear(key: string): void {
     const entry = this.sessions.get(key);
@@ -231,6 +249,7 @@ export class SafePiSessions {
       void entry.session.abort();
       entry.session.dispose();
       this.sessions.delete(key);
+      this.costs.delete(key);
     }
   }
   dispose(): void {
