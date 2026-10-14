@@ -10,7 +10,7 @@
 4. 检查 `release-review.json` 的版本、源码 revision、运行时、依赖许可清单和未决问题；执行 `npm run verify:release -- <候选目录>` 核对所有 SHA-256、许可文件、版本和额外文件。该清单明确标为 `publicReleaseReady: false`。
 5. 浏览器单独 ZIP 可通过 `npm run zip --workspace @lingo-sofa/browser-extension` 生成；它是开发验收产物，不能跳过下述发行条件。
 
-候选目录包括实际 MV3、Native Host、供本地 Vencord 构建的插件、文档、原项目许可证、完整依赖许可/NOTICE、当前 Node 运行时的完整许可，以及准确对应 Git revision 的 `source.tar`。不包含 Discord/Vencord 二进制、API Key、配对令牌、测试 profile 或自动安装器。Native Host 是 stdio 转发程序，需要从源码配置并运行独立的 Node 24 Bridge；此目录不是自包含的 Bridge 安装包。
+候选目录包括实际 MV3、Native Host、供本地 Vencord 构建的插件、文档、原项目许可证、已取得的完整依赖许可/NOTICE、当前 Node 运行时的完整许可，以及准确对应 Git revision 的 `source.tar`。不包含 Discord/Vencord 二进制、API Key、配对令牌、测试 profile 或自动安装器。Native Host 是 stdio 转发程序，需要从源码配置并运行独立的 Node 24 Bridge；此目录不是自包含的 Bridge 安装包。
 
 许可清单保守收集锁文件中所有已安装的非开发依赖，覆盖运行依赖的超集；它不能证明每个包都出现在浏览器 bundle。Pi 1.2.0 未随 npm 包提供的根 LICENSE 从固定上游版本保留；data-uri-to-buffer 4.0.1 的 README 中完整许可段也按固定来源提取。两者均校验来源记录中的 SHA-256。收集缺少根许可文本的包时不会假定其声明等同于完整许可，会在报告中留下问题。嵌入供应商代码与 NOTICE 仍需审查。
 
