@@ -313,3 +313,39 @@ it("replaces translations when the language changes and discards late results fr
   ).toEqual(["简体中文", "日本語"]);
   store.clear();
 });
+it("cancels active work and blocks manual and automatic requests while reading is off", async () => {
+  const calls: Request[] = [];
+  let resolve!: (reply: Reply) => void;
+  const store = new MessageTranslations({
+    request: async (_scope, request) => {
+      calls.push(request);
+      if (request.kind === "cancel") return { ok: true };
+      return new Promise<Reply>((done) => {
+        resolve = done;
+      });
+    },
+  });
+  store.translate(message, "中文");
+  await wait();
+  store.setEnabled(false);
+  store.translate(message, "中文");
+  store.translate(message, "中文", true);
+  expect(calls.map((call) => call.kind)).toEqual(["translate", "cancel"]);
+  expect(store.get(message)).toBeUndefined();
+  resolve({
+    ok: true,
+    results: [{ id: "one", revision: "stale", text: "迟到结果" }],
+  });
+  await wait();
+  expect(store.get(message)).toBeUndefined();
+  store.setEnabled(true);
+  store.translate(message, "中文");
+  await wait();
+  expect(calls.map((call) => call.kind)).toEqual([
+    "translate",
+    "cancel",
+    "translate",
+  ]);
+  store.setEnabled(false);
+  resolve({ ok: false, error: "cancelled" });
+});

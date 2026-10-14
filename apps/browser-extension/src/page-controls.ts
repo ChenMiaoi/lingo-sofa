@@ -1,10 +1,12 @@
 import { BLOCKS, extract, type PageProgress } from "@lingo-sofa/web-extraction";
 export interface PageControlActions {
+  enabled: (enabled: boolean) => Promise<void>;
   paragraph: (element: HTMLElement) => void;
   language: (language: string) => Promise<void>;
   model: (model: string) => Promise<void>;
   automatic: (enabled: boolean) => Promise<{ pending?: boolean }>;
   configuration: () => Promise<{
+    readingEnabled: boolean;
     model: string;
     providerName: string;
     models: string[];
@@ -23,7 +25,7 @@ export function createPageControls(
 :host{all:initial;position:fixed;inset:0;z-index:2147483646;pointer-events:none;color-scheme:light dark;--bg:light-dark(#fff,#1e1f22);--ink:light-dark(#313338,#dbdee1);--line:light-dark(#d9dce2,#383a40);--soft:light-dark(#f2f3f5,#2b2d31);--accent:#5865f2;font:14px/1.6 system-ui,sans-serif;color:var(--ink)}
 *{box-sizing:border-box}button,input,select{font:inherit;color:inherit}button{cursor:pointer;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px}button:hover{background:var(--soft)}button:disabled,input:disabled,select:disabled{opacity:.5;cursor:wait}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}[hidden]{display:none!important}
 .dock{position:fixed;right:16px;top:68%;pointer-events:auto}.launcher{height:44px;width:44px;border-radius:15px;touch-action:none;box-shadow:0 4px 16px #0002;font-size:21px}.pane{position:absolute;right:0;bottom:54px;width:320px;max-width:calc(100vw - 32px);padding:18px;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 28px #0003;overflow:auto}.heading{display:flex;gap:12px;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--line)}.heading>div{min-width:0}.heading strong{display:block;font-size:16px}.site{display:block;font-size:12px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.close{border:0;width:30px;height:30px;padding:0;background:transparent;font-size:22px;flex-shrink:0}.field{display:block;margin:14px 0 0;font-size:13px;font-weight:600}.field-heading{display:flex;justify-content:space-between;gap:12px}.provider{font-size:12px;font-weight:400;opacity:.75}select{display:block;width:100%;min-height:40px;padding:8px 10px;margin-top:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font-size:14px;font-weight:400}.auto-row{display:flex;justify-content:space-between;align-items:center;gap:16px;border-top:1px solid var(--line);margin-top:14px;padding-top:14px}.auto-row strong,.hint{display:block}.hint,.notice{font-size:12px;opacity:.8}.automatic{appearance:none;width:38px;height:22px;margin:0;padding:2px;border:1px solid var(--line);border-radius:20px;background:#858992;flex-shrink:0;cursor:pointer}.automatic:before{content:"";display:block;width:16px;height:16px;border-radius:50%;background:white;transition:transform .15s ease}.automatic:checked{background:var(--accent);border-color:transparent}.automatic:checked:before{transform:translateX(16px)}.notice{overflow-wrap:anywhere;margin:12px 0 0}.notice:empty{display:none}.paragraph{position:fixed;pointer-events:auto;padding:4px 7px;border-radius:8px;font-size:12px;box-shadow:0 2px 8px #0002}@media(prefers-reduced-motion:reduce){.automatic:before{transition:none}}
-</style><div class="dock"><button class="launcher" type="button" aria-label="LingoSofa 页面控制，可拖动或用方向键移动" aria-expanded="false">🛋</button><section class="pane" aria-label="LingoSofa 页面控制" hidden><div class="heading"><div><strong>LingoSofa</strong><span class="site"></span></div><button class="close" type="button" aria-label="收起页面控制">×</button></div><label class="field">目标语言<select class="language" aria-label="目标语言"></select></label><label class="field"><span class="field-heading">模型<span class="provider"></span></span><select class="model" aria-label="模型"><option>连接中…</option></select></label><label class="auto-row"><span><strong>自动翻译</strong><span class="hint">此网站的可见正文与新内容</span></span><input class="automatic" type="checkbox" role="switch" aria-label="自动翻译此网站"></label><p class="notice" role="status"></p></section></div><button class="paragraph" type="button" aria-label="翻译这一段" hidden>译</button>`;
+</style><div class="dock"><button class="launcher" type="button" aria-label="LingoSofa 页面控制，可拖动或用方向键移动" aria-expanded="false">🛋</button><section class="pane" aria-label="LingoSofa 页面控制" hidden><div class="heading"><div><strong>LingoSofa</strong><span class="site"></span></div><button class="close" type="button" aria-label="收起页面控制">×</button></div><label class="auto-row"><span><strong>双语阅读</strong><span class="hint reading-hint">已开启 · 译文显示在原文下方</span></span><input class="reading automatic" type="checkbox" role="switch" aria-label="开启双语阅读" checked></label><label class="field">目标语言<select class="language" aria-label="目标语言"></select></label><label class="field"><span class="field-heading">模型<span class="provider"></span></span><select class="model" aria-label="模型"><option>连接中…</option></select></label><label class="auto-row"><span><strong>自动翻译</strong><span class="hint">此网站的可见正文与新内容</span></span><input class="automatic" type="checkbox" role="switch" aria-label="自动翻译此网站"></label><p class="notice" role="status"></p></section></div><button class="paragraph" type="button" aria-label="翻译这一段" hidden>译</button>`;
   shadow.addEventListener(
     "click",
     (event) => {
@@ -46,7 +48,20 @@ export function createPageControls(
   const panel = shadow.querySelector<HTMLElement>(".pane")!;
   const launcher = shadow.querySelector<HTMLButtonElement>(".launcher")!;
   const model = shadow.querySelector<HTMLSelectElement>(".model")!;
-  const automatic = shadow.querySelector<HTMLInputElement>(".automatic")!;
+  const reading = shadow.querySelector<HTMLInputElement>(".reading")!;
+  const automatic = shadow.querySelector<HTMLInputElement>(
+    ".auto-row:not(:has(.reading)) .automatic",
+  )!;
+  let readingEnabled = true;
+  function setEnabled(value: boolean) {
+    readingEnabled = value;
+    reading.checked = value;
+    language.disabled = model.disabled = automatic.disabled = !value;
+    shadow.querySelector<HTMLElement>(".reading-hint")!.textContent = value
+      ? "已开启 · 译文显示在原文下方"
+      : "已关闭 · 仅显示原文";
+    if (!value) paragraph.hidden = true;
+  }
   const language = shadow.querySelector<HTMLSelectElement>(".language")!;
   for (const name of [
     "简体中文",
@@ -108,7 +123,7 @@ export function createPageControls(
           language.value = info.targetLanguage;
           shadow.querySelector<HTMLElement>(".provider")!.textContent =
             info.providerName;
-          model.disabled = false;
+          setEnabled(info.readingEnabled);
           notice.textContent = "";
         })
         .catch(() => {
@@ -141,7 +156,26 @@ export function createPageControls(
           .catch(() => undefined);
       })
       .finally(() => {
-        model.disabled = false;
+        model.disabled = !readingEnabled;
+      });
+  });
+  reading.addEventListener("change", () => {
+    const value = reading.checked;
+    reading.disabled = true;
+    void actions
+      .enabled(value)
+      .then(() => {
+        setEnabled(value);
+        notice.textContent = value
+          ? "双语阅读已开启"
+          : "双语阅读已关闭，已恢复原文";
+      })
+      .catch(() => {
+        reading.checked = readingEnabled;
+        notice.textContent = "更新失败，请重试";
+      })
+      .finally(() => {
+        reading.disabled = false;
       });
   });
   automatic.addEventListener("change", () => {
@@ -163,7 +197,7 @@ export function createPageControls(
         notice.textContent = "自动翻译更新失败，请重试。";
       })
       .finally(() => {
-        automatic.disabled = false;
+        automatic.disabled = !readingEnabled;
       });
   });
   language.addEventListener("change", () => {
@@ -176,7 +210,7 @@ export function createPageControls(
           error instanceof Error ? error.message : "语言更新失败";
       })
       .finally(() => {
-        language.disabled = false;
+        language.disabled = !readingEnabled;
       });
   });
   paragraph.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -185,6 +219,7 @@ export function createPageControls(
   });
   const hover = (event: PointerEvent) => {
     if (
+      !readingEnabled ||
       !(event.target instanceof Element) ||
       event.target.closest("[data-lingo-sofa]")
     )
@@ -259,6 +294,7 @@ export function createPageControls(
       if (next.failed)
         notice.textContent = `${next.failed} 段翻译失败，可就地重试`;
     },
+    setEnabled,
     setLanguage(value: string) {
       if (![...language.options].some((option) => option.value === value)) {
         const option = document.createElement("option");

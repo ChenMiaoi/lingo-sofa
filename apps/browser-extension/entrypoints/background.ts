@@ -129,6 +129,11 @@ export default defineBackground(() => {
       return settings.mode === "bridge"
         ? bridge(request, scope)
         : service.handle(request, scope, settings, "web");
+    if (
+      (await browser.storage.local.get("readingEnabled")).readingEnabled ===
+      false
+    )
+      throw new Error("双语阅读已关闭，请先在悬浮面板中开启");
     if (transports.has(request.requestId))
       throw new Error("Duplicate request ID");
     transports.set(request.requestId, { scope, mode: settings.mode });
@@ -249,6 +254,9 @@ export default defineBackground(() => {
           models: info.providers
             .find((provider) => provider.id === info.model.provider)
             ?.models.map((model) => model.id) ?? [info.model.model],
+          readingEnabled:
+            (await browser.storage.local.get("readingEnabled"))
+              .readingEnabled !== false,
           targetLanguage: settings.targetLanguage,
           automatic: settings.autoOrigins.includes(new URL(sender.url!).origin),
         };
@@ -285,6 +293,27 @@ export default defineBackground(() => {
           await browser.storage.session.remove(["apiKey", "balance"]);
         await browser.storage.local.set({ settings: next });
         await notify(next);
+        return { ok: true };
+      }
+      if (data.action === "page-enabled" && topPage) {
+        if (typeof data.enabled !== "boolean")
+          throw new Error("Invalid reading state");
+        // Close the dispatch gate before cancelling paid work; retain usage records.
+        await browser.storage.local.set({ readingEnabled: data.enabled });
+        if (!data.enabled) await cancelTransports();
+        for (const tab of await browser.tabs.query({})) {
+          if (tab.id)
+            await browser.tabs
+              .sendMessage(tab.id, {
+                action: "reading-changed",
+                readingEnabled: data.enabled,
+                automatic: Boolean(
+                  tab.url &&
+                  settings.autoOrigins.includes(new URL(tab.url).origin),
+                ),
+              })
+              .catch(() => undefined);
+        }
         return { ok: true };
       }
       if (data.action === "page-auto" && topPage) {
@@ -334,6 +363,9 @@ export default defineBackground(() => {
       }
       if (data.action === "auto-state" && sender.tab && sender.url)
         return {
+          readingEnabled:
+            (await browser.storage.local.get("readingEnabled"))
+              .readingEnabled !== false,
           enabled: settings.autoOrigins.includes(new URL(sender.url).origin),
           targetLanguage: settings.targetLanguage,
         };

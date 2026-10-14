@@ -41,6 +41,11 @@ export interface MessageState {
   scope: string;
 }
 export class MessageTranslations {
+  private enabled = true;
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) this.clear();
+  }
   private states = new Map<string, MessageState>();
   private listeners = new Map<string, Set<() => void>>();
   private queue = new TaskQueue<Reply>(2, 100);
@@ -106,6 +111,7 @@ export class MessageTranslations {
     );
   }
   translate(message: MessageRef, language: string, automatic = false): void {
+    if (!this.enabled) return;
     if (message.deliveryState && message.deliveryState !== "SENT") return;
     const text = messageTranslationText(message.content);
     if (!text || !withoutCode(text)) return;

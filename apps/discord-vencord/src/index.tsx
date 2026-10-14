@@ -32,6 +32,12 @@ import {
 } from "@lingo-sofa/ui-shared";
 
 const settings = definePluginSettings({
+  readingEnabled: {
+    hidden: true,
+    type: OptionType.BOOLEAN,
+    description: "Enable bilingual reading",
+    default: true,
+  },
   modelRevision: {
     hidden: true,
     type: OptionType.NUMBER,
@@ -120,13 +126,23 @@ function Ask({
     cost: number | null;
     messages: number;
   }>();
+  const reading = settings.use(["readingEnabled"]);
   const sessionId = React.useRef(crypto.randomUUID());
+  React.useEffect(() => {
+    if (!reading.readingEnabled && running)
+      void client
+        .request(scope(message), { kind: "cancel", requestId: running })
+        .catch(() => undefined);
+  }, [reading.readingEnabled, running]);
   function contextIsCurrent() {
-    return messageContextMatches(message, {
-      account: UserStore.getCurrentUser()?.id,
-      channel: SelectedChannelStore.getChannelId(),
-      content: MessageStore.getMessage(message.channel, message.id)?.content,
-    });
+    return (
+      settings.store.readingEnabled &&
+      messageContextMatches(message, {
+        account: UserStore.getCurrentUser()?.id,
+        channel: SelectedChannelStore.getChannelId(),
+        content: MessageStore.getMessage(message.channel, message.id)?.content,
+      })
+    );
   }
   React.useEffect(
     () => () => {
@@ -249,6 +265,7 @@ function Ask({
   );
 }
 function showAsk(message: MessageRef) {
+  if (!settings.store.readingEnabled) return;
   openModal((props) => (
     <Modal {...props} title="LingoSofa">
       <Ask message={message} />
@@ -257,6 +274,7 @@ function showAsk(message: MessageRef) {
 }
 function Accessory({ message }: { message: Message }) {
   const configuration = settings.use([
+    "readingEnabled",
     "autoChannels",
     "targetLanguage",
     "modelRevision",
@@ -270,7 +288,13 @@ function Accessory({ message }: { message: Message }) {
     [ref.account, ref.channel, ref.id, ref.content],
   );
   React.useEffect(() => {
-    if (!automatic(ref) || !ref.content || !element.current) return;
+    if (
+      !configuration.readingEnabled ||
+      !automatic(ref) ||
+      !ref.content ||
+      !element.current
+    )
+      return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting))
         translations.translate(ref, settings.store.targetLanguage, true);
@@ -283,6 +307,7 @@ function Accessory({ message }: { message: Message }) {
     ref.id,
     ref.content,
     ref.deliveryState,
+    configuration.readingEnabled,
     configuration.autoChannels,
     configuration.targetLanguage,
     configuration.modelRevision,
@@ -292,72 +317,74 @@ function Accessory({ message }: { message: Message }) {
     observed?.language === configuration.targetLanguage ? observed : undefined;
   return (
     <div ref={element} style={{ minHeight: 1 }}>
-      {state && !translations.isOriginalOnly(scope(ref)) && (
-        <section aria-label="LingoSofa 译文" className="lingo-sofa-accessory">
-          {!folded && (
-            <div
-              role={
-                state.status === "failed"
-                  ? "alert"
-                  : state.status === "success"
-                    ? undefined
-                    : "status"
-              }
-              dangerouslySetInnerHTML={
-                state.status === "success"
-                  ? { __html: renderTranslationMarkdown(state.text ?? "") }
-                  : undefined
-              }
-            >
-              {state.status === "success"
-                ? undefined
-                : state.status === "failed"
-                  ? state.error
-                  : "翻译中…"}
-            </div>
-          )}
-          {state.status === "success" && !folded && (
-            <div
-              className="lingo-sofa-inline-usage"
-              title={formatTranslationBilling(state.billing).title}
-            >
-              {formatTranslationBilling(state.billing).text}
-            </div>
-          )}
-          {state.status === "failed" && (
-            <button
-              onClick={() =>
-                translations.translate(ref, settings.store.targetLanguage)
-              }
-            >
-              重试
-            </button>
-          )}
-          {(state.status === "queued" || state.status === "running") && (
-            <button onClick={() => translations.remove(ref)}>停止</button>
-          )}
-          {state.status === "success" && (
-            <details className="lingo-sofa-translation-actions">
-              <summary aria-label="译文操作">···</summary>
-              <button
-                aria-expanded={!folded}
-                onClick={() => setFolded(!folded)}
+      {configuration.readingEnabled &&
+        state &&
+        !translations.isOriginalOnly(scope(ref)) && (
+          <section aria-label="LingoSofa 译文" className="lingo-sofa-accessory">
+            {!folded && (
+              <div
+                role={
+                  state.status === "failed"
+                    ? "alert"
+                    : state.status === "success"
+                      ? undefined
+                      : "status"
+                }
+                dangerouslySetInnerHTML={
+                  state.status === "success"
+                    ? { __html: renderTranslationMarkdown(state.text ?? "") }
+                    : undefined
+                }
               >
-                {folded ? "展开译文" : "折叠译文"}
-              </button>
-              <button
-                onClick={() => {
-                  if (state.text)
-                    void navigator.clipboard.writeText(state.text);
-                }}
+                {state.status === "success"
+                  ? undefined
+                  : state.status === "failed"
+                    ? state.error
+                    : "翻译中…"}
+              </div>
+            )}
+            {state.status === "success" && !folded && (
+              <div
+                className="lingo-sofa-inline-usage"
+                title={formatTranslationBilling(state.billing).title}
               >
-                复制译文
+                {formatTranslationBilling(state.billing).text}
+              </div>
+            )}
+            {state.status === "failed" && (
+              <button
+                onClick={() =>
+                  translations.translate(ref, settings.store.targetLanguage)
+                }
+              >
+                重试
               </button>
-              <button onClick={() => showAsk(ref)}>向 Pi 提问</button>
-            </details>
-          )}
-        </section>
-      )}
+            )}
+            {(state.status === "queued" || state.status === "running") && (
+              <button onClick={() => translations.remove(ref)}>停止</button>
+            )}
+            {state.status === "success" && (
+              <details className="lingo-sofa-translation-actions">
+                <summary aria-label="译文操作">···</summary>
+                <button
+                  aria-expanded={!folded}
+                  onClick={() => setFolded(!folded)}
+                >
+                  {folded ? "展开译文" : "折叠译文"}
+                </button>
+                <button
+                  onClick={() => {
+                    if (state.text)
+                      void navigator.clipboard.writeText(state.text);
+                  }}
+                >
+                  复制译文
+                </button>
+                <button onClick={() => showAsk(ref)}>向 Pi 提问</button>
+              </details>
+            )}
+          </section>
+        )}
     </div>
   );
 }
@@ -374,6 +401,7 @@ function ProviderSettingsPanel() {
 }
 function FloatingControls() {
   const configuration = settings.use([
+    "readingEnabled",
     "autoChannels",
     "targetLanguage",
     "modelRevision",
@@ -568,6 +596,16 @@ function FloatingControls() {
         >
           <ChannelControls
             channel={ChannelStore.getChannel(channel)?.name ?? "当前频道"}
+            enabled={configuration.readingEnabled}
+            onEnabled={() => {
+              settings.store.readingEnabled = !configuration.readingEnabled;
+              translations.setEnabled(settings.store.readingEnabled);
+              setNotice(
+                settings.store.readingEnabled
+                  ? "双语阅读已开启"
+                  : "双语阅读已关闭，已恢复原文",
+              );
+            }}
             language={configuration.targetLanguage}
             automatic={automatic(ref)}
             catalog={catalog}
@@ -615,7 +653,7 @@ export default definePlugin({
   messagePopoverButton: {
     icon: Icon,
     render: (message) =>
-      messageTranslationText(message.content)
+      settings.store.readingEnabled && messageTranslationText(message.content)
         ? {
             label: "LingoSofa 翻译",
             icon: Icon,
@@ -631,7 +669,7 @@ export default definePlugin({
   },
   contextMenus: {
     message: (children, { message }: { message: Message }) => {
-      if (!message?.content) return;
+      if (!settings.store.readingEnabled || !message?.content) return;
       const ref = reference(message);
       const group = findGroupChildrenByChildId("copy-text", children);
       if (!group) return;
@@ -672,6 +710,7 @@ export default definePlugin({
     CONNECTION_OPEN: () => translations.clear(),
   },
   start: () => {
+    translations.setEnabled(settings.store.readingEnabled);
     void Native?.start();
     document.getElementById("lingo-sofa-styles")?.remove();
     const style = document.createElement("style");

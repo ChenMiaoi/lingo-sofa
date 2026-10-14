@@ -21,6 +21,8 @@ export const targetLanguages = [
 ];
 
 export function ChannelControls({
+  enabled,
+  onEnabled,
   channel,
   language,
   automatic,
@@ -32,6 +34,8 @@ export function ChannelControls({
   onAutomatic,
   onClose,
 }: {
+  enabled: boolean;
+  onEnabled: () => void;
   channel: string;
   language: string;
   automatic: boolean;
@@ -58,13 +62,28 @@ export function ChannelControls({
           ×
         </button>
       </header>
+      <label className="lingo-sofa-auto-row">
+        <span>
+          <strong>双语阅读</strong>
+          <span className="lingo-sofa-control-hint">
+            {enabled ? "已开启 · 译文显示在原文下方" : "已关闭 · 仅显示原文"}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label="开启双语阅读"
+          checked={enabled}
+          onChange={onEnabled}
+        />
+      </label>
       <div className="lingo-sofa-reading-options">
         <label>
           目标语言
           <select
             aria-label="目标语言"
             value={language}
-            disabled={busy}
+            disabled={busy || !enabled}
             onChange={(event) => onLanguage(event.target.value)}
           >
             {[...new Set([language, ...targetLanguages])].map((language) => (
@@ -79,7 +98,7 @@ export function ChannelControls({
           <select
             aria-label="模型"
             value={catalog?.model.model ?? ""}
-            disabled={busy || !catalog}
+            disabled={busy || !enabled || !catalog}
             onChange={(event) => onModel(event.target.value)}
           >
             {!catalog ? (
@@ -113,7 +132,7 @@ export function ChannelControls({
           role="switch"
           aria-label="自动翻译此频道"
           checked={automatic}
-          disabled={busy || (!catalog && !automatic)}
+          disabled={busy || !enabled || (!catalog && !automatic)}
           onChange={onAutomatic}
         />
       </label>

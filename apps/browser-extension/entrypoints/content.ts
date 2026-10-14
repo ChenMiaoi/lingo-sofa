@@ -32,6 +32,7 @@ export default defineContentScript({
     const documentToken = crypto.randomUUID();
     let translator: PageTranslator | undefined;
     let automaticMode = false;
+    let readingEnabled = false;
     let selectionController: AbortController | undefined;
     const selectionNodes = new Map<
       HTMLElement,
@@ -113,6 +114,7 @@ export default defineContentScript({
       }
     }
     function start(language: string, automatic = false, manual = false) {
+      if (!readingEnabled) return;
       targetLanguage = language;
       if (translator && mode === "manual" && !manual) {
         automaticMode = automatic;
@@ -168,6 +170,7 @@ export default defineContentScript({
       translator.start();
     }
     function askSelection() {
+      if (!readingEnabled) return;
       captureSelection();
       const preview = selectedPreview;
       if (!preview) {
@@ -189,7 +192,15 @@ export default defineContentScript({
       askCleanups.add(cleanup);
     }
     const controls = createPageControls(document, {
+      enabled: async (enabled) => {
+        const reply = await browser.runtime.sendMessage({
+          action: "page-enabled",
+          enabled,
+        });
+        if (!reply.ok) throw new Error(reply.error);
+      },
       paragraph: (element) => {
+        if (!readingEnabled) return;
         if (!translator) start(targetLanguage, false, true);
         translator?.translateElement(element);
       },
@@ -228,14 +239,48 @@ export default defineContentScript({
         return reply;
       },
     });
-    const onMessage = (message: unknown) => {
+    const readingReady = browser.runtime
+      .sendMessage({ action: "auto-state" })
+      .then(
+        (response: {
+          enabled: boolean;
+          readingEnabled: boolean;
+          targetLanguage: string;
+        }) => {
+          if (ctx.isInvalid) return;
+          readingEnabled = response.readingEnabled !== false;
+          controls.setEnabled(readingEnabled);
+          if (!readingEnabled) stop();
+          targetLanguage = response.targetLanguage;
+          controls.setLanguage(targetLanguage);
+          controls.setAutomatic(response.enabled);
+          if (response.enabled) start(targetLanguage, true);
+        },
+      );
+    const onMessage = async (message: unknown) => {
+      await readingReady;
       if (!message || typeof message !== "object" || !("action" in message))
         return;
       const data = message as {
         action: string;
         targetLanguage?: string;
         automatic?: boolean;
+        readingEnabled?: boolean;
       };
+      if (data.action === "reading-changed") {
+        readingEnabled = data.readingEnabled !== false;
+        controls.setEnabled(readingEnabled);
+        stop();
+        if (readingEnabled && data.automatic) start(targetLanguage, true);
+        return Promise.resolve({ ok: true });
+      }
+      if (
+        !readingEnabled &&
+        ["page", "selection", "ask-selection", "automatic-changed"].includes(
+          data.action,
+        )
+      )
+        return Promise.resolve({ ok: false, error: "双语阅读已关闭" });
       if (data.action === "disable") {
         ctx.abort();
         return Promise.resolve({ ok: true });
@@ -377,14 +422,5 @@ export default defineContentScript({
       selectedPreview = undefined;
       delete lifecycle.lingoSofaLoaded;
     });
-    void browser.runtime
-      .sendMessage({ action: "auto-state" })
-      .then((response: { enabled: boolean; targetLanguage: string }) => {
-        if (ctx.isInvalid) return;
-        targetLanguage = response.targetLanguage;
-        controls.setLanguage(targetLanguage);
-        controls.setAutomatic(response.enabled);
-        if (response.enabled) start(targetLanguage, true);
-      });
   },
 });

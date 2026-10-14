@@ -130,6 +130,43 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     });
     await launcher.click();
     await expect(page.getByRole("combobox")).toHaveCount(2);
+    const reading = page.getByRole("switch", { name: "开启双语阅读" });
+    await reading.uncheck();
+    await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(0);
+    await expect(page.getByLabel("目标语言", { exact: true })).toBeDisabled();
+    await page.locator("#first").hover();
+    await expect(
+      page.getByRole("button", { name: "翻译这一段", exact: true }),
+    ).toBeHidden();
+    const disabledReply = await worker.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const tab = (await api.tabs.query({})).find((tab) =>
+        tab.url?.startsWith("http://127.0.0.1"),
+      )!;
+      return api.tabs.sendMessage(tab.id!, { action: "selection" });
+    });
+    expect(disabledReply.ok).toBe(false);
+    expect(model.requests).toHaveLength(1);
+    await page.reload();
+    await page.evaluate(() => {
+      document.body.style.color = "rgb(34, 34, 34)";
+      document.body.style.background = "#fff";
+    });
+    await worker.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const tab = (await api.tabs.query({})).find((tab) =>
+        tab.url?.startsWith("http://127.0.0.1"),
+      )!;
+      await api.scripting.executeScript({
+        target: { tabId: tab.id! },
+        files: ["content-scripts/content.js"],
+      });
+    });
+    await launcher.click();
+    await expect(reading).not.toBeChecked();
+    await reading.check();
     const automatic = page.getByRole("switch", { name: "自动翻译此网站" });
     await automatic.check();
     await expect(
@@ -143,7 +180,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
     await expect(
       page.locator("#second .lingo-sofa-inline-usage"),
-    ).toContainText("同批 2 段合计");
+    ).toContainText("同批 3 段合计");
     await expect(page.getByText("更多操作", { exact: true })).toHaveCount(0);
     await expect(page.locator("pre code")).toHaveText("const untouched = 1;");
     await expect(page.getByRole("textbox")).toHaveValue("draft");
