@@ -228,6 +228,24 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     }, qa);
     expect(stale).toMatchObject({ ok: false });
     expect(model.requests.length).toBe(beforeReload);
+    await options.evaluate(async (origin) => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const state = (await api.runtime.sendMessage({ action: "state" })) as {
+        settings: Record<string, unknown>;
+      };
+      const saved = await api.runtime.sendMessage({
+        action: "save",
+        settings: { ...state.settings, autoOrigins: [origin] },
+      });
+      if (saved.ok === false) throw new Error(saved.error);
+    }, new URL(page.url()).origin);
+    await page.reload();
+    await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
+      2,
+    );
+    expect(model.requests).toHaveLength(beforeReload + 1);
+
     const changed = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
@@ -239,6 +257,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
         action: "save",
         settings: {
           ...state.settings,
+          autoOrigins: [],
           model: {
             ...state.settings.model,
             endpoint: "https://api.deepseek.com",
@@ -251,7 +270,8 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       };
     });
     expect(changed.hasKey).toBe(false);
-    expect(changed.usage).toHaveLength(4);
+    await expect(page.locator("[data-lingo-sofa]")).toHaveCount(0);
+    expect(changed.usage).toHaveLength(5);
     expect(
       await options.evaluate(
         () =>

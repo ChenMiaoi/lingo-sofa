@@ -248,21 +248,23 @@ export default defineBackground(() => {
             },
           ]);
         const oldOrigins = new Set([
-          `${new URL(settings.model.endpoint).origin}/*`,
+          ...(settings.mode === "direct"
+            ? [`${new URL(settings.model.endpoint).origin}/*`]
+            : []),
           ...settings.autoOrigins.map((origin) => `${origin}/*`),
         ]);
         const newOrigins = new Set([
-          `${new URL(next.model.endpoint).origin}/*`,
+          ...(next.mode === "direct"
+            ? [`${new URL(next.model.endpoint).origin}/*`]
+            : []),
           ...next.autoOrigins.map((origin) => `${origin}/*`),
         ]);
         const removed = [...oldOrigins].filter(
           (origin) => !newOrigins.has(origin),
         );
-        if (removed.length)
-          await browser.permissions.remove({ origins: removed });
         for (const tab of await browser.tabs.query({}))
           if (tab.id && tab.url && /^https?:/.test(tab.url)) {
-            void browser.tabs
+            await browser.tabs
               .sendMessage(tab.id, {
                 action: "settings-changed",
                 targetLanguage: next.targetLanguage,
@@ -270,6 +272,8 @@ export default defineBackground(() => {
               })
               .catch(() => undefined);
           }
+        if (removed.length)
+          await browser.permissions.remove({ origins: removed });
         return { ok: true };
       }
       if (data.action === "clear") {
@@ -347,6 +351,7 @@ export default defineBackground(() => {
         return dispatch(request, scope, settings);
       }
       if (data.action === "balance") {
+        if (settings.mode === "bridge") return { unavailable: true };
         if (
           settings.model.provider !== "deepseek" ||
           new URL(settings.model.endpoint).origin !== "https://api.deepseek.com"

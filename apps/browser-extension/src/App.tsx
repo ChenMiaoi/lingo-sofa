@@ -151,11 +151,13 @@ export function App() {
       const next = settingsSchema.parse({ ...settings, glossary: terms });
       const origins = [
         ...new Set([
-          `${new URL(next.model.endpoint).origin}/*`,
+          ...(next.mode === "direct"
+            ? [`${new URL(next.model.endpoint).origin}/*`]
+            : []),
           ...next.autoOrigins.map((origin) => `${origin}/*`),
         ]),
       ];
-      if (!(await browser.permissions.request({ origins })))
+      if (origins.length && !(await browser.permissions.request({ origins })))
         throw new Error("需要授权选择的模型端点和自动翻译网站");
       await send({
         action: "save",
