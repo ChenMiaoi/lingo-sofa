@@ -1,3 +1,5 @@
+import katex from "katex";
+import { mathFragments, mathMatches } from "@lingo-sofa/translation-core/math";
 import { Marked } from "marked";
 
 function escapeHtml(text: string): string {
@@ -67,8 +69,59 @@ const styles: Record<string, string> = {
   td: "padding:0.25em 0.5em;border:1px solid currentColor",
 };
 
-export function renderTranslationMarkdown(text: string): string {
-  const html = (markdown.parse(text) as string).trim();
+export function renderTranslationMarkdown(
+  text: string,
+  literalCode: readonly string[] = [],
+): string {
+  let prefix = "⟦LS-CODE:";
+  while (text.includes(prefix)) prefix += ":";
+  const literals = new Map<string, string>();
+  for (const code of [...new Set(literalCode)].sort(
+    (a, b) => b.length - a.length,
+  )) {
+    if (!code || !text.includes(code) || !mathFragments(code).length) continue;
+    const marker = `${prefix}${literals.size}⟧`;
+    text = text.split(code).join(marker);
+    literals.set(
+      marker,
+      `<span style="font-family:ui-monospace,monospace">${escapeHtml(code)}</span>`,
+    );
+  }
+  let mathPrefix = "⟦LS-MATH:";
+  while (text.includes(mathPrefix)) mathPrefix += ":";
+  const formulas = new Map<string, string>();
+  for (const { start, raw, body, display } of mathMatches(text).reverse()) {
+    const marker = `${mathPrefix}${formulas.size}⟧`;
+    text = text.slice(0, start) + marker + text.slice(start + raw.length);
+    let rendered = escapeHtml(raw);
+    try {
+      if (raw.length <= 4_000) {
+        rendered = katex
+          .renderToString(body, {
+            output: "mathml",
+            displayMode: display,
+            trust: false,
+            throwOnError: true,
+            strict: "error",
+            maxSize: 10,
+            maxExpand: 500,
+            macros: {},
+          })
+          .replace(
+            'class="katex"',
+            `class="lingo-sofa-math" style="color:inherit;font-family:math;max-width:100%;overflow-x:auto;${display ? "display:block;margin-block:0.6em" : "display:inline-block;vertical-align:middle"}"`,
+          );
+      }
+    } catch {
+      /* Keep invalid or unsupported TeX as escaped source. */
+    }
+    formulas.set(marker, rendered);
+  }
+  let html = (markdown.parse(text) as string).trim();
+  for (const [marker, formula] of formulas)
+    html = html.split(marker).join(formula);
+  for (const [marker, literal] of literals)
+    html = html.split(marker).join(literal);
   return html.replace(
     /<(ul|ol|li|strong|em|del|blockquote|pre|code|table|th|td)(?=[\s>])/g,
     (_, tag: string) => `<${tag} style="${styles[tag]}"`,

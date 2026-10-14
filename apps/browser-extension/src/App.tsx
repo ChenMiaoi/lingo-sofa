@@ -11,6 +11,7 @@ import { summarize, period, budgetStatus } from "@lingo-sofa/translation-core";
 import {
   formatTokens,
   formatCost,
+  formatExchangeRate,
   formatSpeed,
   formatPricing,
 } from "@lingo-sofa/ui-shared";
@@ -497,7 +498,7 @@ export function App() {
             role={budget.warning ? "status" : undefined}
           >
             {budget.window === "day" ? "日" : "月"}
-            {budget.metric === "tokens" ? " token" : "费用"}预算：
+            {budget.metric === "tokens" ? " token" : "费用（USD）"}预算：
             {budget.used === null
               ? "消耗未知"
               : `${budget.used.toFixed(2)} / ${budget.limit}`}{" "}
@@ -518,8 +519,10 @@ export function App() {
             <strong>{formatTokens(bridgeError ? null : totals.output)}</strong>
           </div>
           <div>
-            <span>估算费用 · USD</span>
-            <strong>{formatCost(bridgeError ? null : totals.cost)}</strong>
+            <span>估算费用 · 人民币</span>
+            <strong title={formatExchangeRate()}>
+              {formatCost(bridgeError ? null : totals.cost)}
+            </strong>
           </div>
           <div>
             <span>生成速度</span>
@@ -735,8 +738,9 @@ export function App() {
         <details className="help-panel">
           <summary>费用与统计如何计算</summary>
           <p>
-            费用按请求开始时的官方峰/谷费率、Pi
-            目录或用户单价估算（USD），不代表账单实扣。官方价格核对时间见每条记录；跨时段请求以开始时间估算，预算预留按峰时上限。TPS
+            人民币展示按核对日期的汇率快照折算，非实时牌价；底层美元费用按请求开始时的官方峰/谷费率、Pi
+            目录或用户单价估算（USD），不代表账单实扣。{formatExchangeRate()}{" "}
+            官方价格核对时间见每条记录；跨时段请求以开始时间估算，预算预留按峰时上限。TPS
             为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
           </p>
         </details>

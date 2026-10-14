@@ -1,3 +1,4 @@
+import { formatCost, formatExchangeRate } from "./currency.js";
 import type { TranslationBilling } from "@lingo-sofa/protocol";
 import { formatPricing } from "./pricing.js";
 
@@ -12,22 +13,17 @@ export function formatTranslationBilling(billing?: TranslationBilling): {
     };
   if (billing.source === "cache")
     return {
-      text: "缓存命中 · 本次 0 Tokens · $0",
+      text: "缓存命中 · 本次 0 Tokens · ¥0",
       title: "复用已有译文，本次未调用模型；不代表此前翻译免费。",
     };
   const tokens =
     billing.tokens === null
       ? "Token 用量未知"
       : `${new Intl.NumberFormat("zh-CN").format(billing.tokens)} Tokens`;
-  const cost =
-    billing.cost === null
-      ? "费用未知"
-      : billing.cost > 0 && billing.cost < 0.000001
-        ? "≈ < $0.000001"
-        : `≈ $${billing.cost.toFixed(6)}`;
+  const cost = billing.cost === null ? "费用未知" : formatCost(billing.cost);
   return {
     text: `${billing.batchSize > 1 ? `同批 ${billing.batchSize} 段合计 · ` : ""}${tokens} · ${cost}`,
-    title: `${billing.batchSize > 1 ? "供应商仅提供整批计量，各段显示同一批用量，不能逐段累加。" : "本次翻译请求的供应商用量。"} 费用为 USD 估算，不代表账单实扣。${formatPricing(billing.pricing)}`,
+    title: `${billing.batchSize > 1 ? "供应商仅提供整批计量，各段显示同一批用量，不能逐段累加。" : "本次翻译请求的供应商用量。"} 费用为人民币估算，不代表账单实扣。美元原值：${billing.cost === null ? "未知" : billing.cost.toPrecision(7) + " USD"}。${formatExchangeRate()} ${formatPricing(billing.pricing)}`,
   };
 }
 

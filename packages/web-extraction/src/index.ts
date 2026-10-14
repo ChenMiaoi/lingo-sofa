@@ -7,7 +7,7 @@ import {
 export const TRANSLATION_ATTRIBUTE = "data-lingo-sofa";
 export const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote";
 const EXCLUDED =
-  "nav,header,footer,aside,pre,script,style,noscript,form,input,textarea,select,button,[contenteditable]:not([contenteditable='false']),[hidden],[aria-hidden='true'],[data-lingo-sofa]";
+  "math,.katex,.MathJax,mjx-container,nav,header,footer,aside,pre,script,style,noscript,form,input,textarea,select,button,[contenteditable]:not([contenteditable='false']),[hidden],[aria-hidden='true'],[data-lingo-sofa]";
 export interface Block {
   element: HTMLElement;
   text: string;
@@ -372,6 +372,9 @@ export class PageTranslator {
         node.style.cssText = inlineTranslationStyle;
         node.innerHTML = renderTranslationMarkdown(
           typeof text === "string" ? text : text.text,
+          [...element.querySelectorAll<HTMLElement>("code")]
+            .filter((code) => !code.closest("[data-lingo-sofa]"))
+            .map((code) => textOf(code)),
         );
         if (typeof text !== "string")
           appendTranslationBilling(node, text.billing);

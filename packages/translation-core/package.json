@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./batch": "./src/batch.ts"
+    "./batch": "./src/batch.ts",
+    "./math": "./src/math.ts"
   },
   "dependencies": {
     "@lingo-sofa/glossary": "0.1.0",

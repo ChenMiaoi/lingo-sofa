@@ -126,7 +126,7 @@ it("does not report unknown prices or usage as zero", async () => {
       tokens: 1,
       cost: 0.0000001,
     }).text,
-  ).toContain("< $0.000001");
+  ).toContain("< ¥0.000001");
 });
 it("labels shared batch usage and cached requests clearly and rejects invalid billing", () => {
   const value = formatTranslationBilling({
@@ -135,7 +135,7 @@ it("labels shared batch usage and cached requests clearly and rejects invalid bi
     tokens: 100,
     cost: 0.000048,
   });
-  expect(value.text).toBe("同批 3 段合计 · 100 Tokens · ≈ $0.000048");
+  expect(value.text).toBe("同批 3 段合计 · 100 Tokens · ≈ ¥0.000323");
   expect(value.title).toContain("不能逐段累加");
   expect(
     formatTranslationBilling({
@@ -144,7 +144,7 @@ it("labels shared batch usage and cached requests clearly and rejects invalid bi
       tokens: 0,
       cost: 0,
     }).text,
-  ).toBe("缓存命中 · 本次 0 Tokens · $0");
+  ).toBe("缓存命中 · 本次 0 Tokens · ¥0");
   expect(
     replySchema.safeParse({
       ok: true,
@@ -181,7 +181,7 @@ it("keeps ID-aligned billing through batching and the inline DOM lifecycle", asy
   expect(document.querySelectorAll(".lingo-sofa-inline-usage")).toHaveLength(2);
   expect(
     document.querySelector("#a .lingo-sofa-inline-usage")?.textContent,
-  ).toBe("同批 2 段合计 · 100 Tokens · ≈ $0.000048");
+  ).toBe("同批 2 段合计 · 100 Tokens · ≈ ¥0.000323");
   expect(page.trackedCount).toBe(2);
   page.stop();
   expect(document.querySelector(".lingo-sofa-inline-usage")).toBeNull();

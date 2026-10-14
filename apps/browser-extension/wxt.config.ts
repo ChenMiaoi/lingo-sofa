@@ -2,6 +2,10 @@ import { defineConfig } from "wxt";
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   vite: () => ({
+    // Chrome rejects Unicode noncharacters in injected files; KaTeX uses U+FFFF.
+    build: {
+      rolldownOptions: { output: { minify: { codegen: { asciiOnly: true } } } },
+    },
     plugins: [
       {
         name: "lingo-sofa-zod-csp",

@@ -1,3 +1,4 @@
+import { TextDecoder } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import ts from "typescript";
@@ -20,9 +21,23 @@ async function inspect(directory) {
       continue;
     }
     if (!entry.name.endsWith(".js")) continue;
+    const script = new TextDecoder("utf-8", { fatal: true }).decode(
+      await readFile(path),
+    );
+    for (const character of script) {
+      const point = character.codePointAt(0);
+      if (
+        point === 0 ||
+        (point >= 0xfdd0 && point <= 0xfdef) ||
+        (point & 0xffff) >= 0xfffe
+      )
+        throw new Error(
+          `Code point unsupported by Chrome script injection in ${path}`,
+        );
+    }
     const source = ts.createSourceFile(
       path,
-      await readFile(path, "utf8"),
+      script,
       ts.ScriptTarget.Latest,
       true,
       ts.ScriptKind.JS,

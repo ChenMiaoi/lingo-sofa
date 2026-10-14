@@ -337,7 +337,12 @@ export default defineContentScript({
             node.setAttribute("data-lingo-sofa", "selection");
             node.setAttribute("aria-label", "LingoSofa 选区译文");
             node.style.cssText = inlineTranslationStyle;
-            node.innerHTML = renderTranslationMarkdown(translation.text);
+            node.innerHTML = renderTranslationMarkdown(
+              translation.text,
+              [...anchor.querySelectorAll<HTMLElement>("code")]
+                .filter((code) => !code.closest("[data-lingo-sofa]"))
+                .map((code) => textOf(code)),
+            );
             appendTranslationBilling(node, translation.billing);
             selectionNodes.get(anchor)?.node.remove();
             anchor.append(node);
