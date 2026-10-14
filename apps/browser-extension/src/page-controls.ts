@@ -291,7 +291,7 @@ export function createPageControls(
     },
     update(next: PageProgress) {
       if (next.failed)
-        notice.textContent = `${next.failed} 段翻译失败，可就地重试`;
+        notice.textContent = `${next.failed} 段未能翻译${next.error ? `：${next.error}` : ""}。可悬停段落重试。`;
     },
     setEnabled,
     setLanguage(value: string) {

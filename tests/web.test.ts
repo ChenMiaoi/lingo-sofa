@@ -296,3 +296,55 @@ it("retains visible URL and formula spelling when escaping plain Markdown charac
   expect(block.markdown).toContain("$x_1$");
   expect(block.markdown).toContain("\\*\\*literal stars\\*\\*");
 });
+
+it("keeps page failures out of the original layout and retries a paragraph explicitly while paused", async () => {
+  document.body.innerHTML = "<p>First</p><p>Second</p>";
+  let fail = true;
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    observeVisibility: false,
+    translate: async () => {
+      if (fail) throw new Error("Model response invalid");
+      return "译文";
+    },
+  });
+  translator.start();
+  await wait();
+  expect(translator.progress.failed).toBe(2);
+  expect(translator.progress.error).toBe("Model response invalid");
+  expect(document.querySelectorAll("[data-lingo-sofa]")).toHaveLength(0);
+  expect(document.body.textContent).toBe("FirstSecond");
+  translator.pause();
+  fail = false;
+  translator.translateElement(document.querySelector("p")!);
+  await wait();
+  expect(translator.progress.completed).toBe(1);
+  expect(translator.progress.failed).toBe(1);
+  translator.stop();
+});
+
+it("shows a small accessible retry for explicit failure and retries even after pausing", async () => {
+  document.body.innerHTML = "<p>First</p>";
+  let fail = true;
+  const translator = new PageTranslator(document, {
+    targetLanguage: "中文",
+    observeVisibility: false,
+    manual: true,
+    translate: async () => {
+      if (fail) throw new Error("Offline");
+      return "译文";
+    },
+  });
+  const paragraph = document.querySelector("p")!;
+  translator.translateElement(paragraph);
+  await wait();
+  const button = paragraph.querySelector("button")!;
+  expect(button.title).toBe("Offline");
+  translator.pause();
+  fail = false;
+  button.click();
+  await wait();
+  expect(translator.progress.completed).toBe(1);
+  expect(paragraph.querySelector("button")).toBeNull();
+  translator.stop();
+});

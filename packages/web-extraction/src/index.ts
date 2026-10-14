@@ -140,6 +140,7 @@ interface State {
   id: string;
   revision: number;
   result?: HTMLElement;
+  error?: string;
   pending?: string;
   controller?: AbortController;
 }
@@ -150,6 +151,7 @@ export interface PageProgress {
   completed: number;
   pending: number;
   failed: number;
+  error?: string | undefined;
 }
 export interface PageTranslatorOptions {
   targetLanguage: string;
@@ -289,10 +291,8 @@ export class PageTranslator {
         (state) =>
           state.result?.getAttribute(TRANSLATION_ATTRIBUTE) === "translation",
       ).length,
-      failed: states.filter(
-        (state) =>
-          state.result?.getAttribute(TRANSLATION_ATTRIBUTE) === "error",
-      ).length,
+      failed: states.filter((state) => state.error).length,
+      error: states.find((state) => state.error)?.error,
       pending: states.filter((state) => state.pending).length,
     };
   }
@@ -351,7 +351,8 @@ export class PageTranslator {
     if (
       !state ||
       state.pending ||
-      state.result ||
+      (state.result && !state.error) ||
+      (state.error && !explicit) ||
       this.stopped ||
       (this.paused && !explicit)
     )
@@ -360,6 +361,9 @@ export class PageTranslator {
       (candidate) => candidate.element === element,
     );
     if (!block) return;
+    state.result?.remove();
+    delete state.result;
+    delete state.error;
     const controller = new AbortController();
     state.controller = controller;
     state.pending = `${state.revision}`;
@@ -407,16 +411,25 @@ export class PageTranslator {
           !this.stopped &&
           this.states.get(element) === state
         ) {
+          state.error = error instanceof Error ? error.message : "翻译失败";
           this.options.onError?.(error);
+          // Automatic/page failures belong in the shared controls, not every paragraph.
+          if (!explicit && !this.manual) return;
           const node = this.document.createElement("span");
           node.setAttribute(TRANSLATION_ATTRIBUTE, "error");
           const button = this.document.createElement("button");
           button.type = "button";
-          button.textContent = "LingoSofa：翻译失败，重试";
+          node.style.cssText =
+            "display:block;margin-top:6px;font:inherit;color:inherit";
+          button.textContent = "重试翻译";
+          button.title = state.error;
+          button.setAttribute("aria-label", `重试翻译：${state.error}`);
+          button.style.cssText =
+            "font:inherit;font-size:.8em;color:inherit;background:transparent;border:1px solid currentColor;border-radius:6px;padding:2px 6px;cursor:pointer";
           button.addEventListener("click", () => {
             node.remove();
             delete state.result;
-            this.enqueue(element);
+            this.enqueue(element, true);
           });
           node.append(button);
           element.append(node);

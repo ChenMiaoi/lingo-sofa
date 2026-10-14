@@ -55,7 +55,10 @@ export async function translate(
     signal,
   );
   signal.throwIfAborted();
-  const output = translationOutputSchema.parse(JSON.parse(reply.text));
+  // Accept a single Markdown JSON fence; keep payload and alignment validation strict.
+  const raw = reply.text.trim();
+  const fence = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(raw);
+  const output = translationOutputSchema.parse(JSON.parse(fence?.[1] ?? raw));
   const byId = new Map(output.map((item) => [item.id, item.text]));
   if (
     byId.size !== units.length ||

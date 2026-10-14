@@ -94,6 +94,32 @@ describe("translation protection and alignment", () => {
       ).rejects.toThrow();
     }
   });
+  it("accepts a single JSON fence while rejecting commentary, malformed output and extra fields", async () => {
+    const plain = JSON.stringify([{ id: "one", text: "你好" }]);
+    const fenced = "```json\n" + plain + "\n```";
+    const units = [{ ...unit, text: "Hello", protectedParts: [] }];
+    for (const text of [
+      plain,
+      "\n" + fenced + "\n",
+      "```\r\n" + plain + "\r\n```",
+    ]) {
+      const result = await translate(
+        client(text),
+        units,
+        [],
+        new AbortController().signal,
+      );
+      expect(result.results[0]?.text).toBe("你好");
+    }
+    for (const text of [
+      "Explanation\n" + fenced,
+      "```json\nnot json\n```",
+      '```json\n[{"id":"one","text":"你好","unexpected":"value"}]\n```',
+    ])
+      await expect(
+        translate(client(text), units, [], new AbortController().signal),
+      ).rejects.toThrow();
+  });
   it("aligns out-of-order results and retains revision", async () => {
     const a = { ...unit, text: "Hello", id: "a" },
       b = { ...unit, text: "World", id: "b" };

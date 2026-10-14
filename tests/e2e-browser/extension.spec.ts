@@ -254,11 +254,16 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       });
       if (saved.ok === false) throw new Error(saved.error);
     }, new URL(page.url()).origin);
-    await page.reload();
+    // The default launcher is already present: enabling automatic mode processes this document.
     await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
       2,
     );
     expect(model.requests).toHaveLength(beforeReload + 1);
+    await page.reload();
+    await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
+      2,
+    );
+    expect(model.requests).toHaveLength(beforeReload + 2);
 
     const changed = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
@@ -290,7 +295,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
         "[data-lingo-sofa=translation],[data-lingo-sofa=error],[data-lingo-sofa=selection]",
       ),
     ).toHaveCount(0);
-    expect(changed.usage).toHaveLength(5);
+    expect(changed.usage).toHaveLength(6);
     expect(
       await options.evaluate(
         () =>
