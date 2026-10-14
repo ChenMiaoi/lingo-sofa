@@ -517,11 +517,10 @@ function FloatingControls() {
     const capture = () => {
       const selection = window.getSelection();
       const text = selection?.toString().trim().slice(0, 16_000) ?? "";
-      if (!text) {
-        if (!document.activeElement?.closest(".lingo-sofa-dock"))
-          setSelected(undefined);
-        return;
-      }
+      // Discord restores composer focus when a chat-bar control is clicked.
+      // Keep the last explicit selection for its read-only preview; identity and
+      // source-content checks reject a changed message before anything is sent.
+      if (!text) return;
       const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
       const node = range?.commonAncestorContainer;
       const element = node instanceof Element ? node : node?.parentElement;
