@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { RuntimeClient } from "@lingo-sofa/local-runtime";
 import { bridgeConfigSchema } from "./config.js";
 import { startNative } from "./native.js";
 async function main() {
@@ -10,27 +11,29 @@ async function main() {
   const config = bridgeConfigSchema.parse(
     JSON.parse(await readFile(`${directory}/config.json`, "utf8")) as unknown,
   );
-  const pairing = JSON.parse(
-    await readFile(`${directory}/pairing.json`, "utf8"),
-  ) as { token: string; expiresAt: number };
-  if (
-    typeof pairing.token !== "string" ||
-    pairing.token.length < 32 ||
-    pairing.expiresAt <= Date.now()
-  )
-    throw new Error("Pairing has expired");
-  startNative(
+  const origin =
     process.argv.find((argument) =>
       argument.startsWith("chrome-extension://"),
-    ) ?? "",
-    config.allowedExtensions,
-    config.port,
-    pairing.token,
-  );
+    ) ?? "";
+  if (
+    !config.allowedExtensions.some(
+      (id) =>
+        origin === `chrome-extension://${id}/` ||
+        origin === `chrome-extension://${id}`,
+    )
+  )
+    throw new Error("Native caller is not allowed");
+  const client = new RuntimeClient(directory, origin.replace(/\/$/, ""));
+  // Bind stdin synchronously so an early browser request is not lost during startup.
+  startNative(origin, config.allowedExtensions, config.port, "", {
+    connection: () => client.connection(),
+    stop: () => client.stop(),
+  });
+  await client.start();
 }
 void main().catch(() => {
   process.stderr.write(
-    "LingoSofa native host could not start; check configuration and pairing.\n",
+    "LingoSofa local runtime could not start; check installation and configuration.\n",
   );
-  process.exitCode = 1;
+  process.exit(1);
 });

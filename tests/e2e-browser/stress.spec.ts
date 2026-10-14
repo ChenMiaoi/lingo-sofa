@@ -54,6 +54,7 @@ test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV
         action: "save",
         settings: {
           ...state.settings,
+          mode: "direct",
           model: {
             ...state.settings.model,
             provider: "openai-compatible",

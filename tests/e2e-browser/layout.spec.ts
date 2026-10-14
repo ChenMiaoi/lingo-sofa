@@ -21,6 +21,13 @@ for (const colorScheme of ["light", "dark"] as const) {
         context.serviceWorkers()[0] ??
         (await context.waitForEvent("serviceworker"));
       const id = new URL(worker.url()).host;
+      await worker.evaluate(async () => {
+        await (
+          globalThis as typeof globalThis & {
+            chrome: typeof import("wxt/browser").browser;
+          }
+        ).chrome.storage.local.set({ settings: { mode: "direct" } });
+      });
       const page = await context.newPage();
       await page.setViewportSize({ width: 1200, height: 900 });
       await page.goto(`chrome-extension://${id}/options.html?view=activity`);

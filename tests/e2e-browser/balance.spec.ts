@@ -33,6 +33,14 @@ test("caches account queries and preserves the last displayed balance after refr
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
     await worker.evaluate(async () => {
+      const api = (
+        globalThis as typeof globalThis & {
+          chrome: typeof import("wxt/browser").browser;
+        }
+      ).chrome;
+      await api.storage.local.set({ settings: { mode: "direct" } });
+    });
+    await worker.evaluate(async () => {
       const fixture = globalThis as typeof globalThis & {
         chrome: ExtensionApi;
         balanceFetchCount: number;

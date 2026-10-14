@@ -47,6 +47,7 @@ test("preserves real public LLVM page controls and restores inline bilingual con
         apiKey: "fixture-public-only",
         settings: {
           ...state.settings,
+          mode: "direct",
           model: {
             ...state.settings.model,
             provider: "openai-compatible",

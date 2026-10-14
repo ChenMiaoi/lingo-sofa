@@ -1,5 +1,7 @@
 import { it, expect } from "vitest";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -264,7 +266,8 @@ it.skipIf(!existsSync(packagedNative))(
     const model = await modelServer();
     const directory = await mkdtemp(join(tmpdir(), "lingo-native-"));
     const extension = "a".repeat(32);
-    const token = "native-token-0000000000000000000000000000";
+    const token = "a".repeat(64);
+    const instanceId = crypto.randomUUID();
     const expiresAt = Date.now() + 60_000;
     const config = bridgeConfigSchema.parse({
       allowedExtensions: [extension],
@@ -283,6 +286,7 @@ it.skipIf(!existsSync(packagedNative))(
       token,
       expiresAt,
       directory,
+      { instanceId, server: createServer(), leases: new ClientLeases() },
     );
     await new Promise<void>((resolve) =>
       bridge.server.listen(0, "127.0.0.1", resolve),
@@ -290,8 +294,8 @@ it.skipIf(!existsSync(packagedNative))(
     config.port = (bridge.server.address() as AddressInfo).port;
     await writeFile(join(directory, "config.json"), JSON.stringify(config));
     await writeFile(
-      join(directory, "pairing.json"),
-      JSON.stringify({ token, expiresAt }),
+      join(directory, "runtime-connection.json"),
+      JSON.stringify({ version: 1, instanceId, token, port: config.port }),
     );
     const child = spawn(binary, [`chrome-extension://${extension}/`], {
       env: { ...process.env, LINGO_SOFA_HOME: directory },
@@ -349,6 +353,18 @@ it.skipIf(!existsSync(packagedNative))(
           child.stdout.on("data", receive);
           child.stdin.write(nativeFrame(value));
         });
+      const transportId = crypto.randomUUID();
+      expect(
+        await exchange({
+          transportId,
+          payload: {
+            version: 1,
+            sourceKind: "web",
+            scope: "browser",
+            request: { kind: "usage" },
+          },
+        }),
+      ).toMatchObject({ transportId, payload: { ok: true } });
       const catalog = await exchange({
         version: 1,
         sourceKind: "web",

@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 await build({
-  entryPoints: ["src/index.ts"],
+  entryPoints: ["src/index.ts", "src/config.ts"],
   bundle: true,
   platform: "node",
   format: "esm",
@@ -10,5 +10,5 @@ await build({
     "@earendil-works/pi-ai/*",
     "zod",
   ],
-  outfile: "dist/index.js",
+  outdir: "dist",
 });

@@ -36,30 +36,29 @@ npm run benchmark
 
 ## 本地 Pi Bridge
 
-Bridge 不随扩展自动安装。以下操作仅用于决定使用本地模式的用户。
+首次需要安装一次本地助手；安装后，网页与 Discord 的本地模式自动启动并连接同一个后台服务，不再手动开终端或每小时重新配对。新浏览器配置默认本地模式；已有明确选择的直连模式保留，直连不使用共享助手。
 
 ```sh
 npm run build --workspace @lingo-sofa/pi-bridge
-npm run init --workspace @lingo-sofa/pi-bridge
-npm run pair --workspace @lingo-sofa/pi-bridge
+npm run install:service --workspace @lingo-sofa/pi-bridge
 ```
 
-默认配置位于 `~/.config/lingo-sofa/config.json`，可用 `LINGO_SOFA_HOME` 指定目录。编辑其中 `settings.model` 的 provider、模型及端点，设置预算，按需填写 `allowedExtensions`。API Key 可通过启动进程的 `LINGO_SOFA_API_KEY` 环境变量提供，或在 Discord/浏览器的 Provider 页面配置。该页面保存的模型和 Key 位于本地助手目录中的 `provider.json`（仅当前用户可读写），启动时优先读取；不要提交密钥或配对文件。
+默认目录为 `~/.config/lingo-sofa`，可通过 `LINGO_SOFA_HOME` 指定。安装把 Bridge 及运行依赖复制到当前用户的助手目录，记录固定的 Node 24 路径。安装后不依赖源码目录，Node 路径变化时重新安装。安装保留已有配置、Provider 和用量，不自动清除未知消耗。新的助手配置默认持久化用量，已有 `settings.persistUsage` 选择保持不变。
 
-```sh
-npm run start --workspace @lingo-sofa/pi-bridge
-```
+Provider 可在任一端的设置页面配置一次，模型和 Key 保存在助手目录中的 `provider.json`（仅当前用户可读写），两端共用。也可使用服务启动环境的 `LINGO_SOFA_API_KEY`；不会自动读取聊天内容或其他应用凭证。`usePiAuth` 默认为关闭；显式启用才读取指定的 Pi 认证文件。
 
-服务只监听 `127.0.0.1`，默认端口 43187。配对令牌有效期一小时；重新配对后需重启服务；桌面 Discord 自动读取助手生成的 `discord-connection.json`，无需填写端口或令牌。`usePiAuth: true` 可显式复用 Pi 认证文件；默认不读取 Pi CLI 认证。`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。`shareBudget` 也默认关闭，独立控制是否跨前端合并预算；两端显示执行端计算的预算状态。正文缓存始终按上下文隔离。`settings.persistUsage` 控制是否写入 `usage.json`，保留期为 `settings.retentionDays`。
+服务只监听本机 `127.0.0.1`。端口与服务实例凭据由本地组件管理，用户无须填写；凭据随服务退出失效、重启重新生成。连接信息与安装文件不含模型 Key。至少一端连接就保持服务运行；最后一端断开后等待 60 秒，没有在途任务后保存元数据并退出。崩溃连接最长在 45 秒后过期，再开始退出等待。macOS 关窗口不等于退出应用。详见 [后台服务生命周期](docs/service-lifecycle.md)。
 
-浏览器接入还需要 Native Messaging host：
+浏览器还需要注册 Native Messaging host：
 
 ```sh
 npm run package:native --workspace @lingo-sofa/pi-bridge
 npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 ```
 
-将同一扩展 ID 加入 Bridge 的 `allowedExtensions`，重启 Bridge，并在扩展设置选择本地模式。安装脚本注册用户级 Native Messaging manifest，Windows 还注册 HKCU 项；不会安装 Discord。保留当前 checkout 和 native host 路径，移动目录后需要更新注册。安装不会覆盖已有 manifest；更新前应核对并移除旧注册。
+该命令同时安装服务启动入口、添加扩展白名单，并注册用户级 Native Messaging manifest；Windows 使用 HKCU。安装不会覆盖已有 manifest，更新前核对并移除自己的旧注册。浏览器、Native Host、Bridge 与 Discord 插件需一起升级；旧 `pairing.json` 和 `discord-connection.json` 不再用于新连接机制。
+
+`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。`shareBudget` 也默认关闭，独立控制跨前端预算。正文缓存保持上下文隔离。后台恢复不重发已发送请求，未知用量继续触发已有严格预算保护。`settings.persistUsage` 控制元数据持久化，`settings.retentionDays` 控制保留期。
 
 卸载时关闭 Bridge，移除 `com.lingosofa.bridge.json` 用户级 manifest，Windows 同时移除对应 Chrome/Edge 的 HKCU NativeMessagingHosts 项；不再需要配置时删除 `LINGO_SOFA_HOME` 目录。密钥若由系统环境管理，也应在对应环境中清理。
 
@@ -67,7 +66,7 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 
 执行 `npm run build --workspace @lingo-sofa/discord-vencord`，产物是 `apps/discord-vencord/dist/lingoSofa/index.tsx`。将整个 `lingoSofa` 目录放入自行维护的 Vencord checkout 的 `src/userplugins/` 后，按该宿主的构建流程使用。
 
-非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答。插件设置仅显示供应商、模型和 API Key；支持 Pi 目录中的多个供应商及自定义 OpenAI 兼容端点。桌面端自动连接本地 Bridge，连接描述文件只包含端口和短期令牌，不含模型 Key；旧版助手需升级后使用自动连接。所有频道均可手动翻译，自动双语由频道内开关授权，目标语言也在悬浮入口设置。悬浮面板只保留目标语言、当前供应商的模型切换、频道自动翻译开关；预算和用量仍由 Bridge/网页端管理。
+非官方客户端修改需要用户自行决定并明确授权安装。构建验证脚本不修改 Discord；本次已按用户明确授权在原客户端完成验收，见 [Discord 验收记录](docs/discord-acceptance.md)。插件提供消息菜单/悬浮翻译入口、下方译文、频道自动模式、选中消息问答。插件设置仅显示供应商、模型和 API Key；支持 Pi 目录中的多个供应商及自定义 OpenAI 兼容端点。桌面端在插件启用时自动启动或连接本地服务，停用时释放连接；连接描述文件不含模型 Key。所有频道均可手动翻译，自动双语由频道内开关授权，目标语言也在悬浮入口设置。悬浮面板只保留目标语言、当前供应商的模型切换、频道自动翻译开关；预算和用量仍由 Bridge/网页端管理。
 
 ## 文档
 

@@ -54,6 +54,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
         apiKey: "fixture-inline-key",
         settings: {
           ...state.settings,
+          mode: "direct",
           model: {
             ...state.settings.model,
             provider: "openai-compatible",

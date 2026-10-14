@@ -22,7 +22,7 @@ export function ProviderSettings({
       setCatalog(next);
       setModel(next.model);
     } catch {
-      setError("请启动或更新本地助手并刷新配对，再点击重新连接。");
+      setError("请安装或更新本地助手，再点击重新连接。");
     } finally {
       setBusy(false);
     }

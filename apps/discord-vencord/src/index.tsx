@@ -425,7 +425,7 @@ function FloatingControls() {
       .catch(() => {
         if (active) {
           setCatalog(null);
-          setNotice("本地助手未连接，请启动并配对后重新打开面板。");
+          setNotice("本地助手未连接，请检查助手安装后重新打开面板。");
         }
       })
       .finally(() => {
@@ -672,6 +672,7 @@ export default definePlugin({
     CONNECTION_OPEN: () => translations.clear(),
   },
   start: () => {
+    void Native?.start();
     document.getElementById("lingo-sofa-styles")?.remove();
     const style = document.createElement("style");
     style.id = "lingo-sofa-styles";
@@ -679,6 +680,7 @@ export default definePlugin({
     document.head.append(style);
   },
   stop: () => {
+    void Native?.stop();
     document.getElementById("lingo-sofa-styles")?.remove();
     translations.clear();
   },

@@ -66,7 +66,7 @@ export const modelConfigSchema = z.strictObject({
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 export const settingsSchema = z.strictObject({
   targetLanguage: z.string().min(1).max(64).default("简体中文"),
-  mode: z.enum(["direct", "bridge"]).default("direct"),
+  mode: z.enum(["direct", "bridge"]).default("bridge"),
   model: modelConfigSchema.default({
     provider: "deepseek",
     model: "deepseek-flash",

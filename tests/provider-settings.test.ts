@@ -169,41 +169,61 @@ it("discovers multiple providers and saves credentials locally without returning
   }
 });
 
-it("reads only a valid, unexpired local connection descriptor", async () => {
-  const { connection } = await import("../apps/discord-vencord/src/native.js");
+it("connects Discord only to a valid, authenticated runtime descriptor", async () => {
+  const { createServer } = await import("node:http");
   const { writeFile } = await import("node:fs/promises");
   const directory = await mkdtemp(join(tmpdir(), "lingo-connect-"));
   const previous = process.env.LINGO_SOFA_HOME;
   process.env.LINGO_SOFA_HOME = directory;
+  const { connection, stop } =
+    await import("../apps/discord-vencord/src/native.js");
+  const instanceId = crypto.randomUUID();
+  const token = "a".repeat(64);
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    if (request.headers.authorization !== `Bearer ${token}`)
+      response.writeHead(401);
+    response.end(JSON.stringify({ version: 1, instanceId, ok: true }));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const descriptor = {
+    version: 1,
+    instanceId,
+    port: (server.address() as AddressInfo).port,
+    token,
+  };
+  const write = (value: unknown) =>
+    writeFile(
+      join(directory, "runtime-connection.json"),
+      JSON.stringify(value),
+    );
   try {
     expect(await connection(undefined)).toBeNull();
-    const descriptor = {
-      port: 43187,
-      token: "fixture-token".padEnd(48, "0"),
-      expiresAt: Date.now() + 60_000,
-    };
-    const write = (value: unknown) =>
-      writeFile(
-        join(directory, "discord-connection.json"),
-        JSON.stringify(value),
-      );
+    await stop(undefined);
     await write(descriptor);
     expect(await connection(undefined)).toEqual({
       port: descriptor.port,
-      token: descriptor.token,
+      token,
     });
+    await stop(undefined);
     for (const invalid of [
-      { ...descriptor, expiresAt: 0 },
+      { ...descriptor, version: 2 },
+      { ...descriptor, instanceId: crypto.randomUUID() },
       { ...descriptor, token: "short" },
+      { ...descriptor, token: "b".repeat(64) },
       { ...descriptor, port: 80 },
       { ...descriptor, port: 43187.5 },
     ]) {
       await write(invalid);
       expect(await connection(undefined)).toBeNull();
+      await stop(undefined);
     }
-    await writeFile(join(directory, "discord-connection.json"), "malformed");
+    await writeFile(join(directory, "runtime-connection.json"), "malformed");
     expect(await connection(undefined)).toBeNull();
   } finally {
+    await stop(undefined);
+    server.closeAllConnections();
+    await new Promise<void>((done) => server.close(() => done()));
     if (previous === undefined) delete process.env.LINGO_SOFA_HOME;
     else process.env.LINGO_SOFA_HOME = previous;
     await rm(directory, { recursive: true, force: true });

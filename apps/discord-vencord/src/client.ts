@@ -24,7 +24,7 @@ export class DiscordBridgeClient {
     const connection = await this.options.connect?.();
     const token = connection?.token ?? this.options.token();
     if (token.length < 32)
-      throw new Error("本地助手尚未配对，请启动助手并更新配对后重试");
+      throw new Error("本地助手尚未连接，请检查助手安装后重试");
     const port = connection?.port ?? this.options.port();
     if (!Number.isInteger(port) || port < 1024 || port > 65535)
       throw new Error("Invalid Bridge port");
@@ -46,7 +46,7 @@ export class DiscordBridgeClient {
     if (!response.ok)
       throw new Error(
         response.status === 401
-          ? "配对令牌已失效，请重新配对"
+          ? "本地助手连接已失效，请重试；原请求不会自动重发"
           : response.status === 409
             ? "有请求正在进行，请完成后再保存供应商"
             : "Bridge 不可用或请求被限制",

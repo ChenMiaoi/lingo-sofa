@@ -68,3 +68,9 @@ CI 配置代表未来应执行的验证，不表示本次已取得云端 CI 的�
 ## 数学排版兼容性
 
 固定 KaTeX 0.19.0，输出原生 MathML，无字体/CDN 或新网络权限。Chrome 内容脚本加载器会拒绝公式词法器使用的 U+FFFF 非字符；构建通过 Rolldown `output.minify.codegen.asciiOnly` 将字符写成转义形式，并在扩展审计中拒绝非法 UTF-8、NUL 和 Unicode 非字符。实际 MV3 加载、公式与恢复回归重新通过，保留这一构建要求。
+
+## 自动服务连接升级
+
+新浏览器配置默认本地助手；已有显式直连设置保留。浏览器、Bridge、Native Host 和 Discord 插件需同步更新，并执行 `install:service`（浏览器另执行 `package:native` 与 `install:native`）。旧人工配对文件不再用于新连接。安装副本包含固定 Bridge 与运行依赖，仍使用记录的 Node 24 路径。
+
+实际 MV3 已验证冷启动共享服务、相同实例接入、切回直连释放浏览器租约后 Discord 仍可使用服务。当前无头 Chromium 156 的 CDP 关闭接口会在持久 Native 连接/独立服务仍活跃时阻塞，测试先释放浏览器连接、清理其测试服务再关闭浏览器；这不等同于普通 Chrome/Edge 的界面退出验收，该项保留待测。原 Discord 的界面退出后自动结束服务、重新打开后创建新实例已通过本机验收。

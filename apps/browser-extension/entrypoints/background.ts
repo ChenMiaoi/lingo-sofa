@@ -21,7 +21,18 @@ import {
 import { TranslationService } from "@lingo-sofa/translation-core";
 import { readSettings, apiKey, records } from "../src/storage.js";
 
+import { NativeConnection } from "../src/native-connection.js";
+
 export default defineBackground(() => {
+  const native = new NativeConnection();
+  browser.runtime.onSuspend.addListener(() => native.stop());
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.settings) return;
+    const settings = settingsSchema.safeParse(changes.settings.newValue ?? {});
+    if (!settings.success) return;
+    if (settings.data.mode === "bridge") native.start();
+    else native.stop();
+  });
   const inFlight = new Map<string, UsageRecord>();
   const service = new TranslationService({
     pricing: (settings) => {
@@ -63,6 +74,7 @@ export default defineBackground(() => {
       accessLevel: "TRUSTED_CONTEXTS",
     });
     const settings = await readSettings();
+    if (settings.mode === "bridge") native.start();
     const saved = await records(settings);
     const pending = await browser.storage.session.get("inFlight");
     service.ledger.restore([
@@ -88,10 +100,12 @@ export default defineBackground(() => {
     sender.id === browser.runtime.id &&
     sender.url?.startsWith(browser.runtime.getURL(""));
   async function bridge(request: Request, scope: string): Promise<Reply> {
-    const response: unknown = await browser.runtime.sendNativeMessage(
-      "com.lingosofa.bridge",
-      { version: 1, scope, sourceKind: "web", request },
-    );
+    const response: unknown = await native.request({
+      version: 1,
+      scope,
+      sourceKind: "web",
+      request,
+    });
     return replySchema.parse(response);
   }
   const transports = new Map<
@@ -187,7 +201,7 @@ export default defineBackground(() => {
       async function catalog(mode = settings.mode) {
         if (mode === "bridge")
           return providerCatalogSchema.parse(
-            await browser.runtime.sendNativeMessage("com.lingosofa.bridge", {
+            await native.request({
               version: 1,
               sourceKind: "web",
               scope: "browser",
@@ -252,7 +266,7 @@ export default defineBackground(() => {
         await cancelTransports();
         if (settings.mode === "bridge") {
           const reply = replySchema.parse(
-            await browser.runtime.sendNativeMessage("com.lingosofa.bridge", {
+            await native.request({
               version: 1,
               sourceKind: "web",
               scope: "browser",
@@ -376,7 +390,7 @@ export default defineBackground(() => {
         const update = providerUpdateSchema.parse(data.update);
         if (data.mode === "bridge") {
           const reply = replySchema.parse(
-            await browser.runtime.sendNativeMessage("com.lingosofa.bridge", {
+            await native.request({
               version: 1,
               sourceKind: "web",
               scope: "browser",
@@ -466,6 +480,8 @@ export default defineBackground(() => {
           await browser.storage.session.remove("usage");
         }
         await browser.storage.local.set({ settings: next });
+        if (next.mode === "bridge") native.start();
+        else native.stop();
         if (
           next.model.provider !== settings.model.provider ||
           next.model.endpoint !== settings.model.endpoint

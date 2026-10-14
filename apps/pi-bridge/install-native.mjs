@@ -1,14 +1,34 @@
-import { mkdir, writeFile, access } from "node:fs/promises";
+import {
+  mkdir,
+  writeFile,
+  access,
+  copyFile,
+  chmod,
+  rename,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { execFileSync } from "node:child_process";
 const extensionId = process.argv[2];
 if (!extensionId || !/^[a-p]{32}$/.test(extensionId))
   throw new Error("Pass the installed extension ID");
-const binary = resolve(
+const builtBinary = resolve(
   `dist/lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`,
 );
-await access(binary);
+await access(builtBinary);
+execFileSync(process.execPath, ["install-runtime.mjs", extensionId], {
+  stdio: "inherit",
+});
+const assistantHome = resolve(
+  process.env.LINGO_SOFA_HOME ?? join(homedir(), ".config/lingo-sofa"),
+);
+const binary = join(
+  assistantHome,
+  `lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`,
+);
+await copyFile(builtBinary, `${binary}.tmp`);
+await chmod(`${binary}.tmp`, 0o755);
+await rename(`${binary}.tmp`, binary);
 const name = "com.lingosofa.bridge";
 const manifest = {
   name,
@@ -61,5 +81,5 @@ for (const directory of directories) {
   console.log(`Registered ${path}`);
 }
 console.log(
-  "Add the same extension ID to allowedExtensions in your Bridge config. Keep this checkout and packaged host in place.",
+  "The local runtime and extension allowlist are installed. Keep the installed assistant directory and Node path in place.",
 );

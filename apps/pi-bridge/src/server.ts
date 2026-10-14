@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { createServer } from "node:http";
+import { createServer, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import {
   createPiClient,
@@ -12,6 +12,7 @@ import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
 import { UsageHistory } from "./history.js";
 import { SafePiSessions } from "./sdk.js";
 import { saveProviderSettings } from "./provider-settings.js";
+import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
 
 export function createBridge(
   config: BridgeConfig,
@@ -19,6 +20,12 @@ export function createBridge(
   token: string,
   expiresAt: number,
   directory: string,
+  runtime?: {
+    instanceId: string;
+    server: Server;
+    leases: ClientLeases;
+    accepting?: boolean;
+  },
 ) {
   if (token.length < 32)
     throw new Error("Pairing token must have at least 32 characters");
@@ -77,7 +84,8 @@ export function createBridge(
     ...config.allowedExtensions.map((id) => `chrome-extension://${id}`),
   ]);
   const rate = new Map<string, { count: number; until: number }>();
-  const server = createServer(async (request, response) => {
+  const server = runtime?.server ?? createServer();
+  server.on("request", async (request, response) => {
     const reply = (status: number, body: unknown) => {
       response.writeHead(status, {
         "Content-Type": "application/json",
@@ -136,6 +144,13 @@ export function createBridge(
       reply(405, { ok: false, error: "Use POST" });
       return;
     }
+    if (runtime?.accepting === false) {
+      reply(503, {
+        ok: false,
+        error: "Local service is finishing active requests",
+      });
+      return;
+    }
     try {
       let size = 0;
       const chunks: Buffer[] = [];
@@ -149,6 +164,29 @@ export function createBridge(
         chunks.push(buffer);
       }
       const raw: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (runtime && request.url === "/v1/runtime/status") {
+        reply(200, {
+          version: 1,
+          instanceId: runtime.instanceId,
+          clients: runtime.leases.count,
+        });
+        return;
+      }
+      if (runtime && request.url === "/v1/runtime/lease") {
+        const lease = raw as { id?: unknown; action?: unknown } | null;
+        if (
+          !lease ||
+          typeof lease.id !== "string" ||
+          !/^[\da-f-]{36}$/.test(lease.id)
+        )
+          throw new Error("Invalid runtime client");
+        if (lease.action === "renew") runtime.leases.renew(origin, lease.id);
+        else if (lease.action === "release")
+          runtime.leases.release(origin, lease.id);
+        else throw new Error("Invalid runtime action");
+        reply(200, { ok: true });
+        return;
+      }
       if (request.url === "/v1/provider") {
         reply(200, {
           model: config.settings.model,
@@ -325,6 +363,17 @@ export function createBridge(
   return {
     server,
     service,
+    get busy() {
+      return (
+        configuring ||
+        Boolean(
+          inFlight.size ||
+          service.queue.runningCount ||
+          service.queue.pendingCount,
+        )
+      );
+    },
+    flush: checkpoint,
     get sessions() {
       return sessions;
     },

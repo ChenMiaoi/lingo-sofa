@@ -66,6 +66,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
         action: "save",
         settings: {
           ...data.settings,
+          mode: "direct",
           model: {
             provider: "openai-compatible",
             model: "fixture",

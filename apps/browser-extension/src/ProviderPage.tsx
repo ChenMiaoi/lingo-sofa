@@ -14,7 +14,7 @@ async function send(message: unknown) {
   return reply;
 }
 export function ProviderPage() {
-  const [mode, setMode] = useState<"direct" | "bridge">("direct");
+  const [mode, setMode] = useState<"direct" | "bridge">("bridge");
   const [catalog, setCatalog] = useState<ProviderCatalog | null>(null);
   const [model, setModel] = useState<ModelConfig | null>(null);
   const [key, setKey] = useState("");
@@ -44,7 +44,7 @@ export function ProviderPage() {
       setCatalog(next);
       setModel(next.model);
     } catch {
-      setError("连接不可用，请启动并配对本地助手，或选择模型直连。");
+      setError("连接不可用，请检查本地助手安装后重试，或选择模型直连。");
     } finally {
       setBusy(false);
     }

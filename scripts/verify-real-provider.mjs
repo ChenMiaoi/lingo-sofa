@@ -1,11 +1,21 @@
 /* global chrome, crypto, URL, AbortSignal */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, cp, readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import {
+  mkdtemp,
+  cp,
+  copyFile,
+  readFile,
+  writeFile,
+  mkdir,
+  rm,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { bridgeConfigSchema } from "../apps/pi-bridge/src/config.ts";
+import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
 import { createBridge } from "../apps/pi-bridge/src/server.ts";
 import { replySchema } from "@lingo-sofa/protocol";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
@@ -23,7 +33,7 @@ assert(
 const directory = await mkdtemp(join(tmpdir(), "lingo-real-"));
 const extension = join(directory, "extension");
 const bridgeHome = join(directory, "bridge");
-const token = crypto.randomUUID() + crypto.randomUUID();
+const token = randomBytes(32).toString("hex");
 const config = bridgeConfigSchema.parse({
   settings: {
     mode: "bridge",
@@ -85,7 +95,7 @@ try {
       const state = await chrome.runtime.sendMessage({ action: "state" });
       const saved = await chrome.runtime.sendMessage({
         action: "save",
-        settings: { ...state.settings, model },
+        settings: { ...state.settings, mode: "direct", model },
         apiKey: key,
       });
       if (saved.ok === false)
@@ -135,12 +145,14 @@ try {
 
   phase = "native registration";
   config.allowedExtensions = [id];
+  const instanceId = crypto.randomUUID();
   bridge = createBridge(
     config,
     key,
     token,
     Date.now() + 10 * 60_000,
     bridgeHome,
+    { instanceId, server: createServer(), leases: new ClientLeases() },
   );
   await new Promise((done) => bridge.server.listen(0, "127.0.0.1", done));
   config.port = bridge.server.address().port;
@@ -148,9 +160,14 @@ try {
     mode: 0o600,
   });
   await writeFile(
-    join(bridgeHome, "pairing.json"),
-    JSON.stringify({ token, expiresAt: Date.now() + 10 * 60_000 }),
+    join(bridgeHome, "runtime-connection.json"),
+    JSON.stringify({ version: 1, instanceId, token, port: config.port }),
     { mode: 0o600 },
+  );
+  const nativeBinary = join(directory, "lingo-sofa-native-host");
+  await copyFile(
+    resolve("apps/pi-bridge/dist/lingo-sofa-native-host"),
+    nativeBinary,
   );
   const nativeDir = join(directory, "profile/NativeMessagingHosts");
   await mkdir(nativeDir, { recursive: true });
@@ -161,7 +178,7 @@ try {
       name: "com.lingosofa.bridge",
       description: "Temporary LingoSofa acceptance host",
       type: "stdio",
-      path: resolve("apps/pi-bridge/dist/lingo-sofa-native-host"),
+      path: nativeBinary,
       allowed_origins: [`chrome-extension://${id}/`],
     }),
     { flag: "wx", mode: 0o600 },
@@ -340,11 +357,11 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await context?.close();
   if (bridge) {
     bridge.server.closeAllConnections();
     await new Promise((done) => bridge.server.close(done));
   }
+  await context?.close();
   site.closeAllConnections();
   await new Promise((done) => site.close(done));
   if (nativeManifest) await rm(nativeManifest);

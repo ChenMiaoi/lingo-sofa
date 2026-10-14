@@ -43,6 +43,14 @@ test("unifies browser provider settings and the three floating reading controls"
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
+    await worker.evaluate(async () => {
+      const api = (
+        globalThis as typeof globalThis & {
+          chrome: typeof import("wxt/browser").browser;
+        }
+      ).chrome;
+      await api.storage.local.set({ settings: { mode: "direct" } });
+    });
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html`);
 
