@@ -1,11 +1,29 @@
 import type { Reply, TranslationUnit } from "@lingo-sofa/protocol";
 import { TaskQueue } from "@lingo-sofa/translation-core";
 import type { DiscordBridgeClient } from "./client.js";
+export function messageTranslationText(content: string): string {
+  return content.replace(/(`{3,})[\s\S]*?(?:\1`*|$)/g, "").trim();
+}
 export interface MessageRef {
   account: string;
   channel: string;
   id: string;
   content: string;
+  sourceContent?: string;
+}
+export function messageContextMatches(
+  selected: MessageRef,
+  current: {
+    account: string | undefined;
+    channel: string | undefined;
+    content: string | undefined;
+  },
+): boolean {
+  return (
+    current.account === selected.account &&
+    current.channel === selected.channel &&
+    current.content === (selected.sourceContent ?? selected.content)
+  );
 }
 export interface MessageState {
   content: string;
@@ -20,6 +38,43 @@ export class MessageTranslations {
   private states = new Map<string, MessageState>();
   private listeners = new Map<string, Set<() => void>>();
   private queue = new TaskQueue<Reply>(2, 100);
+  private scopeListeners = new Map<string, Set<() => void>>();
+  private originalOnlyScopes = new Set<string>();
+  subscribeScope(scope: string, listener: () => void): () => void {
+    const listeners = this.scopeListeners.get(scope) ?? new Set();
+    listeners.add(listener);
+    this.scopeListeners.set(scope, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) this.scopeListeners.delete(scope);
+    };
+  }
+  isOriginalOnly(scope: string): boolean {
+    return this.originalOnlyScopes.has(scope);
+  }
+  setOriginalOnly(scope: string, value: boolean): void {
+    if (value) {
+      this.originalOnlyScopes.add(scope);
+      this.pause(scope);
+    } else this.originalOnlyScopes.delete(scope);
+    for (const key of this.listeners.keys())
+      if (key.startsWith(`${scope.slice("discord:".length)}:`)) this.emit(key);
+    this.scopeListeners.get(scope)?.forEach((listener) => listener());
+  }
+  pause(scope: string): void {
+    for (const [key, state] of this.states)
+      if (
+        state.scope === scope &&
+        (state.status === "queued" || state.status === "running")
+      ) {
+        this.queue.cancel(state.requestId);
+        void this.client
+          .request(scope, { kind: "cancel", requestId: state.requestId })
+          .catch(() => undefined);
+        this.states.delete(key);
+        this.emit(key);
+      }
+  }
   constructor(private readonly client: Pick<DiscordBridgeClient, "request">) {}
   key(message: MessageRef): string {
     return `${message.account}:${message.channel}:${message.id}`;
@@ -39,13 +94,19 @@ export class MessageTranslations {
     };
   }
   get subscriberCount(): number {
-    return [...this.listeners.values()].reduce(
+    return [...this.listeners.values(), ...this.scopeListeners.values()].reduce(
       (sum, listeners) => sum + listeners.size,
       0,
     );
   }
   translate(message: MessageRef, language: string, automatic = false): void {
+    const text = messageTranslationText(message.content);
+    if (!text) return;
     const key = this.key(message);
+    const messageScope = `discord:${message.account}:${message.channel}`;
+    if (automatic && this.originalOnlyScopes.has(messageScope)) return;
+    if (!automatic && this.originalOnlyScopes.has(messageScope))
+      this.setOriginalOnly(messageScope, false);
     const previous = this.states.get(key);
     if (
       previous?.content === message.content &&
@@ -69,7 +130,7 @@ export class MessageTranslations {
       id: message.id,
       revision: requestId,
       sourceKind: "discord",
-      text: message.content,
+      text,
       targetLanguage: language,
       protectedParts: [],
     };
@@ -128,10 +189,17 @@ export class MessageTranslations {
     }
     this.queue.clear();
     this.states.clear();
+    this.originalOnlyScopes.clear();
+    for (const scope of this.scopeListeners.keys())
+      this.scopeListeners.get(scope)?.forEach((listener) => listener());
     for (const key of this.listeners.keys()) this.emit(key);
   }
   private emit(key: string): void {
     this.listeners.get(key)?.forEach((listener) => listener());
+    const [account, channel] = key.split(":");
+    this.scopeListeners
+      .get(`discord:${account}:${channel}`)
+      ?.forEach((listener) => listener());
   }
   private prune(): void {
     for (const [key, state] of this.states) {

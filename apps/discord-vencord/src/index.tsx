@@ -3,6 +3,8 @@ import { findGroupChildrenByChildId } from "@api/ContextMenu";
 import definePlugin, { OptionType } from "@utils/types";
 import {
   React,
+  useStateFromStores,
+  MessageStore,
   Menu,
   ChannelStore,
   SelectedChannelStore,
@@ -13,7 +15,12 @@ import {
 import type { Message } from "@vencord/discord-types";
 import { pluginStyles } from "./styles.js";
 import { DiscordBridgeClient } from "./client.js";
-import { MessageTranslations, type MessageRef } from "./controller.js";
+import {
+  MessageTranslations,
+  messageTranslationText,
+  messageContextMatches,
+  type MessageRef,
+} from "./controller.js";
 import { budgetStatus, summarize } from "@lingo-sofa/translation-core";
 import {
   formatTokens,
@@ -80,8 +87,14 @@ function Icon() {
     </svg>
   );
 }
-function Ask({ message }: { message: MessageRef }) {
-  const [question, setQuestion] = React.useState("");
+function Ask({
+  message,
+  initialQuestion = "",
+}: {
+  message: MessageRef;
+  initialQuestion?: string;
+}) {
+  const [question, setQuestion] = React.useState(initialQuestion);
   const [turns, setTurns] = React.useState<
     { question: string; answer: string }[]
   >([]);
@@ -93,6 +106,13 @@ function Ask({ message }: { message: MessageRef }) {
     messages: number;
   }>();
   const sessionId = React.useRef(crypto.randomUUID());
+  function contextIsCurrent() {
+    return messageContextMatches(message, {
+      account: UserStore.getCurrentUser()?.id,
+      channel: SelectedChannelStore.getChannelId(),
+      content: MessageStore.getMessage(message.channel, message.id)?.content,
+    });
+  }
   React.useEffect(
     () => () => {
       if (running)
@@ -104,6 +124,11 @@ function Ask({ message }: { message: MessageRef }) {
   );
   async function ask() {
     if (!question.trim() || running) return;
+    if (!contextIsCurrent()) {
+      setSessionStats(undefined);
+      setError("消息、账号或频道已变化，请重新选择并预览上下文");
+      return;
+    }
     const requestId = crypto.randomUUID();
     setRunning(requestId);
     setSessionStats(undefined);
@@ -116,6 +141,8 @@ function Ask({ message }: { message: MessageRef }) {
         context: message.content,
         question,
       });
+      if (!contextIsCurrent())
+        throw new Error("消息、账号或频道已变化，请重新选择并预览上下文");
       if (!reply.ok) throw new Error(reply.error);
       setSessionStats(reply.sessionStats);
       setTurns((current) => [
@@ -239,16 +266,24 @@ function Accessory({ message }: { message: Message }) {
     configuration.autoChannels,
     configuration.targetLanguage,
   ]);
-  const state = translations.get(ref);
+  const observed = translations.get(ref);
+  const state =
+    observed?.language === configuration.targetLanguage ? observed : undefined;
   return (
     <div ref={element} style={{ minHeight: 1 }}>
-      {state && (
+      {state && !translations.isOriginalOnly(scope(ref)) && (
         <section aria-label="LingoSofa 译文" className="lingo-sofa-accessory">
-          <button aria-expanded={!folded} onClick={() => setFolded(!folded)}>
-            {folded ? "展开译文" : "折叠译文"}
-          </button>
           {!folded && (
-            <p style={{ whiteSpace: "pre-wrap" }}>
+            <p
+              role={
+                state.status === "failed"
+                  ? "alert"
+                  : state.status === "success"
+                    ? undefined
+                    : "status"
+              }
+              style={{ whiteSpace: "pre-wrap" }}
+            >
               {state.status === "success"
                 ? state.text
                 : state.status === "failed"
@@ -256,25 +291,37 @@ function Accessory({ message }: { message: Message }) {
                   : "翻译中…"}
             </p>
           )}
-          <button
-            onClick={() => {
-              translations.remove(ref);
-              translations.translate(ref, settings.store.targetLanguage);
-            }}
-          >
-            重试
-          </button>
-          <button
-            disabled={!state.text}
-            onClick={() => {
-              if (state.text) void navigator.clipboard.writeText(state.text);
-            }}
-          >
-            复制译文
-          </button>
-          <button onClick={() => showAsk(ref)}>向 Pi 提问</button>
+          {state.status === "failed" && (
+            <button
+              onClick={() =>
+                translations.translate(ref, settings.store.targetLanguage)
+              }
+            >
+              重试
+            </button>
+          )}
           {(state.status === "queued" || state.status === "running") && (
             <button onClick={() => translations.remove(ref)}>停止</button>
+          )}
+          {state.status === "success" && (
+            <details className="lingo-sofa-translation-actions">
+              <summary aria-label="译文操作">···</summary>
+              <button
+                aria-expanded={!folded}
+                onClick={() => setFolded(!folded)}
+              >
+                {folded ? "展开译文" : "折叠译文"}
+              </button>
+              <button
+                onClick={() => {
+                  if (state.text)
+                    void navigator.clipboard.writeText(state.text);
+                }}
+              >
+                复制译文
+              </button>
+              <button onClick={() => showAsk(ref)}>向 Pi 提问</button>
+            </details>
           )}
         </section>
       )}
@@ -431,6 +478,252 @@ function SettingsPanel() {
     </section>
   );
 }
+function FloatingControls() {
+  const configuration = settings.use(["autoChannels", "targetLanguage"]);
+  const identity = useStateFromStores(
+    [SelectedChannelStore, UserStore],
+    () =>
+      `${UserStore.getCurrentUser()?.id ?? ""}:${SelectedChannelStore.getChannelId() ?? ""}`,
+  );
+  const [account = "", channel = ""] = identity.split(":");
+  const ref = { account, channel, id: "controls", content: "" };
+  const channelScope = scope(ref);
+  const [expanded, setExpanded] = React.useState(false);
+  const [notice, setNotice] = React.useState("");
+  const [selected, setSelected] = React.useState<MessageRef>();
+  const [position, setPosition] = React.useState({ side: "right", y: 160 });
+  const [, refresh] = React.useState(0);
+  const drag = React.useRef<{
+    x: number;
+    y: number;
+    top: number;
+    moved: boolean;
+  } | null>(null);
+  React.useEffect(
+    () =>
+      translations.subscribeScope(channelScope, () =>
+        refresh((value) => value + 1),
+      ),
+    [channelScope],
+  );
+  React.useEffect(() => {
+    setExpanded(false);
+    setNotice("");
+  }, [identity]);
+  React.useEffect(() => {
+    setSelected(undefined);
+    const capture = () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim().slice(0, 16_000) ?? "";
+      if (!text) {
+        if (!document.activeElement?.closest(".lingo-sofa-dock"))
+          setSelected(undefined);
+        return;
+      }
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+      const node = range?.commonAncestorContainer;
+      const element = node instanceof Element ? node : node?.parentElement;
+      const messageElement = element?.closest<HTMLElement>(
+        `[id^="chat-messages-${channel}-"]`,
+      );
+      const id = messageElement?.id.slice(`chat-messages-${channel}-`.length);
+      const message = id ? MessageStore.getMessage(channel, id) : undefined;
+      setSelected(
+        message && message.content.includes(text)
+          ? {
+              ...reference(message),
+              content: text,
+              sourceContent: message.content,
+            }
+          : undefined,
+      );
+    };
+    document.addEventListener("selectionchange", capture);
+    return () => document.removeEventListener("selectionchange", capture);
+  }, [identity]);
+  function askSelection() {
+    if (!selected) {
+      setNotice("请先在一条消息中选中要询问的正文");
+      return;
+    }
+    const current = MessageStore.getMessage(selected.channel, selected.id);
+    if (current?.content !== selected.sourceContent) {
+      setNotice("消息已变化，请重新选择上下文");
+      return;
+    }
+    showAsk(selected);
+    setExpanded(false);
+  }
+  if (!account || !channel) return null;
+  return (
+    <div
+      className="lingo-sofa-dock"
+      style={{
+        top: position.y,
+        right: position.side === "right" ? 16 : "auto",
+        left: position.side === "left" ? 16 : "auto",
+      }}
+    >
+      <button
+        className="lingo-sofa-launcher"
+        aria-label="LingoSofa 频道控制，可拖动或用方向键移动"
+        aria-expanded={expanded}
+        onPointerDown={(event) => {
+          drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            top: position.y,
+            moved: false,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = drag.current;
+          if (
+            !start ||
+            Math.abs(event.clientX - start.x) +
+              Math.abs(event.clientY - start.y) <
+              6
+          )
+            return;
+          start.moved = true;
+          setExpanded(false);
+          setPosition({
+            side: event.clientX < window.innerWidth / 2 ? "left" : "right",
+            y: Math.max(
+              16,
+              Math.min(
+                start.top + event.clientY - start.y,
+                window.innerHeight - 60,
+              ),
+            ),
+          });
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+        }}
+        onClick={() => {
+          if (!drag.current?.moved) setExpanded(!expanded);
+          drag.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setExpanded(false);
+          if (["ArrowUp", "ArrowDown"].includes(event.key)) {
+            event.preventDefault();
+            setPosition({
+              ...position,
+              y: Math.max(
+                16,
+                Math.min(
+                  position.y + (event.key === "ArrowUp" ? -24 : 24),
+                  window.innerHeight - 60,
+                ),
+              ),
+            });
+          }
+        }}
+      >
+        🛋
+      </button>
+      {expanded && (
+        <section
+          className="lingo-sofa-channel-panel lingo-sofa-panel"
+          aria-label="LingoSofa 频道控制"
+          style={{
+            right: position.side === "right" ? 0 : "auto",
+            left: position.side === "left" ? 0 : "auto",
+            top: position.y > window.innerHeight / 2 ? "auto" : 54,
+            bottom: position.y > window.innerHeight / 2 ? 54 : "auto",
+          }}
+        >
+          <div className="lingo-sofa-control-heading">
+            <strong>
+              LingoSofa · {ChannelStore.getChannel(channel)?.name ?? "当前频道"}
+            </strong>
+            <button
+              aria-label="收起频道控制"
+              onClick={() => setExpanded(false)}
+            >
+              ×
+            </button>
+          </div>
+          <label>
+            目标语言
+            <select
+              value={configuration.targetLanguage}
+              onChange={(event) => {
+                translations.pause(channelScope);
+                settings.store.targetLanguage = event.target.value;
+              }}
+            >
+              {[
+                ...new Set([
+                  configuration.targetLanguage,
+                  "简体中文",
+                  "English",
+                  "日本語",
+                  "한국어",
+                ]),
+              ].map((language) => (
+                <option key={language}>{language}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={automatic(ref)}
+              onChange={() => {
+                if (!pairingToken) {
+                  setNotice("请先配对本地 Bridge");
+                  return;
+                }
+                if (automatic(ref)) translations.pause(channelScope);
+                else translations.setOriginalOnly(channelScope, false);
+                toggleAuto(ref);
+              }}
+            />{" "}
+            自动翻译此频道
+          </label>
+          <p className="lingo-sofa-control-hint">
+            仅处理新消息和可见历史，不读取全部频道历史。
+          </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={translations.isOriginalOnly(channelScope)}
+              onChange={(event) => {
+                if (event.target.checked && automatic(ref)) toggleAuto(ref);
+                translations.setOriginalOnly(
+                  channelScope,
+                  event.target.checked,
+                );
+              }}
+            />{" "}
+            只显示原文
+          </label>
+          <details>
+            <summary>更多操作</summary>
+            <button onClick={askSelection}>解释 / Ask Pi</button>
+            <button
+              onClick={() => {
+                setExpanded(false);
+                openModal((props) => (
+                  <Modal {...props} title="LingoSofa">
+                    <SettingsPanel />
+                  </Modal>
+                ));
+              }}
+            >
+              配对与用量
+            </button>
+          </details>
+          {notice && <p role="status">{notice}</p>}
+        </section>
+      )}
+    </div>
+  );
+}
 export default definePlugin({
   name: "LingoSofa",
   description:
@@ -438,11 +731,16 @@ export default definePlugin({
   authors: [],
   settings,
   settingsAboutComponent: SettingsPanel,
+  // The host mounts this after its React/store initialization, inside its error boundary.
+  chatBarButton: {
+    icon: Icon,
+    render: (props) => (props.isMainChat ? <FloatingControls /> : null),
+  },
   renderMessageAccessory: (props) => <Accessory message={props.message} />,
   messagePopoverButton: {
     icon: Icon,
     render: (message) =>
-      message.content
+      messageTranslationText(message.content)
         ? {
             label: "LingoSofa 翻译",
             icon: Icon,
