@@ -14,10 +14,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present && npm run verify:extension",
     "dev": "npm run dev --workspace @lingo-sofa/browser-extension",
     "test:e2e": "playwright test",
-    "verify:vencord": "node scripts/verify-vencord.mjs"
+    "verify:vencord": "node scripts/verify-vencord.mjs",
+    "verify:extension": "node scripts/verify-extension.mjs",
+    "benchmark": "tsx scripts/benchmark.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

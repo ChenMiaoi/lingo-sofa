@@ -38,6 +38,15 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     },
   );
   try {
+    await context.addInitScript(() => {
+      const violations: string[] = [];
+      (
+        globalThis as typeof globalThis & { cspViolations: string[] }
+      ).cspViolations = violations;
+      addEventListener("securitypolicyviolation", (event) => {
+        violations.push(event.violatedDirective);
+      });
+    });
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
@@ -243,6 +252,13 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     });
     expect(changed.hasKey).toBe(false);
     expect(changed.usage).toHaveLength(4);
+    expect(
+      await options.evaluate(
+        () =>
+          (globalThis as typeof globalThis & { cspViolations: string[] })
+            .cspViolations,
+      ),
+    ).toEqual([]);
   } finally {
     await context.close();
     await model.close();
