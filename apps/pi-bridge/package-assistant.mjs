@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -48,11 +49,10 @@ try {
   const installed = JSON.parse(
     await readFile(join(staging, "runtime-install.json"), "utf8"),
   );
-  timing.start("copy runtime and package files");
-  await cp(dirname(installed.entrypoint), join(payload, "runtime"), {
-    recursive: true,
-    dereference: true,
-  });
+  timing.start("move staged runtime and copy package files");
+  // Both directories are private children of work on the same filesystem.
+  // The dependency installer already dereferenced files into this snapshot.
+  await rename(dirname(installed.entrypoint), join(payload, "runtime"));
   await cp(join(project, "dist/config.js"), join(payload, "runtime/config.js"));
   await cp(join(project, "installer.mjs"), join(payload, "install.mjs"));
   for (const file of [
