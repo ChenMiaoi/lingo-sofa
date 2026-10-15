@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
@@ -61,6 +61,27 @@ try {
     throw new Error("Installation depends on external source or runtime");
   // Delete the extracted installer: launch must use only the installed snapshot.
   await rm(payload, { recursive: true, force: true });
+  const authorization = spawn(
+    installation.executable,
+    [
+      join(dirname(installation.entrypoint), "authorize-browser.mjs"),
+      "invalid-id",
+    ],
+    {
+      env: { ...process.env, NODE_OPTIONS: "", LINGO_SOFA_HOME: home },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  let authorizationError = "";
+  authorization.stderr.on("data", (data) => {
+    authorizationError += data.toString();
+  });
+  const [authorizationCode] = await once(authorization, "exit");
+  if (
+    authorizationCode !== 1 ||
+    !authorizationError.includes("Invalid extension ID")
+  )
+    throw new Error("Installed browser authorization entry is not usable");
   const socket = createServer();
   await new Promise((done) => socket.listen(0, "127.0.0.1", done));
   const port = socket.address().port;

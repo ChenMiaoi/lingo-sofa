@@ -116,6 +116,12 @@ it.skipIf(process.platform === "win32")(
         resolve("apps/pi-bridge/installer.mjs"),
         join(payload, "install.mjs"),
       );
+      for (const file of [
+        "authorization-entry.mjs",
+        "authorize-browser.mjs",
+        "native-registration.mjs",
+      ])
+        await cp(resolve("apps/pi-bridge", file), join(payload, file));
       const nodeName = process.platform === "win32" ? "node.exe" : "node";
       await cp(process.execPath, join(runtime, nodeName));
       const nativeName = `lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`;
@@ -132,6 +138,9 @@ it.skipIf(process.platform === "win32")(
         await Promise.all(
           [
             "install.mjs",
+            "authorization-entry.mjs",
+            "authorize-browser.mjs",
+            "native-registration.mjs",
             "runtime/config.js",
             "runtime/index.js",
             "runtime/package.json",

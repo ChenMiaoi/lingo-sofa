@@ -2,7 +2,7 @@
 
 ## 三类交付物
 
-- 浏览器：Chrome/Edge MV3 ZIP，商店发行后由商店安装。目前开发者解压加载。
+- 浏览器：Chrome/Edge MV3 ZIP，商店发行后由商店安装。当前开启开发者模式后，将 ZIP 直接拖入 `chrome://extensions` 或 `edge://extensions` 安装，无需解压；不接受 ZIP 的浏览器可解压后使用“加载已解压的扩展程序”。
 - Discord：`lingoSofa` Vencord userplugin 目录的压缩包，包含 renderer 与 native 两部分。它需要集成到自定义 Vencord 构建，不能当作 Discord 官方插件或直接导入普通 Vencord。
 - 共享本地助手：按系统/架构生成 `lingo-sofa-assistant-<version>-<platform>-<arch>.tar.gz`，含 Node 24、Bridge、运行依赖、Native Host、安装程序与逐文件 SHA-256。不要求用户安装 Node，也不依赖源码目录。
 
@@ -26,14 +26,15 @@
 
 Discord 启用 LingoSofa 时先检查已安装助手；不存在时，从插件构建中固定的版本地址下载适配系统的安装包，验证固定 SHA-256，拒绝路径穿越、链接与特殊文件，再调用包内 Node 安装，完成后自动启动服务。下载/安装状态及失败重试在插件设置中显示。已安装时直接复用，不在网络故障或配置损坏时覆盖安装，也不自动重放模型请求。插件停用时不再启动助手；已开始的下载/文件安装可能完成，但不会因此启动服务。
 
-浏览器扩展受沙箱限制，首次需用户运行本地安装程序：
+浏览器扩展受沙箱限制，需要用户在终端授权本机助手，不能在连接失败时判断助手是否未安装。
 
-1. 在设置页“共享本地助手”打开发布页，下载适合系统和芯片的助手包。
-2. 复制设置页显示的扩展 ID。
-3. 关闭浏览器和 Discord，等待后台退出（最后断线后约 60 秒，异常断线还需租约过期时间）。解压，macOS 双击 `Install.command`，Windows 双击 `Install.cmd`；Linux 可在终端运行 `sh Install.command`。粘贴扩展 ID。安装脚本会使用包内 Node，不需执行 npm。
-4. 重新打开浏览器，点击“检测连接”。
+**已有助手（包括从 Discord 安装）**：打开设置页“共享本地助手”，选择 Windows PowerShell、macOS 或 Linux 终端，点击“复制授权命令”。命令已包含当前扩展 ID。关闭浏览器和 Discord，等待助手退出（通常最后断线后约 60 秒，异常断线还需租约过期时间），再粘贴运行。完成后重新打开浏览器，点击“检测连接”。无需重新下载、安装 Node 或重新配置模型账户。
 
-先从 Discord 安装的用户仍需运行一次安装程序授权浏览器扩展。再次安装会合并扩展白名单、保留账户/配置/用量，不覆盖其他来源的 Native Host 注册。新浏览器配置档或不同商店的扩展 ID 需要分别授权。命令行可一次传入多个 ID：`runtime/node install.mjs ID1 ID2`（Windows 用 `runtime/node.exe`）。仅 Discord 使用可不传 ID。
+授权命令使用已安装的私有运行环境，只合并扩展白名单并注册 Native Messaging，保留账户、配置与用量，不替换运行环境；助手仍在线时拒绝修改。命令尊重 `LINGO_SOFA_HOME`。旧版本若缺少 `authorize-browser.mjs` / `Authorize.command`，需要先升级一次助手。不同浏览器配置档或商店的扩展 ID 需分别授权。
+
+**尚未安装助手**：展开“尚未安装助手？下载并安装”，下载对应系统/芯片的助手包。复制扩展 ID，关闭连接客户端并等待助手退出后，解压助手包：macOS 打开 `Install.command`，Windows 打开 `Install.cmd`，Linux 运行 `sh Install.command`，在提示中粘贴扩展 ID。重新打开浏览器检测连接。这里需要解压的是助手包，浏览器 ZIP 可直接拖入扩展页面。
+
+命令行安装可一次传入多个 ID：`runtime/node install.mjs ID1 ID2`（Windows 用 `runtime/node.exe`）。仅 Discord 使用可不传 ID。已安装运行目录中的 `authorize-browser.mjs` 同样接受多个 ID，使用该目录自带的 Node 执行。再次授权合并白名单，不覆盖其他来源的 Native Host 注册。
 
 安装使用用户目录 `~/.config/lingo-sofa`（或 `LINGO_SOFA_HOME`），无需系统级常驻服务。升级前需关闭连接客户端，安装器拒绝替换正在运行的助手。失败可重试；异常进程中断遗留 `.installer-lock` 时，确认无安装器运行后移除此锁目录。不会删除账户和历史，也不会自动杀死未知进程。
 

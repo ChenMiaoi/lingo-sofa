@@ -50,6 +50,12 @@ try {
   });
   await cp(join(project, "dist/config.js"), join(payload, "runtime/config.js"));
   await cp(join(project, "installer.mjs"), join(payload, "install.mjs"));
+  for (const file of [
+    "authorization-entry.mjs",
+    "authorize-browser.mjs",
+    "native-registration.mjs",
+  ])
+    await cp(join(project, file), join(payload, file));
   const nativeName = `lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`;
   await cp(join(project, "dist", nativeName), join(payload, nativeName));
   const nodeRoot = resolve(

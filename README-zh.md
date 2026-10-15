@@ -35,7 +35,7 @@ LingoSofa 为网页和 Discord 提供原位双语翻译与上下文问答。保�
 
 | 组件         | 下载文件                                                  | 安装方式                                                  |
 | ------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| 浏览器扩展   | `lingo-sofa-browser-<version>.zip`                        | 解压，在 Chrome 或 Edge 开发者模式中加载。                |
+| 浏览器扩展   | `lingo-sofa-browser-<version>.zip`                        | 开启 Chrome 或 Edge 开发者模式，将 ZIP 拖入扩展页面安装。 |
 | Discord 插件 | `lingo-sofa-vencord-<version>.tar.gz`                     | 集成到自定义 Vencord 构建；不是独立 Discord 安装器。      |
 | 本地助手     | `lingo-sofa-assistant-<version>-<platform>-<arch>.tar.gz` | 选择对应系统和芯片，解压并运行内附安装入口；已自带 Node。 |
 
@@ -43,8 +43,8 @@ LingoSofa 为网页和 Discord 提供原位双语翻译与上下文问答。保�
 
 ### 浏览器
 
-1. 解压浏览器 ZIP，打开 `chrome://extensions` 或 `edge://extensions`，开启 **开发者模式**，选择 **加载已解压的扩展程序**。
-2. 打开 LingoSofa 设置，按 **共享本地助手** 的指引安装助手并授权此扩展；也可以选择模型直连，跳过助手安装。
+1. 打开 `chrome://extensions` 或 `edge://extensions`，开启 **开发者模式**，将浏览器 ZIP 直接拖入页面安装，无需解压。若浏览器不接受 ZIP，再解压并选择 **加载已解压的扩展程序**。
+2. 打开 LingoSofa 设置，在 **共享本地助手** 中，已有助手（包括从 Discord 安装）的用户复制对应平台的授权命令；尚未安装才下载助手；也可以选择模型直连，跳过助手安装。
 3. 添加供应商账户，分别选择翻译和问答模型。
 4. 打开网页，从扩展弹出菜单显示阅读悬浮球。悬停段落可翻译，选中文字可使用 **翻译 / Ask**；也可按 **Alt+Shift+A** 围绕所选内容提问。
 

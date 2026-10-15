@@ -6,12 +6,12 @@ import {
   rename,
   rm,
   stat,
-  writeFile,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { isAbsolute, join, resolve } from "node:path";
+import { installBrowserAuthorization } from "./authorization-entry.mjs";
+import { browserRegistration, save } from "./native-registration.mjs";
 import { createInterface } from "node:readline/promises";
 import { bridgeConfigSchema } from "./runtime/config.js";
 
@@ -94,43 +94,7 @@ try {
   config = bridgeConfigSchema.parse(config);
   const binaryName = `lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`;
   const binary = join(home, binaryName);
-  const name = "com.lingosofa.bridge";
-  const browserDirectories =
-    process.platform === "darwin"
-      ? ["Google/Chrome", "Google/ChromeForTesting", "Microsoft Edge"].map(
-          (browser) =>
-            join(
-              homedir(),
-              "Library/Application Support",
-              browser,
-              "NativeMessagingHosts",
-            ),
-        )
-      : process.platform === "win32"
-        ? [join(home, "native")]
-        : [
-            "google-chrome",
-            "google-chrome-for-testing",
-            "chromium",
-            "microsoft-edge",
-          ].map((browser) =>
-            join(homedir(), ".config", browser, "NativeMessagingHosts"),
-          );
-  if (config.allowedExtensions.length) {
-    for (const directory of browserDirectories) {
-      try {
-        const existing = JSON.parse(
-          await readFile(join(directory, `${name}.json`), "utf8"),
-        );
-        if (existing.path !== binary || existing.name !== name)
-          throw new Error(
-            "A different Native Host registration already exists; it was not overwritten",
-          );
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
-  }
+  const register = await browserRegistration(home, config);
   try {
     const active = JSON.parse(
       await readFile(join(home, "runtime-connection.json"), "utf8"),
@@ -173,45 +137,14 @@ try {
     throw new Error("Bundled runtime is missing");
   await cp(join(source, binaryName), `${binary}.tmp`);
   await rename(`${binary}.tmp`, binary);
-  async function save(path, value) {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(`${path}.tmp`, JSON.stringify(value, null, 2) + "\n", {
-      mode: 0o600,
-    });
-    await rename(`${path}.tmp`, path);
-  }
+  await installBrowserAuthorization(home, destination);
   await save(join(home, "config.json"), config);
   await save(join(home, "runtime-install.json"), {
     executable,
     entrypoint: join(destination, "index.js"),
     version: metadata.version,
   });
-  if (config.allowedExtensions.length) {
-    for (const directory of browserDirectories) {
-      const path = join(directory, `${name}.json`);
-      await save(path, {
-        name,
-        description: "LingoSofa Native Messaging Bridge",
-        path: binary,
-        type: "stdio",
-        allowed_origins: config.allowedExtensions.map(
-          (id) => `chrome-extension://${id}/`,
-        ),
-      });
-      if (process.platform === "win32")
-        for (const browser of ["Google\\Chrome", "Microsoft\\Edge"])
-          execFileSync("reg", [
-            "ADD",
-            `HKCU\\Software\\${browser}\\NativeMessagingHosts\\${name}`,
-            "/ve",
-            "/t",
-            "REG_SZ",
-            "/d",
-            path,
-            "/f",
-          ]);
-    }
-  }
+  await register();
   console.log(
     "LingoSofa 本地助手安装完成。重新打开浏览器或 Discord 即可自动连接；两端共用此安装与模型配置。",
   );

@@ -35,7 +35,7 @@ Visit [Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) for downloada
 
 | Component         | What to download                                          | How it is installed                                                                      |
 | ----------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Browser extension | `lingo-sofa-browser-<version>.zip`                        | Unpack and load in Chrome or Edge developer mode.                                        |
+| Browser extension | `lingo-sofa-browser-<version>.zip`                        | Enable developer mode and drag the ZIP onto the extensions page.                         |
 | Discord plugin    | `lingo-sofa-vencord-<version>.tar.gz`                     | Add to a custom Vencord build. This is a userplugin, not a standalone Discord installer. |
 | Local assistant   | `lingo-sofa-assistant-<version>-<platform>-<arch>.tar.gz` | Choose your OS/CPU, unpack and run the included installer. Node is bundled.              |
 
@@ -43,8 +43,8 @@ Assistant builds target macOS Apple Silicon / Intel, Linux ARM64 / x64, and Wind
 
 ### Browser
 
-1. Unpack the browser ZIP. Open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, and choose **Load unpacked**.
-2. Open LingoSofa settings. Follow **Shared local assistant** to install the helper and authorize this extension. Alternatively, select direct mode to use a supported model endpoint without the helper.
+1. Open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, and drag the browser ZIP onto the page. If your browser does not accept ZIP files, unpack it and choose **Load unpacked**.
+2. Open LingoSofa settings. Under **Shared local assistant**, copy the authorization command for your platform if a helper is already installed (including through Discord). Download the helper only for a first installation. Alternatively, select direct mode to use a supported model endpoint without the helper.
 3. Add a provider account and choose your translation and chat models.
 4. Open a webpage and show the floating reader from the extension popup. Hover over a paragraph to translate, or select text for **Translate / Ask**. Press **Alt+Shift+A** to ask about selected content.
 

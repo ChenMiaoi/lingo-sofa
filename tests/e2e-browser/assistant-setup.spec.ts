@@ -43,7 +43,20 @@ test("guides browser installation with its own extension ID and hides the guide 
     await page.getByRole("button", { name: "本地助手", exact: true }).click();
     const setup = page.getByRole("region", { name: "本地助手安装" });
     await expect(setup).toBeVisible();
-    await setup.getByText("首次安装或授权此浏览器", { exact: true }).click();
+    const command = setup.getByRole("textbox", { name: "浏览器授权命令" });
+    await expect(command).toHaveValue(new RegExp(id));
+    await setup.getByRole("combobox", { name: "终端平台" }).selectOption("win");
+    await expect(command).toHaveValue(/ConvertFrom-Json/);
+    await setup.getByRole("combobox", { name: "终端平台" }).selectOption("mac");
+    await expect(command).toHaveValue(/Authorize\.command/);
+    await setup
+      .getByRole("combobox", { name: "终端平台" })
+      .selectOption("linux");
+    await expect(command).toHaveValue(new RegExp(id));
+    await expect(
+      setup.getByRole("link", { name: "下载本地助手" }),
+    ).toBeHidden();
+    await setup.getByText("尚未安装助手？下载并安装", { exact: true }).click();
     await expect(setup.locator("code")).toHaveText(id);
     await expect(
       setup.getByRole("link", { name: "下载本地助手" }),

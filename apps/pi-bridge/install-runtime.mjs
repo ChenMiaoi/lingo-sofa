@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, join, dirname, relative } from "node:path";
+import { installBrowserAuthorization } from "./authorization-entry.mjs";
 import { createHash } from "node:crypto";
 
 const directory = resolve(
@@ -149,6 +150,8 @@ if (!installed) {
     await rm(temporary, { recursive: true, force: true });
   }
 }
+await cp(resolve("dist/config.js"), join(runtimeDirectory, "config.js"));
+await installBrowserAuthorization(directory, runtimeDirectory);
 for (const [name, value] of [
   ["config.json", config],
   [
