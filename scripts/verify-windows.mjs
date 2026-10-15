@@ -12,7 +12,12 @@ import { join, resolve } from "node:path";
 import { Buffer } from "node:buffer";
 import { setTimeout as delay } from "node:timers/promises";
 import { installWindowsBundle } from "./windows/install.ts";
+import { createStageTimer } from "./stage-timer.mjs";
 
+const timing = createStageTimer(
+  process.argv[3] ? "verify-windows-exe" : "verify-windows-direct",
+);
+timing.start("prepare isolated Discord fixture");
 const payload = resolve(process.argv[2]);
 if (process.platform !== "win32" || process.arch !== "x64")
   throw new Error("Windows smoke test requires Windows x64");
@@ -60,9 +65,11 @@ import("os";"path/filepath";"bytes")
 func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(filepath.Join(root,"app-1.0.0","resources","app.asar"));result:="unpatched";if bytes.Contains(data,[]byte("patcher.js")){result="patched"};os.WriteFile(filepath.Join(root,"restart-marker"),[]byte(result),0600)}
 `,
     );
+    timing.start("compile restart observer");
     execFileSync("go", ["build", "-o", join(target, "Update.exe"), launcher], {
       windowsHide: true,
     });
+    timing.start("install EXE into valid Discord fixture");
     execFileSync(
       resolve(process.argv[3]),
       [
@@ -84,6 +91,7 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
         timeout: 900_000,
       },
     );
+    timing.start("verify restart after successful installation");
     const marker = join(target, "restart-marker");
     const deadline = Date.now() + 5_000;
     while (true) {
@@ -96,6 +104,7 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
         await delay(50);
       }
     }
+    timing.start("reject invalid Discord fixture without restart");
     const invalid = join(work, "InvalidDiscordCanary");
     await mkdir(invalid);
     await copyFile(join(target, "Update.exe"), join(invalid, "Update.exe"));
@@ -132,8 +141,10 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
       if (error.code !== "ENOENT") throw error;
     }
   } else {
+    timing.start("install bundle into valid Discord fixture");
     await installWindowsBundle(options);
   }
+  timing.start("verify installed state and patch");
   const state = JSON.parse(
     await readFile(join(home, "windows-install.json"), "utf8"),
   );
@@ -149,7 +160,11 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
     throw new Error("Missing actual Vencord patch");
   await writeFile(join(home, "accounts.json"), '{"fixture":"retained"}');
   // The direct helper run additionally covers repair/reinstallation of the already patched client.
-  if (!process.argv[3]) await installWindowsBundle(options);
+  if (!process.argv[3]) {
+    timing.start("reinstall bundle preserving accounts");
+    await installWindowsBundle(options);
+  }
+  timing.start("verify retained accounts");
   if (
     (await readFile(join(home, "accounts.json"), "utf8")) !==
     '{"fixture":"retained"}'
@@ -160,5 +175,10 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
   );
 } finally {
   // work is the exact directory returned by mkdtemp, never a discovered Discord installation.
-  await rm(work, { recursive: true, force: true });
+  timing.start("remove isolated installation files");
+  try {
+    await rm(work, { recursive: true, force: true });
+  } finally {
+    timing.finish();
+  }
 }

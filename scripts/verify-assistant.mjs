@@ -6,7 +6,10 @@ import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { createStageTimer } from "./stage-timer.mjs";
 
+const timing = createStageTimer("verify-assistant");
+timing.start("prepare verification");
 const root = resolve(import.meta.dirname, "..");
 const version = JSON.parse(
   await readFile(join(root, "apps/pi-bridge/package.json"), "utf8"),
@@ -25,6 +28,7 @@ let child;
 let exited;
 try {
   // This command verifies locally built artifacts, never untrusted remote archives.
+  timing.start("validate archive listing");
   const listing = execFileSync("tar", ["-tzf", archive], {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
@@ -42,10 +46,12 @@ try {
     )
   )
     throw new Error("Invalid assistant paths");
+  timing.start("extract archive");
   execFileSync("tar", ["-xzf", archive, "-C", work]);
   const payload = join(work, directory);
   const home = join(work, "home");
   const node = process.platform === "win32" ? "node.exe" : "node";
+  timing.start("install bundled assistant");
   execFileSync(join(payload, "runtime", node), [join(payload, "install.mjs")], {
     cwd: work,
     env: { ...process.env, LINGO_SOFA_HOME: home },
@@ -60,7 +66,9 @@ try {
   )
     throw new Error("Installation depends on external source or runtime");
   // Delete the extracted installer: launch must use only the installed snapshot.
+  timing.start("remove extracted installer");
   await rm(payload, { recursive: true, force: true });
+  timing.start("verify installed authorization entry");
   const authorization = spawn(
     installation.executable,
     [
@@ -82,6 +90,7 @@ try {
     !authorizationError.includes("Invalid extension ID")
   )
     throw new Error("Installed browser authorization entry is not usable");
+  timing.start("start installed service");
   const socket = createServer();
   await new Promise((done) => socket.listen(0, "127.0.0.1", done));
   const port = socket.address().port;
@@ -121,6 +130,7 @@ try {
   }
   if (!connection)
     throw new Error(`Installed assistant did not start: ${stderr}`);
+  timing.start("verify shared service protocol");
   async function post(origin, route, body) {
     const response = await globalThis.fetch(
       `http://127.0.0.1:${port}${route}`,
@@ -160,9 +170,15 @@ try {
     "Verified installed bundled Node and Bridge without source or extracted installer; browser and Discord origins share one authenticated service. No model requests sent.",
   );
 } finally {
+  timing.start("stop installed service");
   if (child && child.exitCode === null) {
     child.kill("SIGTERM");
     await exited;
   }
-  await rm(work, { recursive: true, force: true });
+  timing.start("remove verification files");
+  try {
+    await rm(work, { recursive: true, force: true });
+  } finally {
+    timing.finish();
+  }
 }

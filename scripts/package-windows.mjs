@@ -8,7 +8,10 @@ import { validateArchiveListing } from "../packages/local-runtime/src/installer.
 import { writeReleaseChecksums } from "./release-utils.ts";
 import { verifyBundle } from "./windows/install.ts";
 import { ensureInno } from "./ensure-inno.mjs";
+import { createStageTimer } from "./stage-timer.mjs";
 
+const timing = createStageTimer("package-windows");
+timing.start("prepare payload staging");
 if (process.platform !== "win32" || process.arch !== "x64")
   throw new Error("Build the Windows installer on Windows x64");
 const root = resolve(import.meta.dirname, "..");
@@ -41,6 +44,7 @@ const run = (file, args, options = {}) =>
     windowsHide: true,
     ...options,
   });
+timing.start("validate assistant archive checksum and paths");
 const assistantArchive = join(input, `${asset.directory}.tar.gz`);
 if (
   createHash("sha256")
@@ -68,9 +72,11 @@ if (
   throw new Error(
     "Links and special files are forbidden in assistant archives",
   );
+timing.start("extract assistant archive");
 run("tar", ["-xzf", assistantArchive, "-C", payload]);
 const npm = process.env.npm_execpath;
 if (!npm) throw new Error("Use npm run package:windows");
+timing.start("build and verify managed Vencord");
 run(process.execPath, [npm, "run", "verify:vencord"], {
   env: {
     ...process.env,
@@ -78,6 +84,7 @@ run(process.execPath, [npm, "run", "verify:vencord"], {
     LINGO_SOFA_MANAGED_WINDOWS: "1",
   },
 });
+timing.start("copy Vencord payload");
 await mkdir(join(payload, "vencord"));
 // Vencord emits CommonJS .js files. Isolate them from the ESM bootstrap at the bundle root.
 await writeFile(
@@ -89,6 +96,7 @@ await cp(join(root, ".cache/vencord/dist"), join(payload, "vencord/dist"), {
 });
 
 // Build the unmodified upstream CLI from an immutable source revision.
+timing.start("checkout upstream installer");
 const installerRevision = "595991ca27520868af4f9c48adf0c53ee971f1f2";
 const checkout = join(root, ".cache/installer-upstream");
 try {
@@ -104,6 +112,7 @@ if (
   }).trim()
 )
   throw new Error("Installer source must be clean");
+timing.start("compile upstream Go installer");
 run(
   "go",
   [
@@ -120,6 +129,7 @@ run(
     env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },
   },
 );
+timing.start("bundle setup helper and archive sources");
 await build({
   entryPoints: [join(root, "scripts/windows/setup.mjs")],
   outfile: join(payload, "install.js"),
@@ -167,7 +177,11 @@ async function inventory(directory, prefix = "") {
     else throw new Error("Special file in Windows payload");
   }
 }
+timing.start("hash payload files");
 await inventory(payload);
+console.log(
+  `[timing] package-windows: payload files=${Object.keys(files).length}`,
+);
 await writeFile(
   join(payload, "windows-bundle.json"),
   JSON.stringify(
@@ -181,14 +195,18 @@ await writeFile(
     2,
   ) + "\n",
 );
+timing.start("verify payload integrity");
 await verifyBundle(payload);
+timing.start("verify direct installation and reinstallation");
 run(process.execPath, [
   "--import",
   "tsx",
   join(root, "scripts/verify-windows.mjs"),
   payload,
 ]);
+timing.start("prepare Inno Setup compiler");
 const iscc = await ensureInno(root);
+timing.start("compile and compress Inno Setup EXE");
 run(iscc, [
   "/Q",
   `/DBundleDir=${payload}`,
@@ -197,6 +215,7 @@ run(iscc, [
   `/O${output}`,
   join(root, "scripts/windows/setup.iss"),
 ]);
+timing.start("verify EXE success and failure paths");
 const name = `LingoSofa-Setup-${version}-win32-x64.exe`;
 run(process.execPath, [
   "--import",
@@ -205,6 +224,7 @@ run(process.execPath, [
   payload,
   join(output, name),
 ]);
+timing.start("hash EXE and write release metadata");
 const sha256 = createHash("sha256")
   .update(await readFile(join(output, name)))
   .digest("hex");
@@ -222,6 +242,7 @@ await writeFile(
     2,
   ) + "\n",
 );
+timing.start("run installation and update regression tests");
 // Exercise the actual packaged installer helpers against a fixture, never the real Discord.
 run(process.execPath, [
   npm,
@@ -231,4 +252,6 @@ run(process.execPath, [
   "tests/updates.test.ts",
 ]);
 console.log(`Windows installer: ${join(output, name)}`);
+timing.start("write final release checksums");
 await writeReleaseChecksums(output);
+timing.finish();

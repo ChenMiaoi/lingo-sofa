@@ -78,3 +78,14 @@ npm run package:windows -- .cache/release-assets .cache/release-assets
 ```
 
 构建需要 Node 24、Git 和 Go；Inno Setup 6.7.3 编译工具包从固定 NuGet URL 下载并按内置 SHA-256 校验，只解压到项目缓存，不安装到系统。也可用 `LINGO_SOFA_ISCC` 指定已有编译器。Node 安装缺少 LICENSE 时，按助手打包约定用 `LINGO_SOFA_NODE_LICENSE` 指定同版本官方许可证。组合安装 smoke test 不修改真实 Discord；本机运行时需先退出 Discord Canary，防止上游按分支名查找进程影响正在使用的 Canary。
+
+## 打包耗时诊断
+
+助手打包、助手验收、Windows 组合打包与 Windows 安装验收会自动输出 `[timing]` 日志，无需额外开关。每个阶段先输出 `start`，结束时输出 `elapsed=...ms`，结束时还会输出 `total`（有清理阶段的脚本包含清理时间）。耗时使用单调时钟；阶段开始日志可用于定位失败或停滞位置；`elapsed` 只表示耗时，不表示验收成功。
+
+- `package-assistant`：依赖暂存、运行时复制、逐文件校验、归档压缩、发布清单生成和暂存清理。
+- `verify-assistant`：归档路径检查、解压、安装、删除解压目录、授权入口、服务启动、共享协议验收、服务停止和临时文件清理。
+- `package-windows`：助手归档校验与解压、Vencord 构建、Go 安装器构建、源码归档、载荷校验、直接安装验收、Inno 工具准备、EXE 编译压缩、EXE 安装验收和最终校验清单。
+- `verify-windows-direct` / `verify-windows-exe`：首次安装、重复安装、重启观察程序构建、EXE 成功安装、失败路径、结果校验与临时安装目录清理。
+
+组合打包的阶段包含其子验收脚本的耗时，分析时不能把父子耗时相加。比较优化前后结果时应使用相同 runner、版本和缓存状态，并保留完整验收；本机 Windows 结果不能直接当作 GitHub runner 的耗时。

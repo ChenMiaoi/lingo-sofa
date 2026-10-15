@@ -13,7 +13,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { createStageTimer } from "../../scripts/stage-timer.mjs";
 
+const timing = createStageTimer("package-assistant");
+timing.start("prepare staging");
 const project = import.meta.dirname;
 const version = JSON.parse(
   await readFile(join(project, "package.json"), "utf8"),
@@ -36,6 +39,7 @@ try {
   await mkdir(payload);
   // Reuse the dependency closure installer in a temporary home, never the user's installation.
   const staging = join(work, "staging");
+  timing.start("install dependency closure into staging");
   execFileSync(process.execPath, [join(project, "install-runtime.mjs")], {
     cwd: project,
     env: { ...process.env, LINGO_SOFA_HOME: staging },
@@ -44,6 +48,7 @@ try {
   const installed = JSON.parse(
     await readFile(join(staging, "runtime-install.json"), "utf8"),
   );
+  timing.start("copy runtime and package files");
   await cp(dirname(installed.entrypoint), join(payload, "runtime"), {
     recursive: true,
     dereference: true,
@@ -93,7 +98,11 @@ try {
       else throw new Error("Unexpected special file in assistant bundle");
     }
   }
+  timing.start("hash payload files");
   await inventory(payload);
+  console.log(
+    `[timing] package-assistant: payload files=${Object.keys(files).length}`,
+  );
   await writeFile(
     join(payload, "bundle.json"),
     JSON.stringify(
@@ -103,7 +112,9 @@ try {
     ) + "\n",
   );
   const archive = join(output, `${name}.tar.gz`);
+  timing.start("compress tar.gz");
   execFileSync("tar", ["-czf", archive, "-C", work, name]);
+  timing.start("hash archive and write release manifest");
   const url = `https://github.com/ChenMiaoi/lingo-sofa/releases/download/v${version}/${name}.tar.gz`;
   const manifest = {
     version,
@@ -125,5 +136,10 @@ try {
     `Assistant package: ${archive}\nRelease manifest: ${name}.json (publish the archive at its versioned URL before enabling automatic downloads)`,
   );
 } finally {
-  await rm(work, { recursive: true, force: true });
+  timing.start("remove staging");
+  try {
+    await rm(work, { recursive: true, force: true });
+  } finally {
+    timing.finish();
+  }
 }
