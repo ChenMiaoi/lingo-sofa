@@ -144,7 +144,7 @@ it("discovers multiple providers and saves credentials locally without returning
       }),
     ).toEqual({ ok: true });
     expect(await readProviderSettings(directory)).toEqual({
-      model: next,
+      model: { ...next, accountId: expect.any(String) },
       apiKey: "new-fixture-key",
     });
     expect((await stat(join(directory, "provider.json"))).mode & 0o777).toBe(

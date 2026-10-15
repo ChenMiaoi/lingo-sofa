@@ -55,27 +55,34 @@ test("unifies browser provider settings and the three floating reading controls"
     await options.goto(`chrome-extension://${id}/options.html`);
 
     await expect(
-      options.getByRole("heading", { name: "连接你的 AI" }),
+      options.getByRole("heading", { name: "AI 与 Pi", exact: true }),
     ).toBeVisible();
     await options
+      .getByRole("button", { name: "翻译模型", exact: true })
+      .click();
+    const connection = options.getByRole("region", { name: "连接服务商" });
+    await connection
       .getByLabel("供应商", { exact: true })
       .selectOption("openai-compatible");
-    await options.getByLabel("模型", { exact: true }).fill("fixture");
-    await options.getByLabel("API 地址", { exact: true }).fill(model.endpoint);
-    await options
+    await connection.getByLabel("模型", { exact: true }).fill("fixture");
+    await connection
+      .getByLabel("API 地址", { exact: true })
+      .fill(model.endpoint);
+    await connection
       .getByLabel("API Key", { exact: true })
       .fill("fixture-browser-provider");
-    await options.getByRole("button", { name: "保存配置" }).click();
-    await expect(options.getByRole("status")).toContainText("已保存");
-    await expect(options.getByLabel("API Key", { exact: true })).toHaveValue(
-      "",
-    );
-    await expect(options.getByLabel("目标语言", { exact: true })).toHaveCount(
+    await connection.getByRole("button", { name: "保存配置" }).click();
+    await expect(connection.getByRole("status")).toContainText("已保存");
+    await expect(connection.getByLabel("API Key", { exact: true })).toHaveCount(
       0,
     );
     await expect(
-      options.getByLabel("自动翻译网站", { exact: true }),
+      connection.getByLabel("目标语言", { exact: true }),
     ).toHaveCount(0);
+    await expect(
+      connection.getByLabel("自动翻译网站", { exact: true }),
+    ).toHaveCount(0);
+    await connection.getByRole("button", { name: "完成", exact: true }).click();
     const state = await options.evaluate(async () =>
       (
         globalThis as typeof globalThis & { chrome: ExtensionApi }
@@ -192,13 +199,15 @@ test("unifies browser provider settings and the three floating reading controls"
     await page
       .getByRole("button", { name: "LingoSofa 页面控制，可拖动或用方向键移动" })
       .click();
+    await page.getByRole("button", { name: "阅读偏好", exact: true }).click();
     await expect(page.getByLabel("模型", { exact: true })).toHaveValue(
       "deepseek-v4-pro",
     );
     await options.reload();
     await expect(
-      options.getByRole("heading", { name: "连接你的 AI" }),
+      options.getByRole("heading", { name: "AI 与 Pi", exact: true }),
     ).toBeVisible();
+    await options.getByText("连接方式", { exact: true }).click();
     for (const theme of ["light", "dark"] as const) {
       await options.emulateMedia({ colorScheme: theme });
       await options.setViewportSize({ width: 400, height: 800 });
@@ -211,7 +220,7 @@ test("unifies browser provider settings and the three floating reading controls"
             .getByRole("button", { name: "模型直连", exact: true })
             .evaluate((node) => getComputedStyle(node).backgroundColor),
         )
-        .toBe(theme === "dark" ? "rgb(30, 31, 34)" : "rgb(255, 255, 255)");
+        .toBe(theme === "dark" ? "rgb(39, 40, 45)" : "rgb(255, 255, 255)");
       await options.screenshot({
         path: `.cache/ui/browser-provider-${theme}.png`,
         animations: "disabled",

@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./accounts": "./src/accounts.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.2.0",

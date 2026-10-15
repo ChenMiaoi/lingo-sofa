@@ -2,17 +2,37 @@ import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import { readingOrigins } from "./site-access.js";
 
-export function ReadingAccess() {
+export function ReadingAccess({ compact = false }: { compact?: boolean }) {
   const [needed, setNeeded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    void browser.permissions
-      .contains({ origins: readingOrigins })
-      .then((granted) => setNeeded(!granted))
-      .catch(() => setNeeded(true));
+    const refresh = () => {
+      void browser.permissions
+        .contains({ origins: readingOrigins })
+        .then((granted) => setNeeded(!granted))
+        .catch(() => setNeeded(true));
+    };
+    refresh();
+    browser.permissions.onAdded.addListener(refresh);
+    browser.permissions.onRemoved.addListener(refresh);
+    return () => {
+      browser.permissions.onAdded.removeListener(refresh);
+      browser.permissions.onRemoved.removeListener(refresh);
+    };
   }, []);
   if (!needed) return null;
+  if (compact)
+    return (
+      <a
+        className="quick-reading-access"
+        href={browser.runtime.getURL("/options.html?setup=reading")}
+        target="_blank"
+        rel="noreferrer"
+      >
+        让悬浮球自动显示 ↗
+      </a>
+    );
   return (
     <section className="permission-card" aria-label="网页悬浮入口授权">
       <h2>让悬浮球自动出现在网页上</h2>

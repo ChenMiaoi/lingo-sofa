@@ -9,12 +9,11 @@ import {
   ChannelStore,
   SelectedChannelStore,
   UserStore,
-  Modal,
-  openModal,
+  createRoot,
 } from "@webpack/common";
 import type { Message } from "@vencord/discord-types";
 import { ChannelControls } from "./channel-controls.js";
-import type { ProviderCatalog } from "@lingo-sofa/protocol";
+import type { ModelConfig, ProviderCatalog } from "@lingo-sofa/protocol";
 import { ProviderSettings } from "./provider-settings.js";
 import { pluginStyles } from "./styles.js";
 import { DiscordBridgeClient } from "./client.js";
@@ -25,6 +24,11 @@ import {
   type MessageRef,
 } from "./controller.js";
 import {
+  createAskModelSelector,
+  askStyles,
+  attachAskWindow,
+  textAnchorRect,
+  registerAskShortcut,
   formatTokens,
   formatCost,
   renderTranslationMarkdown,
@@ -108,13 +112,21 @@ function Icon() {
     </svg>
   );
 }
+const AskModelSelector = createAskModelSelector(() => React);
 function Ask({
   message,
   initialQuestion = "",
+  onClose,
 }: {
   message: MessageRef;
   initialQuestion?: string;
+  onClose?: () => void;
 }) {
+  const [askModel, setAskModel] = React.useState<ModelConfig | undefined>(
+    undefined,
+  );
+  const loadAskModels = React.useCallback(() => client.providers(), []);
+  const [includeContext, setIncludeContext] = React.useState(true);
   const [question, setQuestion] = React.useState(initialQuestion);
   const [turns, setTurns] = React.useState<
     { question: string; answer: string }[]
@@ -153,6 +165,31 @@ function Ask({
     },
     [running],
   );
+  React.useEffect(
+    () => () => {
+      void client
+        .request(scope(message), {
+          kind: "clear-session",
+          sessionId: sessionId.current,
+        })
+        .catch(() => undefined);
+    },
+    [],
+  );
+  function fresh() {
+    void client
+      .request(scope(message), {
+        kind: "clear-session",
+        sessionId: sessionId.current,
+      })
+      .catch(() => undefined);
+    sessionId.current = crypto.randomUUID();
+    setAskModel(undefined);
+    setTurns([]);
+    setQuestion("");
+    setError("");
+    setSessionStats(undefined);
+  }
   async function ask() {
     if (!question.trim() || running) return;
     if (!contextIsCurrent()) {
@@ -167,9 +204,10 @@ function Ask({
     try {
       const reply = await client.request(scope(message), {
         kind: "ask",
+        model: askModel,
         requestId,
         sessionId: sessionId.current,
-        context: message.content,
+        context: includeContext ? message.content : "",
         question,
       });
       if (!contextIsCurrent())
@@ -189,89 +227,268 @@ function Ask({
   }
   return (
     <section
-      className="lingo-sofa-panel lingo-sofa-ask"
+      className="ls-ask lingo-sofa-ask"
+      data-ask-state={turns.length || running ? "conversation" : "empty"}
+      aria-label="Ask Pi · 选中内容"
       aria-busy={Boolean(running)}
     >
-      <h2>LingoSofa · 询问消息</h2>
-      <label>
-        将发送的上下文
-        <textarea value={message.content} readOnly rows={4} />
-      </label>
-      <p>仅发送这条消息及本会话的提问，不读取频道历史或附件。</p>
-      <div aria-live="polite">
-        {turns.map((turn, index) => (
-          <div className="lingo-sofa-turn" key={index}>
-            <p>
-              <strong>你：</strong>
-              {turn.question}
-            </p>
-            <p style={{ whiteSpace: "pre-wrap" }}>{turn.answer}</p>
-          </div>
-        ))}
-      </div>
-      {sessionStats && (
-        <p>
-          Pi 会话汇总：{formatTokens(sessionStats.tokens)} tokens · API 等值{" "}
-          {formatCost(sessionStats.cost)} · {sessionStats.messages}{" "}
-          条消息（与请求统计为同一消耗）
-        </p>
-      )}
-      {error && <p role="alert">{error}</p>}
-      <label>
-        问题
-        <textarea
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          maxLength={16_000}
-          rows={3}
-        />
-      </label>
-      <button
-        className="lingo-sofa-primary"
-        disabled={Boolean(running) || !question.trim()}
-        onClick={() => void ask()}
-      >
-        提问
-      </button>
-      {running && <p role="status">正在生成回答…</p>}
-      {running && (
+      <style>{askStyles}</style>
+      <header className="ls-ask-header" aria-label="会话操作">
         <button
-          onClick={() =>
-            void client
-              .request(scope(message), { kind: "cancel", requestId: running })
-              .catch(() => undefined)
-          }
+          aria-label="新建 / 清理会话"
+          disabled={Boolean(running)}
+          onClick={fresh}
         >
-          停止
+          ＋
         </button>
-      )}
-      <button
-        disabled={Boolean(running)}
-        onClick={() => {
-          void client
-            .request(scope(message), {
-              kind: "clear-session",
-              sessionId: sessionId.current,
-            })
-            .catch(() => undefined);
-          sessionId.current = crypto.randomUUID();
-          setTurns([]);
-          setSessionStats(undefined);
-        }}
-      >
-        新建 / 清理会话
-      </button>
+        {onClose && (
+          <button aria-label="关闭并清理会话" onClick={onClose}>
+            ×
+          </button>
+        )}
+      </header>
+      <div className="ls-ask-conversation">
+        {includeContext && (
+          <details className="ls-ask-context">
+            <summary>所选文本 · {message.content.length} 字 · 预览</summary>
+            <label>
+              将发送的上下文
+              <textarea value={message.content} readOnly rows={3} />
+            </label>
+          </details>
+        )}
+        {!turns.length && !running && (
+          <div className="ls-ask-empty">
+            <div className="ls-ask-suggestions">
+              {[
+                "解释这段话的含义",
+                "用三句话总结所选内容",
+                "帮我写一条自然的回复",
+              ].map((text) => (
+                <button key={text} onClick={() => setQuestion(text)}>
+                  {text} ↗
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div aria-live="polite">
+          {turns.map((turn, index) => (
+            <div className="ls-ask-turn" key={index}>
+              <p className="ls-ask-user">{turn.question}</p>
+              <span className="ls-ask-badge">✓ 已完成</span>
+              <div
+                className="ls-ask-answer"
+                dangerouslySetInnerHTML={{
+                  __html: renderTranslationMarkdown(turn.answer),
+                }}
+              />
+              <div className="ls-ask-answer-actions">
+                <button
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(turn.answer)
+                      .catch(() => setError("无法复制，请手动选择回答文本。"));
+                  }}
+                >
+                  复制
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {sessionStats && (
+          <p className="ls-ask-status">
+            {formatTokens(sessionStats.tokens)} tokens · API 等值{" "}
+            {formatCost(sessionStats.cost)} · {sessionStats.messages} 条消息
+          </p>
+        )}
+        {running && (
+          <p className="ls-ask-status" role="status">
+            正在生成回答…
+          </p>
+        )}
+        {error && (
+          <p className="ls-ask-error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="ls-ask-composer-area">
+        <form
+          className="ls-ask-composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void ask();
+          }}
+        >
+          <div className="ls-ask-context-chips">
+            <button
+              type="button"
+              className="ls-context-chip"
+              aria-pressed={includeContext}
+              aria-label={includeContext ? "移除所选上下文" : "添加所选上下文"}
+              disabled={Boolean(running) || turns.length > 0}
+              onClick={() => setIncludeContext(!includeContext)}
+            >
+              {includeContext ? "所选文本 ×" : "+ 添加所选文本"}
+            </button>
+          </div>
+          <textarea
+            aria-label="问题"
+            className="ls-ask-question"
+            value={question}
+            placeholder="针对这条消息，问点什么…"
+            maxLength={16000}
+            rows={2}
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                if (askModel) void ask();
+              }
+            }}
+          />
+          <div className="ls-ask-composer-bottom">
+            <div className="ls-ask-model-host">
+              <AskModelSelector
+                key={sessionId.current}
+                load={loadAskModels}
+                model={askModel}
+                onChange={setAskModel}
+                disabled={Boolean(running)}
+              />
+            </div>
+            {running ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void client
+                    .request(scope(message), {
+                      kind: "cancel",
+                      requestId: running,
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                停止
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="ls-ask-send"
+                aria-label="提问"
+                disabled={!question.trim() || !askModel}
+              >
+                <span className="ls-ask-send-text">↑</span>
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
     </section>
+  );
+}
+let closeAsk: (() => void) | undefined;
+let removeAskShortcut: (() => void) | undefined;
+let hoveredMessage: HTMLElement | null = null;
+function messageElement(id: string, channel: string) {
+  return (
+    document.getElementById(`message-content-${id}`) ??
+    document.getElementById(`chat-messages-${channel}-${id}`)
   );
 }
 function showAsk(message: MessageRef) {
   if (!settings.store.readingEnabled) return;
-  openModal((props) => (
-    <Modal {...props} title="LingoSofa">
-      <Ask message={message} />
-    </Modal>
-  ));
+  const source = messageElement(message.id, message.channel);
+  const selection = document.getSelection();
+  const range = selection?.rangeCount
+    ? selection.getRangeAt(0).cloneRange()
+    : undefined;
+  const selected = Boolean(
+    source &&
+    range &&
+    source.contains(range.commonAncestorContainer) &&
+    selection?.toString().trim(),
+  );
+  const context = selected
+    ? {
+        ...message,
+        sourceContent: message.sourceContent ?? message.content,
+        content: selection!.toString(),
+      }
+    : message;
+  closeAsk?.();
+  const dialog = document.createElement("dialog");
+  dialog.className = "ls-ask-shell";
+  dialog.setAttribute("aria-label", "Ask Pi · 选中内容");
+  dialog.setAttribute("aria-keyshortcuts", "Alt+Shift+A");
+  document.body.append(dialog);
+  const root = createRoot(dialog);
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    detach();
+    root.unmount();
+    dialog.remove();
+    if (closeAsk === cleanup) closeAsk = undefined;
+  };
+  const detach = attachAskWindow(
+    dialog,
+    source
+      ? () => {
+          if (!source.isConnected) return null;
+          return selected && range
+            ? range.getBoundingClientRect()
+            : textAnchorRect(source);
+        }
+      : undefined,
+    cleanup,
+  );
+  closeAsk = cleanup;
+  root.render(<Ask message={context} onClose={cleanup} />);
+  window.requestAnimationFrame(() =>
+    dialog
+      .querySelector<HTMLTextAreaElement>(".ls-ask-question")
+      ?.focus({ preventScroll: true }),
+  );
 }
+function trackAskMessage(event: PointerEvent) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest(".ls-ask-shell")) return;
+  hoveredMessage =
+    target?.closest<HTMLElement>(
+      '[id^="message-content-"],[id^="chat-messages-"]',
+    ) ?? null;
+}
+function openAskShortcut() {
+  if (!settings.store.readingEnabled) return false;
+  const selection = document.getSelection();
+  const node =
+    selection?.rangeCount && !selection.isCollapsed
+      ? selection.getRangeAt(0).commonAncestorContainer
+      : null;
+  const selected = node instanceof Element ? node : node?.parentElement;
+  const element =
+    selected?.closest<HTMLElement>(
+      '[id^="message-content-"],[id^="chat-messages-"]',
+    ) ?? hoveredMessage;
+  const channel = SelectedChannelStore.getChannelId();
+  if (!element?.isConnected || !channel) return false;
+  const id = element.id.startsWith("message-content-")
+    ? element.id.slice("message-content-".length)
+    : element.id.slice(`chat-messages-${channel}-`.length);
+  const message = MessageStore.getMessage(channel, id);
+  if (!message?.content) return false;
+  showAsk(reference(message));
+  return true;
+}
+
 function Accessory({ message }: { message: Message }) {
   const configuration = settings.use([
     "readingEnabled",
@@ -392,7 +609,8 @@ function ProviderSettingsPanel() {
   return (
     <ProviderSettings
       client={client}
-      onSaved={() => {
+      onSaved={(target) => {
+        if (target !== "translation") return;
         translations.clear();
         settings.store.modelRevision++;
       }}
@@ -484,6 +702,8 @@ function FloatingControls() {
       const model = {
         ...catalog.model,
         model: selected.id,
+        thinkingLevel: undefined,
+        capabilities: undefined,
         prices: null,
       };
       const reply = await client.configureProvider({ model });
@@ -717,8 +937,14 @@ export default definePlugin({
     style.id = "lingo-sofa-styles";
     style.textContent = pluginStyles;
     document.head.append(style);
+    document.addEventListener("pointerover", trackAskMessage);
+    removeAskShortcut = registerAskShortcut(document, openAskShortcut);
   },
   stop: () => {
+    closeAsk?.();
+    removeAskShortcut?.();
+    document.removeEventListener("pointerover", trackAskMessage);
+    hoveredMessage = null;
     void Native?.stop();
     document.getElementById("lingo-sofa-styles")?.remove();
     translations.clear();

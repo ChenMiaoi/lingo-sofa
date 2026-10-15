@@ -3,7 +3,7 @@ import type { OAuthStatus } from "@lingo-sofa/protocol";
 /** Host-injected React keeps the Discord renderer on its own React instance. */
 // React 18 (Discord) and React 19 (extension) have different branded Effect types.
 // Describe only the public hooks used here so neither host needs a second React runtime.
-interface HostReact {
+export interface HostReact {
   useState<T>(
     initial: T | (() => T),
   ): [T, (value: T | ((previous: T) => T)) => void];

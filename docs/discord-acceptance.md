@@ -111,3 +111,26 @@ Bridge 与原客户端继续保留运行供体验。完整检查为 14 个测试
 启动原 `/Applications/Discord.app` 后，插件自行创建服务，无人工配对；在原 LingoSofa 测试频道打开悬浮入口，目标语言、DeepSeek Flash 模型与频道自动开关可见。自动翻译尝试由保留的未知用量预算保护阻止，未发出真实模型请求。
 
 经 Discord 菜单 Quit 退出，观察到本机服务自动移除连接描述文件（开始观察后约 65 秒），再打开原客户端时自动创建不同实例；记录数、已知 Tokens 和未知记录数均保持不变。服务与原客户端继续用于体验。代码检查、共享服务模拟模型测试和实际 MV3 原生连接验收单独记录，不将浏览器测试替代其他系统的客户端退出验收。
+
+## 当前安装更新与多账户真机验收（2026-10-15）
+
+已更新正在使用的 Chrome 解压扩展 `bgnlbmmilajlbfpdohbgjcjghjhnomhp`、原 `/Applications/Discord.app` 使用的 Vencord 构建、本地共享助手与 Native Messaging relay。扩展 ID 保持不变。更新前备份位于 `~/.config/lingo-sofa-backups/upgrade-20261015-121542`，保留旧运行时快照；既有 DeepSeek Key、配置与历史用量保留。两个客户端均实际显示新版 AI 工作空间。
+
+- 浏览器原配置内同时打开两个合成页面 Ask：会话 A 使用保存的账户 A、`deepseek-flash`、low；会话 B 使用账户 B、`deepseek-v4-pro`、high。收到对应本地回答后切回 A，其账户、模型、强度与历史保持不变。
+- 浏览器会话 A 内从账户 A 切至 B 后续问，无需再次输入 Key；本地接收端确认使用 B 的凭证，携带 4 条消息，保留切换前历史。
+- 原生 Discord 在既有 `#lingo-sofa-acceptance` 合成消息上打开 Ask，使用账户 A 成功回答，再切至保存的 Groq 测试账户与 `llama-3.3-70b-versatile` 续问。接收端确认新凭证、4 条历史消息，客户端累计显示 88 tokens、5 条会话消息。未向 Discord 频道发消息。
+- 新建 Discord Ask 后恢复既有 DeepSeek Ask 默认值。临时切换翻译默认账户时，Ask 默认值保持原账户；验收结束恢复两个默认配置，移除全部本地验收账户并停止测试服务器。凭证文件权限为 0600。
+
+以上 5 次成功模型请求由明确标记的本地测试账户接收，用于检查真实客户端请求中的 Key、模型、effort 与历史隔离，不代表两个外部供应商的真实账户验收。它们的模拟用量记录仍在本机历史中，每次 44 tokens、价格未知，不产生供应商费用。
+
+真实 DeepSeek 账户的模型列表查询返回 HTTP 200；原生 Ask 的两次合成短请求（默认强度、关闭思考）均在 45 秒后超时。绕过插件直接请求同一供应商的极短生成也在 20 秒后超时，因此本轮没有取得真实生成成功证据，也不能据此确认具体根因或实际账单费用。
+
+验证：`npm run check` 全部通过（152 项测试、类型检查、格式、lint、构建及 MV3 审计）；`npm run verify:vencord` 的固定版本宿主类型检查与构建通过。浏览器与 Discord 均保留新版安装供继续体验。
+
+## Figma UI 实机加载（2026-10-15）
+
+已在原 Chrome 扩展 `bgnlbmmilajlbfpdohbgjcjghjhnomhp` 和原 `/Applications/Discord.app` 加载 Figma Product UI 构建。Chrome 保留新版设置页，在真实 LLVM 网页打开独立 Ask 空白窗口；Discord 在插件设置中实际显示“AI 与 Pi”、分组模型设置与已连接状态，并从既有测试消息菜单打开 Ask，预览范围为该消息。此次只展示界面，没有发送 Discord 消息或模型请求。
+
+Vencord 自动更新曾将自定义 renderer 替换为不含 LingoSofa 的官方版本；已在其 Updater 中关闭 Automatically update，再次加载并确认自定义插件保留。后续升级 Vencord 需重新集成自定义插件，避免直接用官方构建覆盖。部署前备份位于 `~/.config/lingo-sofa-backups/figma-ui-20261015-131121`，未更改模型账户、密钥或用量存储。
+
+实机发现 Discord 外层弹窗标题与内边距压缩了 Ask 可见区域，已为嵌入式 Ask 预留宿主高度，重新构建、加载并确认底部输入框与发送按钮可见；会话内容在自身区域滚动。

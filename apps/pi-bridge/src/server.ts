@@ -1,3 +1,6 @@
+import { AskSessions } from "./ask-sessions.js";
+import { ProviderAccounts } from "./accounts.js";
+import { type ModelConfig } from "@lingo-sofa/protocol";
 import { homedir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
@@ -31,9 +34,15 @@ export function createBridge(
 ) {
   if (token.length < 32)
     throw new Error("Pairing token must have at least 32 characters");
+  const accounts = new ProviderAccounts(
+    directory,
+    config.settings.model,
+    apiKey,
+  );
   const oauth = new BridgeOAuth(directory, undefined, () => {
     service.reset();
     sessions.dispose();
+    askSessions.dispose();
   });
   let configuring = false;
   let currentKey = apiKey;
@@ -47,6 +56,56 @@ export function createBridge(
         ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
         : undefined,
   );
+  const authPath = (model: ModelConfig) =>
+    model.authMode === "subscription"
+      ? oauth.authPath
+      : config.usePiAuth && model.provider !== "openai"
+        ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
+        : undefined;
+  const askSessions = new AskSessions(
+    (model, key) => new SafePiSessions(model, key, directory, authPath(model)),
+  );
+  const initialized = accounts.ready.then(() => {
+    config.settings.model = accounts.translation;
+    config.settings.askModel = accounts.ask;
+    currentKey = accounts.key(accounts.translation);
+    sessions.dispose();
+    sessions = new SafePiSessions(
+      accounts.translation,
+      currentKey,
+      directory,
+      authPath(accounts.translation),
+    );
+  });
+  void initialized.catch(() => undefined);
+  function credential(model: ModelConfig) {
+    resolveModel(model);
+    const key = accounts.key(model);
+    if (model.authMode === "subscription") {
+      if (
+        model.provider !== "openai" ||
+        model.endpoint !== "https://api.openai.com/v1" ||
+        !oauth.status().connected
+      )
+        throw new Error("请先登录 ChatGPT");
+      return "";
+    }
+    if (key) return key;
+    if (
+      config.usePiAuth &&
+      model.provider !== "openai" &&
+      listModels(true).some(
+        (provider) =>
+          provider.id === model.provider &&
+          provider.models.some(
+            (item) =>
+              item.id === model.model && item.endpoint === model.endpoint,
+          ),
+      )
+    )
+      return "";
+    throw new Error("请先添加所选供应商账户");
+  }
   const history = new UsageHistory(directory, config.settings.persistUsage);
   const inFlight = new Map<string, UsageRecord>();
   const checkpoint = () =>
@@ -81,11 +140,23 @@ export function createBridge(
         call,
       ),
     ask: (key, question, context, signal, onMetrics, call) =>
-      sessions.ask(key, question, context, signal, onMetrics, call),
+      askSessions.ask(
+        key,
+        call!.model!,
+        credential(call!.model!),
+        question,
+        context,
+        signal,
+        onMetrics,
+        call,
+      ),
     clearTranslationScope: (scope, prefix) =>
       sessions.clearTranslations(scope, prefix),
-    clearAllSessions: () => sessions.dispose(),
-    clearSession: (key) => sessions.clear(key),
+    clearAllSessions: () => {
+      sessions.dispose();
+      askSessions.dispose();
+    },
+    clearSession: (key) => askSessions.clear(key),
   });
   service.ledger.restore(history.read());
   service.ledger.prune(Date.now(), config.settings.retentionDays);
@@ -199,6 +270,7 @@ export function createBridge(
         reply(200, { ok: true });
         return;
       }
+      await initialized;
       if (request.url === "/v1/provider") {
         if (
           config.settings.model.authMode !== "subscription" ||
@@ -211,6 +283,8 @@ export function createBridge(
             resolveModel(config.settings.model).model,
           ),
           model: config.settings.model,
+          askModel: accounts.ask,
+          accounts: accounts.list(),
           keyConfigured: Boolean(currentKey),
           oauth: oauth.status(),
           piAuth: config.usePiAuth,
@@ -257,8 +331,9 @@ export function createBridge(
       if (request.url === "/v1/provider/update") {
         const update = providerUpdateSchema.parse(raw);
         // Validate the catalog before touching credentials or persistent state.
-        resolveModel(update.model);
+        if (update.target !== "remove-account") resolveModel(update.model);
         if (
+          update.target !== "remove-account" &&
           update.model.provider !== "openai-compatible" &&
           !listModels(config.usePiAuth).some(
             (provider) => provider.id === update.model.provider,
@@ -267,13 +342,30 @@ export function createBridge(
           throw new Error(
             "Provider requires explicitly enabled Pi authentication",
           );
-        const sameCredentialTarget =
-          update.model.provider === config.settings.model.provider &&
-          update.model.endpoint === config.settings.model.endpoint;
+        const plan = accounts.plan(update);
+        const selected =
+          update.target === "ask-default"
+            ? plan.ask
+            : update.target === "account"
+              ? update.newAccount || update.apiKey
+                ? plan.accounts.at(-1)!.model
+                : (plan.accounts.find(
+                    (item) => item.id === update.model.accountId,
+                  )?.model ?? update.model)
+              : update.target === "remove-account"
+                ? update.model
+                : plan.translation;
         const nextKey =
-          update.apiKey ?? (sameCredentialTarget ? currentKey : "");
+          update.target === "remove-account"
+            ? ""
+            : accounts.keyFrom(plan, selected);
+        const changesTranslation =
+          !update.target ||
+          update.target === "translation" ||
+          accounts.keyFrom(plan, plan.translation) !== currentKey;
         const subscription = update.model.authMode === "subscription";
         if (
+          update.target !== "remove-account" &&
           subscription &&
           (update.model.provider !== "openai" ||
             update.model.endpoint !== "https://api.openai.com/v1" ||
@@ -286,6 +378,7 @@ export function createBridge(
           return;
         }
         if (
+          update.target !== "remove-account" &&
           !subscription &&
           !nextKey &&
           (!config.usePiAuth || update.model.provider === "openai")
@@ -298,9 +391,9 @@ export function createBridge(
         }
         if (
           oauth.busy ||
-          service.queue.runningCount ||
-          service.queue.pendingCount ||
-          inFlight.size
+          (changesTranslation &&
+            (service.translationBusy ||
+              (service.queue.size > 0 && !service.askBusy)))
         ) {
           reply(409, {
             ok: false,
@@ -311,24 +404,26 @@ export function createBridge(
         }
         configuring = true;
         try {
-          await saveProviderSettings(directory, {
-            model: update.model,
-            ...(nextKey ? { apiKey: nextKey } : {}),
-          });
-          service.reset();
-          sessions.dispose();
-          config.settings.model = update.model;
-          currentKey = nextKey;
-          sessions = new SafePiSessions(
-            update.model,
-            nextKey,
-            directory,
-            subscription
-              ? oauth.authPath
-              : config.usePiAuth && update.model.provider !== "openai"
-                ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
-                : undefined,
-          );
+          if (!update.target || update.target === "translation") {
+            await saveProviderSettings(directory, {
+              model: plan.translation,
+              ...(nextKey ? { apiKey: nextKey } : {}),
+            });
+          }
+          await accounts.commit(plan);
+          config.settings.askModel = plan.ask;
+          if (changesTranslation) {
+            // Paid Ask work and other conversations remain intact.
+            sessions.dispose();
+            config.settings.model = plan.translation;
+            currentKey = accounts.key(plan.translation);
+            sessions = new SafePiSessions(
+              plan.translation,
+              currentKey,
+              directory,
+              authPath(plan.translation),
+            );
+          }
           reply(200, { ok: true });
         } finally {
           configuring = false;
@@ -407,7 +502,7 @@ export function createBridge(
         };
       }
       if (result.ok && envelope.request.kind === "ask") {
-        const stats = sessions.stats(
+        const stats = askSessions.stats(
           `${origin}|${envelope.scope}|${envelope.request.sessionId}`,
         );
         if (stats)
@@ -428,6 +523,7 @@ export function createBridge(
     void oauth.cancel();
     service.reset();
     sessions.dispose();
+    askSessions.dispose();
   });
   return {
     server,
@@ -445,6 +541,9 @@ export function createBridge(
     },
     cancelOAuth: () => oauth.cancel(),
     flush: checkpoint,
+    get askSessions() {
+      return askSessions;
+    },
     get sessions() {
       return sessions;
     },

@@ -105,9 +105,10 @@ test("auto-starts shared service from MV3 and keeps Discord connected after brow
     await test.step("open local Provider page", async () => {
       await options.goto(`chrome-extension://${id}/options.html`);
     });
-    await expect(
-      options.getByText("本地助手已连接", { exact: true }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(options.getByLabel("翻译模型", { exact: true })).toHaveValue(
+      "current:deepseek-flash",
+      { timeout: 15000 },
+    );
     const state = await test.step("read shared usage", async () =>
       options.evaluate(async () =>
         (

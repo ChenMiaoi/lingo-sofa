@@ -10,8 +10,10 @@ test("guides first website access without enabling translation and supports retr
       contents: `import React from "react";
 import {createRoot} from "react-dom/client";
 import {ReadingAccess} from "./apps/browser-extension/src/ReadingAccess.tsx";
-window.access={allow:false,requests:[],messages:[]};
-window.browser={permissions:{contains:async()=>false,request:async(value)=>{window.access.requests.push(value);return window.access.allow;}},runtime:{sendMessage:async(value)=>{window.access.messages.push(value);return {ok:true};}}};
+window.access={allow:false,granted:false,requests:[],messages:[]};
+window.permissionListeners={added:new Set(),removed:new Set()};
+const event=listeners=>({addListener:listener=>listeners.add(listener),removeListener:listener=>listeners.delete(listener)});
+window.browser={permissions:{onAdded:event(window.permissionListeners.added),onRemoved:event(window.permissionListeners.removed),contains:async()=>window.access.granted,request:async(value)=>{window.access.requests.push(value);window.access.granted=window.access.allow;return window.access.allow;}},runtime:{sendMessage:async(value)=>{window.access.messages.push(value);return {ok:true};}}};
 createRoot(document.getElementById("root")).render(React.createElement(ReadingAccess));`,
       resolveDir: process.cwd(),
       loader: "js",
@@ -90,4 +92,16 @@ createRoot(document.getElementById("root")).render(React.createElement(ReadingAc
   expect((await access()).messages).toEqual([
     { action: "reading-access-sync" },
   ]);
+  await page.evaluate(() => {
+    const fixture = window as unknown as {
+      access: { granted: boolean };
+      permissionListeners: { removed: Set<() => void> };
+    };
+    fixture.access.granted = false;
+    for (const listener of fixture.permissionListeners.removed) listener();
+  });
+  await expect(
+    page.getByRole("button", { name: "启用网页悬浮球" }),
+  ).toBeVisible();
+  expect((await access()).requests).toHaveLength(2);
 });

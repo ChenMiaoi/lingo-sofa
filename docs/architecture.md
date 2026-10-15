@@ -67,3 +67,15 @@ Native Messaging 与 Discord loopback 使用同一 Zod 应用协议，版本不�
 ## OpenAI OAuth 与 API 等值用量
 
 OpenAI 可选择 API Key 或 ChatGPT 订阅，认证集中于 Bridge；两端复用一个注入宿主 React 的登录组件，兼容各自运行时。OAuth 使用独立的 Pi 凭据文件，订阅请求限制为官方 OpenAI Responses 端点；登录状态和操作不暴露给网页内容脚本。重新登录/退出清理旧上下文，自动刷新保留同账号上下文。订阅与 API Key 均按响应的实际 Tokens、缓存分桶及价格快照估算 API 等值金额，不以 SDK 的订阅零 cost 代替折算，也不把等值金额标为账单实扣。具体存储、流程和升级见 [OAuth 说明](oauth.md)。
+
+## 独立模型与多账户（2026-10-15）
+
+账户、任务默认值和会话覆盖分开管理。`settings.model` 保留为翻译默认配置，`settings.askModel` 是新 Ask 的默认值；Ask 请求可携带独立 `model`，界面在新建会话时固定初始选择，后续变更默认值不修改已有对话。`accountId` 仅引用后台凭证，客户端不能提供或接收保存的 Key。账户同时绑定 provider、endpoint、authMode；修改地址不能复用旧账户 ID。
+
+共享的纯账户更新逻辑位于 `provider-pi/accounts`；Bridge 原子保存 `accounts.json`，POSIX 权限 0600；浏览器直连使用 trusted local storage。支持命名、多账户、同供应商多个 Key、更新与移除，默认模型仍引用的账户需先重新选择默认值再移除。旧单 Key 配置迁移成账户，保留 `provider.json` 的翻译默认值兼容写入。浏览器旧 session Key 仅用于迁移，不继续作为活动凭证来源。
+
+每个 Bridge Ask 会话拥有独立 Pi 运行时和凭证。切换 provider/model/effort 时通过 Pi `SessionManager.inMemory` 转移本会话的分支、压缩条目和累计费用，验证新运行时后再释放旧实例。其他会话及翻译运行时保持隔离。直连沿用按会话保存的上下文和历史，使用本次请求选择的账户。用量及压缩记录按本次实际模型记账，不重复累加历史。Ask 的账户/模型选择不会保存成翻译配置，也不会清除其他对话。
+
+模型目录通过 Pi `getSupportedThinkingLevels` 提供真实可选档位；切换模型清理旧 effort、容量和价格。请求端拒绝不支持的档位；直连使用 `reasoning`，Bridge 使用 Pi 原生 `thinkingLevel`。API Key 账户支持多个；ChatGPT OAuth 仍由一个 Bridge 的 Pi 登录文件管理，账户别名不代表多个独立订阅登录。
+
+设置与 Ask 的组件通过注入宿主 React 在扩展和 Discord 中共享。界面分为翻译、Ask 默认值和供应商账户三个区域，Ask 使用紧凑的会话选择器。设计参考 Envoi 的账户管理与聊天交互、[LobeHub 的设计规范](https://github.com/lobehub/lobehub/blob/canary/DESIGN.md)以及 [Nanobrowser 的按任务选择模型](https://github.com/nanobrowser/nanobrowser)；布局与样式为本项目重新实现，保留用户 Figma 标志。

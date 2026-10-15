@@ -72,10 +72,12 @@ test("keeps Discord translations and controls readable across current and legacy
   expect(numerator!.y).toBeLessThan(denominator!.y);
   for (const legacy of [false, true]) {
     for (const dark of [true, false]) {
-      const foreground = dark ? "rgb(219, 222, 225)" : "rgb(49, 51, 56)";
-      const background = dark ? "rgb(30, 31, 34)" : "rgb(255, 255, 255)";
+      const foreground = dark ? "rgb(238, 239, 242)" : "rgb(36, 38, 43)";
+      const background = dark ? "rgb(39, 40, 45)" : "rgb(255, 255, 255)";
       await page.evaluate(
         ({ legacy, foreground, background, dark }) => {
+          document.documentElement.classList.toggle("theme-dark", dark);
+          document.documentElement.classList.toggle("theme-light", !dark);
           const root = document.documentElement.style;
           root.colorScheme = dark ? "dark" : "light";
           root.setProperty("--text-normal", legacy ? foreground : "black");

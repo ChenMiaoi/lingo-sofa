@@ -167,7 +167,7 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
       text: "这是模拟回答。",
       metrics: { usage: { totalTokens: 44 } },
     });
-    const session = await bridge.sessions.get(
+    const session = await bridge.askSessions.get(
       "https://discord.com|account:one|conversation",
     );
     expect(session.getActiveToolNames()).toEqual([]);
@@ -177,7 +177,7 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
     );
     expect(session.getSessionStats().tokens.total).toBe(44);
     await post(ask("account:two", "Other channel"));
-    const secondSession = await bridge.sessions.get(
+    const secondSession = await bridge.askSessions.get(
       "https://discord.com|account:two|conversation",
     );
     expect(secondSession).not.toBe(session);

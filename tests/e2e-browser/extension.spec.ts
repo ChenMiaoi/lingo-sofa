@@ -184,7 +184,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
           })) as { ok: boolean };
           let storageAccessible = false;
           try {
-            await api.storage.session.get("apiKey");
+            await api.storage.local.get("providerAccounts");
             storageAccessible = true;
           } catch {
             /* Expected: trusted contexts only. */

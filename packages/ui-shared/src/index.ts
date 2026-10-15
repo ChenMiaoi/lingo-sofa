@@ -16,3 +16,25 @@ export {
 } from "./translation-billing.js";
 export { createProviderAuth } from "./provider-auth.js";
 export { providerAuthStyles } from "./provider-auth-styles.js";
+export { createModelPreferences } from "./model-preferences.js";
+export { createAISettings, type AISettingsClient } from "./ai-settings.js";
+export { createAskModelSelector } from "./ask-model-selector.js";
+
+export { designStyles } from "./design-styles.js";
+export { askStyles } from "./ask-styles.js";
+export {
+  attachAskWindow,
+  placeAskWindow,
+  textAnchorRect,
+  registerAskShortcut,
+  type AskAnchorRect,
+} from "./ask-window.js";
+
+export {
+  themeStyles,
+  themeDeclarations,
+  themeAliases,
+  type ColorTheme,
+} from "./theme.js";
+
+export { createProviderEditor } from "./provider-editor.js";

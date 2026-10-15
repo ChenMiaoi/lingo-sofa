@@ -44,7 +44,18 @@ export const pricingSnapshotSchema = z.strictObject({
   calendarYear: z.number().int().optional(),
 });
 export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
+export const thinkingLevelSchema = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 export const modelConfigSchema = z.strictObject({
+  accountId: z.uuid().optional(),
+  thinkingLevel: thinkingLevelSchema.optional(),
   authMode: z.enum(["api_key", "subscription"]).default("api_key"),
   provider: z.string().min(1).max(100),
   model: z.string().min(1).max(200),
@@ -82,7 +93,35 @@ export const modelConfigSchema = z.strictObject({
   prices: pricesSchema.nullable().default(null),
 });
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
+export const providerAccountSchema = z.strictObject({
+  keyConfigured: z.boolean().optional(),
+  id: z.uuid(),
+  name: z.string().trim().min(1).max(100),
+  model: modelConfigSchema,
+});
+export type ProviderAccount = z.infer<typeof providerAccountSchema>;
+export const storedAccountSchema = providerAccountSchema.extend({
+  apiKey: z.string().min(1).max(4096).optional(),
+});
+export type StoredAccount = z.infer<typeof storedAccountSchema>;
+export const accountStateSchema = z.strictObject({
+  accounts: z.array(storedAccountSchema).max(100),
+  translation: modelConfigSchema,
+  ask: modelConfigSchema,
+});
+export type AccountState = z.infer<typeof accountStateSchema>;
+export function accountMatches(
+  account: ProviderAccount,
+  model: ModelConfig,
+): boolean {
+  return (
+    account.model.provider === model.provider &&
+    account.model.endpoint === model.endpoint &&
+    account.model.authMode === model.authMode
+  );
+}
 export const settingsSchema = z.strictObject({
+  askModel: modelConfigSchema.optional(),
   targetLanguage: z.string().min(1).max(64).default("简体中文"),
   mode: z.enum(["direct", "bridge"]).default("bridge"),
   model: modelConfigSchema.default({
@@ -147,6 +186,7 @@ export const requestSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("ask"),
+    model: modelConfigSchema.optional(),
     requestId: z.uuid(),
     sessionId: z.string().min(1).max(128),
     question: text,
@@ -354,6 +394,11 @@ export const replySchema = z.discriminatedUnion("ok", [
 ]);
 
 export const providerUpdateSchema = z.strictObject({
+  target: z
+    .enum(["translation", "ask-default", "account", "remove-account"])
+    .optional(),
+  accountName: z.string().trim().min(1).max(100).optional(),
+  newAccount: z.boolean().optional(),
   model: modelConfigSchema,
   apiKey: z.string().trim().min(1).max(4096).optional(),
 });
@@ -378,6 +423,8 @@ export const oauthStatusSchema = z.strictObject({
 });
 export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
 export const providerCatalogSchema = z.strictObject({
+  accounts: z.array(providerAccountSchema).default([]),
+  askModel: modelConfigSchema.optional(),
   oauth: oauthStatusSchema.optional(),
   capabilities: modelConfigSchema.shape.capabilities,
   model: modelConfigSchema,
@@ -392,6 +439,7 @@ export const providerCatalogSchema = z.strictObject({
           id: z.string(),
           endpoint: z.string(),
           api: z.string(),
+          thinkingLevels: z.array(thinkingLevelSchema).default([]),
         }),
       ),
     }),

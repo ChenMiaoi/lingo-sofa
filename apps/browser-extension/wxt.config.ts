@@ -44,6 +44,12 @@ export default defineConfig({
     name: "LingoSofa",
     description: "就地双语翻译与 Pi 助手",
     permissions: ["storage", "activeTab", "scripting", "nativeMessaging"],
+    web_accessible_resources: [
+      {
+        resources: ["brand/figma/*.svg"],
+        matches: ["http://*/*", "https://*/*"],
+      },
+    ],
     optional_host_permissions: ["https://*/*", "http://*/*"],
   },
 });

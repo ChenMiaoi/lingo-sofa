@@ -90,9 +90,11 @@ createRoot(document.getElementById("root")).render(React.createElement(App));`,
     page.getByRole("switch", { name: "自动翻译此频道" }),
   ).toBeDisabled();
   for (const dark of [true, false]) {
-    const foreground = dark ? "rgb(219, 222, 225)" : "rgb(49, 51, 56)";
+    const foreground = dark ? "rgb(238, 239, 242)" : "rgb(36, 38, 43)";
     await page.evaluate(
       ({ foreground, dark }) => {
+        document.documentElement.classList.toggle("theme-dark", dark);
+        document.documentElement.classList.toggle("theme-light", !dark);
         document.documentElement.style.setProperty(
           "--text-default",
           foreground,

@@ -140,6 +140,20 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       exact: true,
     });
     await launcher.click();
+    await expect(
+      page.getByRole("button", { name: "翻译选中内容", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "翻译整页", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Ask", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "设置", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: ".cache/ui/figma-floating-menu.png" });
+    await page.getByRole("button", { name: "阅读偏好", exact: true }).click();
     await expect(page.getByRole("combobox")).toHaveCount(2);
     const reading = page.getByRole("switch", { name: "开启双语阅读" });
     await reading.uncheck();
@@ -176,6 +190,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       });
     });
     await launcher.click();
+    await page.getByRole("button", { name: "阅读偏好", exact: true }).click();
     await expect(reading).not.toBeChecked();
     await reading.check();
     const automatic = page.getByRole("switch", { name: "自动翻译此网站" });
@@ -212,12 +227,21 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       getSelection()!.removeAllRanges();
       getSelection()!.addRange(range);
     });
-    const selectionReply = await options.evaluate(async () => {
-      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
-        .chrome;
-      return api.runtime.sendMessage({ action: "page", command: "selection" });
+    const selectionToolbar = page.getByRole("toolbar", {
+      name: "选中文字操作",
     });
-    expect(selectionReply.ok).toBe(true);
+    const beforeSelectionAction = model.requests.length;
+    await expect(selectionToolbar).toBeVisible();
+    expect(model.requests).toHaveLength(beforeSelectionAction);
+    await selectionToolbar
+      .getByRole("button", { name: "翻译", exact: true })
+      .evaluate((button) => (button as HTMLButtonElement).click());
+    expect(model.requests).toHaveLength(beforeSelectionAction);
+    await page.screenshot({ path: ".cache/ui/selection-actions.png" });
+    await selectionToolbar
+      .getByRole("button", { name: "翻译", exact: true })
+      .click();
+    await expect(selectionToolbar).toBeHidden();
     await expect(
       page.locator("#second [data-lingo-sofa=selection]"),
     ).toContainText("译文 Second");
@@ -230,21 +254,176 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
         })),
     ).toEqual({ color: "rgb(34, 34, 34)", opacity: "1" });
     await expect(page.locator("dialog")).toHaveCount(0);
-    await options.evaluate(async () => {
-      await (
-        globalThis as typeof globalThis & { chrome: ExtensionApi }
-      ).chrome.runtime.sendMessage({
-        action: "page",
-        command: "ask-selection",
-      });
+    await page.evaluate(() => {
+      const range = document.createRange();
+      range.setStart(document.querySelector("#second")!.firstChild!, 0);
+      range.setEnd(document.querySelector("#second")!.firstChild!, 6);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
     });
+    await expect(selectionToolbar).toBeVisible();
+    const beforeToolbarAsk = model.requests.length;
+    await selectionToolbar
+      .getByRole("button", { name: "Ask", exact: true })
+      .click();
+    const toolbarAsk = page.locator("dialog[data-lingo-sofa=ask]");
+    await expect(toolbarAsk).toBeVisible();
+    const shellBox = (await toolbarAsk.boundingBox())!;
+    const closeBox = (await toolbarAsk
+      .getByRole("button", { name: "关闭并清理会话" })
+      .boundingBox())!;
+    const contentBox = (await toolbarAsk
+      .locator(".ls-ask-conversation")
+      .boundingBox())!;
+    expect(closeBox.y - shellBox.y).toBeLessThanOrEqual(12);
+    expect(
+      shellBox.x + shellBox.width - closeBox.x - closeBox.width,
+    ).toBeLessThanOrEqual(16);
+    expect(contentBox.y).toBeGreaterThanOrEqual(closeBox.y + closeBox.height);
+    await expect(
+      toolbarAsk.locator(".ls-ask-composer-area .ls-ask-header"),
+    ).toHaveCount(0);
+
+    await expect(
+      toolbarAsk.getByLabel("将发送的上下文", { exact: true }),
+    ).toHaveValue("Second");
+    await expect(toolbarAsk.getByText(/Enter 发送|管理供应商/)).toHaveCount(0);
+    expect(model.requests).toHaveLength(beforeToolbarAsk);
+    await toolbarAsk.getByRole("button", { name: "关闭并清理会话" }).click();
+    await page.evaluate(() => {
+      const range = document.createRange();
+      range.setStart(document.querySelector("#second")!.firstChild!, 0);
+      range.setEnd(document.querySelector("#second")!.firstChild!, 6);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+    });
+    await page.locator("#second").evaluate((element) => {
+      element.tabIndex = -1;
+      element.focus();
+    });
+    const beforeQuickOpen = model.requests.length;
+    await page.keyboard.press("Alt+Shift+KeyA");
     const dialog = page.locator("dialog[data-lingo-sofa=ask]");
+    await expect(dialog).toHaveAttribute("aria-modal", "false");
+    expect(model.requests).toHaveLength(beforeQuickOpen);
     await expect(
       dialog.getByLabel("将发送的上下文", { exact: true }),
     ).toHaveValue("Second");
+    await expect(
+      dialog.getByRole("heading", { name: "坐下来，聊明白。" }),
+    ).toHaveCount(0);
+    await expect
+      .poll(async () => (await dialog.boundingBox())!.height)
+      .toBe(440);
+    for (const theme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await expect
+        .poll(() =>
+          dialog
+            .locator("img")
+            .evaluateAll((images) =>
+              images.every(
+                (image) => (image as HTMLImageElement).naturalWidth > 0,
+              ),
+            ),
+        )
+        .toBe(true);
+      await page.screenshot({ path: `.cache/ui/figma-ask-empty-${theme}.png` });
+      await dialog.screenshot({ path: `.cache/ui/ask-minimal-${theme}.png` });
+    }
+    const beforeThemeChange = model.requests.length;
+    for (const [theme, scheme, canvas] of [
+      ["light", "dark", "#fafafa"],
+      ["dark", "light", "#1e1f22"],
+    ] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await options.evaluate(async (uiTheme) => {
+        const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+          .chrome;
+        await api.storage.local.set({ uiTheme });
+      }, theme);
+      await expect(dialog).toHaveAttribute("data-theme", theme);
+      await expect
+        .poll(() =>
+          dialog.evaluate((node) =>
+            getComputedStyle(node).getPropertyValue("--ls-canvas").trim(),
+          ),
+        )
+        .toBe(canvas);
+      await expect
+        .poll(() =>
+          page
+            .locator('[data-lingo-sofa="controls"]')
+            .evaluate((node) =>
+              getComputedStyle(node).getPropertyValue("--ls-canvas").trim(),
+            ),
+        )
+        .toBe(canvas);
+      await expect
+        .poll(() =>
+          options.evaluate(() =>
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--ls-canvas")
+              .trim(),
+          ),
+        )
+        .toBe(canvas);
+    }
+    expect(model.requests.length).toBe(beforeThemeChange);
+    await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      await api.storage.local.remove("uiTheme");
+    });
+    await dialog.getByRole("button", { name: "解释这段话的含义" }).click();
+    await expect(dialog.getByLabel("问题", { exact: true })).toHaveValue(
+      "解释这段话的含义",
+    );
+    const beforeUntrusted = model.requests.length;
+    await dialog.getByLabel("问题", { exact: true }).fill("Untrusted attempt");
+    await dialog.evaluate((node) => {
+      node.querySelector("form")!.requestSubmit();
+      node
+        .querySelector<HTMLTextAreaElement>(".ls-ask-question")!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+    });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(model.requests).toHaveLength(beforeUntrusted);
+    await dialog
+      .getByRole("button", { name: "移除所选上下文", exact: true })
+      .click();
+    await expect(
+      dialog.getByLabel("将发送的上下文", { exact: true }),
+    ).toBeHidden();
+    await dialog.getByLabel("问题", { exact: true }).fill("Say hello");
+    await dialog.getByLabel("问题", { exact: true }).press("Shift+Enter");
+    await expect(dialog.getByLabel("问题", { exact: true })).toHaveValue(
+      "Say hello\n",
+    );
+    await dialog.getByLabel("问题", { exact: true }).press("Enter");
+    await expect(dialog).toContainText("这是模拟回答。");
+    await expect
+      .poll(async () => (await dialog.boundingBox())!.height)
+      .toBe(660);
+    expect(JSON.stringify(model.requests.at(-1))).not.toContain("Second");
+    await dialog
+      .getByRole("button", { name: "新建 / 清理会话", exact: true })
+      .click();
+    await expect(
+      dialog.getByText("这是模拟回答。", { exact: true }),
+    ).toHaveCount(0);
+    await expect
+      .poll(async () => (await dialog.boundingBox())!.height)
+      .toBe(440);
+    await dialog
+      .getByRole("button", { name: "添加所选上下文", exact: true })
+      .click();
     await dialog.getByLabel("问题", { exact: true }).fill("Explain");
     await dialog.getByRole("button", { name: "提问", exact: true }).click();
     await expect(dialog).toContainText("这是模拟回答。");
+    await page.screenshot({ path: ".cache/ui/figma-ask-answer-dark.png" });
     await dialog.getByLabel("问题", { exact: true }).fill("Explain again");
     await dialog.getByRole("button", { name: "提问", exact: true }).click();
     await page.locator("#second").evaluate((element) => {

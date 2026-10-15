@@ -2,6 +2,8 @@ import {
   renderTranslationMarkdown,
   inlineTranslationStyle,
   appendTranslationBilling,
+  textAnchorRect,
+  registerAskShortcut,
 } from "@lingo-sofa/ui-shared";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
@@ -18,11 +20,13 @@ import {
   createPageControls,
   type PageControlActions,
 } from "../src/page-controls.js";
+import { createSelectionActions } from "../src/selection-actions.js";
 import { showSelectionAsk } from "../src/selection-ask.js";
-import type {
-  Reply,
-  TranslationUnit,
-  TranslationResult,
+import {
+  providerCatalogSchema,
+  type Reply,
+  type TranslationUnit,
+  type TranslationResult,
 } from "@lingo-sofa/protocol";
 export default defineContentScript({
   registration: "runtime",
@@ -68,7 +72,13 @@ export default defineContentScript({
       .catch(() => undefined);
     let mode: "page" | "manual" = "manual";
     let selectedPreview:
-      | { text: string; root: HTMLElement; original: string; url: string }
+      | {
+          text: string;
+          root: HTMLElement;
+          original: string;
+          url: string;
+          range?: Range;
+        }
       | undefined;
     function captureSelection() {
       const text = selectedContent(document).text;
@@ -86,6 +96,7 @@ export default defineContentScript({
           root,
           original: textOf(root),
           url: location.href,
+          range: range.cloneRange(),
         };
     }
     document.addEventListener("selectionchange", captureSelection);
@@ -189,29 +200,79 @@ export default defineContentScript({
       });
       translator.start();
     }
-    function askSelection() {
-      if (!readingEnabled) return;
+    let hoveredParagraph: HTMLElement | undefined;
+    function trackAskParagraph(event: PointerEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-lingo-sofa]")) return;
+      const element = target?.closest<HTMLElement>(BLOCKS);
+      hoveredParagraph =
+        element && extract(element).some((block) => block.element === element)
+          ? element
+          : undefined;
+    }
+    function askSelection(fallback?: HTMLElement) {
+      if (!readingEnabled) return false;
       captureSelection();
-      const preview = selectedPreview;
-      if (!preview) {
-        controls.setNotice("请先选中要解释或询问的正文");
-        return;
-      }
-      const { text, root, original, url } = preview;
+      const preview =
+        selectedPreview ??
+        (fallback
+          ? {
+              text: textOf(fallback),
+              root: fallback,
+              original: textOf(fallback),
+              url: location.href,
+            }
+          : undefined);
+      for (const cleanup of askCleanups) cleanup();
+      const text = preview?.text ?? "";
+      const url = preview?.url ?? location.href;
       const cleanup = showSelectionAsk(
         document,
         text,
         () =>
           location.href === url &&
-          root.isConnected &&
-          textOf(root) === original,
+          (!preview ||
+            (preview.root.isConnected &&
+              textOf(preview.root) === preview.original)),
         async (request) =>
           (await browser.runtime.sendMessage(request)) as Reply,
         () => askCleanups.delete(cleanup),
+        async () =>
+          providerCatalogSchema.parse(
+            await browser.runtime.sendMessage({ action: "ask-catalog" }),
+          ),
+        preview
+          ? () =>
+              preview.root.isConnected
+                ? "range" in preview && preview.range
+                  ? preview.range.getBoundingClientRect()
+                  : textAnchorRect(preview.root)
+                : null
+          : undefined,
       );
       askCleanups.add(cleanup);
+      return true;
     }
+    document.addEventListener("pointerover", trackAskParagraph);
+    const removeAskShortcut = registerAskShortcut(document, () => {
+      captureSelection();
+      if (!selectedPreview && !hoveredParagraph) return false;
+      return askSelection(hoveredParagraph);
+    });
     const controls = createPageControls(document, {
+      translateSelection: async () => {
+        const reply = await onMessage({ action: "selection" });
+        if (reply && "ok" in reply && !reply.ok)
+          controls.setNotice(
+            "error" in reply ? String(reply.error) : "翻译失败",
+          );
+        return reply;
+      },
+      translatePage: () => start(targetLanguage),
+      ask: () => {
+        askSelection();
+      },
+      settings: () => browser.runtime.sendMessage({ action: "open-options" }),
       enabled: async (enabled) => {
         const reply = await browser.runtime.sendMessage({
           action: "page-enabled",
@@ -433,12 +494,27 @@ export default defineContentScript({
           }));
       }
     };
+    const selectionActions = createSelectionActions(document, {
+      enabled: () => readingEnabled,
+      translate: () => controlsSelection(),
+      ask: () => {
+        askSelection();
+      },
+    });
+    async function controlsSelection() {
+      const reply = await onMessage({ action: "selection" });
+      if (reply && "ok" in reply && !reply.ok)
+        controls.setNotice("error" in reply ? String(reply.error) : "翻译失败");
+    }
     browser.runtime.onMessage.addListener(onMessage);
     ctx.onInvalidated(() => {
       browser.runtime.onMessage.removeListener(onMessage);
       stop();
       controls.destroy();
+      selectionActions.destroy();
       document.removeEventListener("selectionchange", captureSelection);
+      document.removeEventListener("pointerover", trackAskParagraph);
+      removeAskShortcut();
       selectedPreview = undefined;
       delete lifecycle.lingoSofaLoaded;
     });

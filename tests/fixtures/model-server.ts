@@ -13,6 +13,7 @@ export async function modelServer(
   } = {},
 ) {
   const requests: unknown[] = [];
+  const authorizations: (string | undefined)[] = [];
   const server = createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/models") {
       response.writeHead(200, { "Content-Type": "application/json" });
@@ -40,6 +41,7 @@ export async function modelServer(
       messages: { content: string | { type: string; text?: string }[] }[];
     };
     requests.push(body);
+    authorizations.push(request.headers.authorization);
     if (options.status) {
       response.writeHead(options.status);
       response.end(JSON.stringify({ error: { message: "fixture failure" } }));
@@ -104,6 +106,7 @@ export async function modelServer(
   return {
     endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     requests,
+    authorizations,
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

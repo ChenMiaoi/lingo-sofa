@@ -3,6 +3,7 @@ import type {
   Reply,
   Settings,
   Metrics,
+  ModelConfig,
   ModelClient,
   UsageRecord,
 } from "@lingo-sofa/protocol";
@@ -10,6 +11,7 @@ import { translate, cacheKey } from "./translation.js";
 import { LruCache, TaskQueue } from "./queue.js";
 import { UsageLedger } from "./usage.js";
 export interface ModelCallContext {
+  model?: ModelConfig;
   scope: string;
   requestId: string;
   translationLanguages?: string[] | undefined;
@@ -63,6 +65,13 @@ export class TranslationService {
     { context: string; turns: { question: string; answer: string }[] }
   >();
   private busy = new Set<string>();
+  get askBusy() {
+    return this.busy.size > 0;
+  }
+  private translationRequests = new Set<string>();
+  get translationBusy() {
+    return this.translationRequests.size > 0;
+  }
   private requests = new Map<string, string>();
   private sessionRequests = new Map<string, string>();
   constructor(private readonly options: ServiceOptions) {}
@@ -87,6 +96,7 @@ export class TranslationService {
     return {
       requestId,
       scope,
+      model: settings.model,
       begin: async (call) => {
         this.ledger.begin(call.id);
         const base: UsageRecord = {
@@ -184,6 +194,11 @@ export class TranslationService {
       await this.options.onRecords?.(this.ledger.list());
       return { ok: true };
     }
+    if (request.kind === "ask")
+      settings = {
+        ...settings,
+        model: request.model ?? settings.askModel ?? settings.model,
+      };
     const sessionKey =
       "sessionId" in request ? `${scope}|${request.sessionId}` : "";
     if (request.kind === "clear-session") {
@@ -208,6 +223,7 @@ export class TranslationService {
       this.sessionRequests.set(sessionKey, queueId);
     }
     this.requests.set(queueId, scope);
+    if (request.kind === "translate") this.translationRequests.add(queueId);
     try {
       return await this.queue.submit(
         queueId,
@@ -441,6 +457,7 @@ export class TranslationService {
       };
     } finally {
       this.requests.delete(queueId);
+      this.translationRequests.delete(queueId);
       if (request.kind === "ask") {
         this.busy.delete(sessionKey);
         this.sessionRequests.delete(sessionKey);

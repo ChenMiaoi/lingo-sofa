@@ -30,6 +30,15 @@ test("clears previous session totals while a new answer is pending and after can
         fixture.chrome.runtime.sendMessage = ((message: { action: string }) => {
           if (message.action === "state")
             return Promise.resolve({ settings, usage: [], hasKey: false });
+          if (message.action === "provider-catalog")
+            return Promise.resolve({
+              model: settings.model,
+              askModel: settings.model,
+              keyConfigured: true,
+              piAuth: false,
+              accounts: [],
+              providers: [],
+            });
           if (message.action === "page")
             return Promise.resolve({ text: "Selected synthetic context" });
           if (message.action === "ask") {

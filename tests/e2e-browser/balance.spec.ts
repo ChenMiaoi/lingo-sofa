@@ -46,9 +46,6 @@ test("caches account queries and preserves the last displayed balance after refr
         balanceFetchCount: number;
         balanceFails: boolean;
       };
-      await fixture.chrome.storage.session.set({
-        apiKey: "fixture-account-key",
-      });
       fixture.balanceFetchCount = 0;
       fixture.balanceFails = false;
       globalThis.fetch = async (input) => {
@@ -72,6 +69,20 @@ test("caches account queries and preserves the last displayed balance after refr
     });
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html?view=activity`);
+    await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const state = await api.runtime.sendMessage({
+        action: "state",
+      });
+      const saved = await api.runtime.sendMessage({
+        action: "save",
+        settings: state.settings,
+        apiKey: "fixture-account-key",
+      });
+      if (!saved.ok) throw new Error(saved.error);
+    });
+    await options.reload();
     await options
       .getByRole("button", { name: "查询余额", exact: true })
       .click();

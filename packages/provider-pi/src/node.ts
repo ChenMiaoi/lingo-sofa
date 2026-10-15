@@ -1,3 +1,4 @@
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { capabilities, outputAllocation } from "./capabilities.js";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type {
@@ -33,6 +34,11 @@ export function resolveModel(
     throw new Error(
       "Model is absent from the installed Pi catalog; select a catalog model or configure an OpenAI-compatible endpoint",
     );
+  if (
+    config.thinkingLevel &&
+    !getSupportedThinkingLevels(known).includes(config.thinkingLevel)
+  )
+    throw new Error("Selected thinking level is not supported by this model");
   const pricing = resolvePricing(config, known, sampledAt, conservative);
   return {
     model: {
@@ -62,6 +68,7 @@ export function listModels(includeOAuth = false) {
         id: model.id,
         endpoint: model.baseUrl,
         api: model.api,
+        thinkingLevels: getSupportedThinkingLevels(model),
       })),
     }));
 }
@@ -102,6 +109,9 @@ export function createPiClient(
           ]),
           maxTokens,
           maxRetries: 0,
+          ...(config.thinkingLevel && config.thinkingLevel !== "off"
+            ? { reasoning: config.thinkingLevel }
+            : {}),
           timeoutMs: config.timeoutMs,
           toolChoice: "none",
         },

@@ -175,3 +175,14 @@ OpenAI 新增 ChatGPT 订阅 / API Key 两种方式，网页本地助手模式�
 本轮仅使用本地 fixture 验证，不代用户进行 OpenAI 授权或真实推理，不变更本机当前 DeepSeek 配置或清空用量；原客户端正在运行的服务快照尚未安装本轮产物。真实 Plus/Pro 资格与授权后的调用仍待用户在 OpenAI 页面完成。
 
 `npm run check` 通过（147 项单元测试、lint、格式、类型、构建及 MV3 审计）；浏览器端到端 15 项通过、1 项可选公共站点测试跳过。固定 Vencord 宿主类型/构建和 Native Host 打包通过。新增真实 Pi Runtime 的共享文件刷新测试，确认两个 Runtime 同时遇到过期凭据只刷新一次；SDK 刷新错误不向前端泄漏原始令牌细节。深浅主题 300px 截图已检查，位于本机 `.cache/ui/provider-auth-light.png` 与 `provider-auth-dark.png`。
+
+## 独立模型、多账户及工作空间重构（2026-10-15）
+
+本节替代前述“保存供应商清理全部 Ask”与“直连 Key 仅会话保存”的旧行为。翻译与新 Ask 默认模型分别保存；每个 Ask 会话独立选择 provider、model、effort 和已保存账户。Bridge 切换时迁移本会话的 Pi 分支及累计用量，不携带其他会话或翻译历史。供应商账户可命名、重复供应商、多 Key、更新或移除；重启后保留，按账户和地址绑定凭证。ChatGPT 订阅仍使用 Bridge 当前的单一 OAuth 登录。
+
+- `npm run check`：lint、格式、两端相关类型检查、152 项单元测试和全部构建通过；产物审计确认六个扩展脚本无动态执行、远程 import 或 Node require。
+- `tests/accounts.test.ts`：迁移、持久化、0600 文件权限、同供应商双账户、错误端点拒绝、账户移除、并发 Ask、历史迁移、跨供应商切换、凭证实际发送目标和用量归属。供应商请求使用本机模拟服务。
+- `npm run test:e2e`：17 项通过；公开 LLVM 网页的显式联网验收按默认设置跳过。覆盖直连账户跨 Chromium 重启保留、独立默认值、两个 Ask 选择器互不影响、effort 重置、余额缓存、内容脚本读取凭证被拒绝、深浅主题、窄窗口、Native Messaging 服务生命周期及千段/百次 SPA 压力。
+- `npm run verify:vencord`：对 Vencord `16ec4ea838899706019e7f472e45f055070abeb1` 构建验证通过。
+
+界面截图由 `independent-models.spec.ts` 生成在 `.cache/ui/ai-workspace-*.png`；设置页、账户页及 Ask 选择器已做视觉核对。本轮未调用真实付费供应商，未将改动部署到原 Discord 客户端；真实账号与宿主人工验收不以构建或模拟调用替代。

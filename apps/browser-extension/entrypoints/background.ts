@@ -1,3 +1,8 @@
+import {
+  directAccounts,
+  updateDirectAccounts,
+  directKey,
+} from "../src/accounts.js";
 import { defineBackground } from "wxt/utils/define-background";
 import { browser, type Browser } from "wxt/browser";
 import {
@@ -7,6 +12,7 @@ import {
 } from "@lingo-sofa/provider-pi/browser";
 import {
   providerCatalogSchema,
+  accountMatches,
   oauthRequestSchema,
   oauthStatusSchema,
   providerUpdateSchema,
@@ -21,7 +27,7 @@ import {
   type BudgetSnapshot,
 } from "@lingo-sofa/protocol";
 import { TranslationService } from "@lingo-sofa/translation-core";
-import { readSettings, apiKey, records } from "../src/storage.js";
+import { readSettings, records } from "../src/storage.js";
 
 import { pageScope } from "../src/page-scope.js";
 import { capabilities } from "@lingo-sofa/provider-pi";
@@ -74,6 +80,27 @@ export default defineBackground(() => {
   });
   browser.runtime.onSuspend.addListener(() => native.stop());
   browser.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.uiTheme) {
+      const value = changes.uiTheme.newValue;
+      const uiTheme = value === "light" || value === "dark" ? value : "system";
+      void browser.tabs
+        .query({})
+        .then((tabs) =>
+          Promise.all(
+            tabs
+              .filter((tab) => tab.id && tab.url && /^https?:/.test(tab.url))
+              .map((tab) =>
+                browser.tabs
+                  .sendMessage(tab.id!, {
+                    action: "appearance-changed",
+                    uiTheme,
+                  })
+                  .catch(() => undefined),
+              ),
+          ),
+        )
+        .catch(() => undefined);
+    }
     if (area !== "local" || !changes.settings) return;
     const settings = settingsSchema.safeParse(changes.settings.newValue ?? {});
     if (!settings.success) return;
@@ -87,7 +114,7 @@ export default defineBackground(() => {
       await browser.storage.session.set({ inFlight: [...inFlight.values()] });
     },
     client: async (settings, onMetrics) => {
-      const key = await apiKey();
+      const key = await directKey(settings, settings.model);
       if (!key) throw new Error("请在设置中填写本次浏览器会话使用的 API Key");
       const url = new URL(settings.model.endpoint);
       const pattern = `${url.origin}/*`;
@@ -117,6 +144,7 @@ export default defineBackground(() => {
       accessLevel: "TRUSTED_CONTEXTS",
     });
     const settings = await readSettings();
+    await directAccounts(settings);
     if (settings.mode === "bridge") native.start();
     await syncReadingAccess();
     const saved = await records(settings);
@@ -169,6 +197,10 @@ export default defineBackground(() => {
       return (transport?.mode ?? settings.mode) === "bridge"
         ? bridge(request, scope)
         : service.handle(request, scope, settings, "web");
+    }
+    if (request.kind === "ask" && settings.mode === "direct") {
+      const state = await directAccounts(settings);
+      request = { ...request, model: request.model ?? state.ask };
     }
     if (request.kind !== "translate" && request.kind !== "ask")
       return settings.mode === "bridge"
@@ -264,13 +296,24 @@ export default defineBackground(() => {
               operation: "provider",
             }),
           );
+        const stored = await directAccounts(settings);
+        const active =
+          settings.mode === "direct" ? settings.model : stored.translation;
         const supported = ["deepseek", "openai-compatible"].includes(
-          settings.model.provider,
+          active.provider,
         );
         return {
-          capabilities: capabilities(settings.model),
-          model: supported ? settings.model : settingsSchema.parse({}).model,
-          keyConfigured: supported && Boolean(await apiKey()),
+          capabilities: capabilities(active),
+          model: supported ? active : settingsSchema.parse({}).model,
+          askModel: stored.ask,
+          accounts: stored.accounts.map(({ id, name, model, apiKey }) => ({
+            id,
+            name,
+            model,
+            keyConfigured: Boolean(apiKey) || model.authMode === "subscription",
+          })),
+          keyConfigured:
+            supported && Boolean(await directKey(settings, active)),
           piAuth: false,
           providers: listModels(),
         };
@@ -291,6 +334,20 @@ export default defineBackground(() => {
         sender.frameId === 0 &&
         sender.url &&
         /^https?:/.test(sender.url);
+      if (
+        data.action === "appearance" &&
+        (topPage || sender.url?.startsWith(browser.runtime.getURL("/")))
+      ) {
+        const { uiTheme } = await browser.storage.local.get("uiTheme");
+        return {
+          uiTheme:
+            uiTheme === "light" || uiTheme === "dark" ? uiTheme : "system",
+        };
+      }
+      if (data.action === "ask-catalog" && topPage) {
+        const info = await catalog();
+        return info;
+      }
       if (data.action === "page-controls" && topPage) {
         const info = await catalog();
         return {
@@ -330,8 +387,13 @@ export default defineBackground(() => {
             ?.models.some((model) => model.id === data.model)
         )
           throw new Error("模型不在当前供应商目录中");
-        const model = { ...info.model, model: data.model, prices: null };
-        await cancelTransports();
+        const model = {
+          ...info.model,
+          model: data.model,
+          thinkingLevel: undefined,
+          capabilities: undefined,
+          prices: null,
+        };
         if (settings.mode === "bridge") {
           const reply = replySchema.parse(
             await native.request({
@@ -344,8 +406,12 @@ export default defineBackground(() => {
           );
           if (!reply.ok) throw new Error(reply.error);
         }
-        service.reset();
-        const next = { ...settings, model };
+        const next: Settings = { ...settings, model };
+        if (settings.mode === "direct") {
+          const state = await updateDirectAccounts(settings, { model }, true);
+          next.model = state.translation;
+          next.askModel = state.ask;
+        }
         if (
           model.provider !== settings.model.provider ||
           model.endpoint !== settings.model.endpoint
@@ -484,13 +550,10 @@ export default defineBackground(() => {
             }),
           );
           if (!reply.ok) throw new Error(reply.error);
-          await cancelTransports();
-          service.reset();
-          const next = {
-            ...settings,
-            mode: "bridge" as const,
-            model: update.model,
-          };
+          const next = { ...settings, mode: "bridge" as const };
+          if (!update.target || update.target === "translation")
+            next.model = update.model;
+          if (update.target === "ask-default") next.askModel = update.model;
           if (
             update.model.provider !== settings.model.provider ||
             update.model.endpoint !== settings.model.endpoint
@@ -501,10 +564,19 @@ export default defineBackground(() => {
           return { ok: true };
         }
         resolveModel(update.model);
-        data.action = "save";
-        data.settings = { ...settings, mode: "direct", model: update.model };
-        data.apiKey = update.apiKey;
+        const state = await updateDirectAccounts(settings, update);
+        const next = {
+          ...settings,
+          mode: "direct" as const,
+          model: state.translation,
+          askModel: state.ask,
+        };
+        await browser.storage.local.set({ settings: next });
+        await browser.storage.session.remove("balance");
+        await notify(next);
+        return { ok: true };
       }
+
       if (data.action === "reading-access-sync") {
         await syncReadingAccess();
         return { ok: true };
@@ -543,7 +615,9 @@ export default defineBackground(() => {
         return {
           settings,
           usage: service.ledger.list(),
-          hasKey: Boolean(await apiKey()),
+          hasKey: Boolean(
+            await directKey(settings, settings.model).catch(() => ""),
+          ),
           bridgeUsage,
           budgets,
           shareBudget,
@@ -561,12 +635,53 @@ export default defineBackground(() => {
             !(await browser.permissions.contains({ origins: [`${origin}/*`] }))
           )
             throw new Error("自动翻译网站尚未授权");
-        await cancelTransports();
-        service.reset();
+        if (
+          next.mode !== settings.mode ||
+          next.persistUsage !== settings.persistUsage
+        ) {
+          await cancelTransports();
+          service.reset();
+        }
         if (next.persistUsage !== settings.persistUsage) {
           service.ledger.clear();
           await browser.storage.local.remove("usage");
           await browser.storage.session.remove("usage");
+        }
+        if (next.mode === "direct") {
+          if (next.model.authMode === "subscription")
+            throw new Error("订阅登录需要本地助手");
+          const existing = await directAccounts(settings);
+          if (
+            next.model.accountId &&
+            !existing.accounts.some(
+              (item) =>
+                item.id === next.model.accountId &&
+                accountMatches(item, next.model),
+            )
+          )
+            next.model.accountId = undefined;
+          const state = await updateDirectAccounts(
+            settings,
+            {
+              model: next.model,
+              ...(typeof data.apiKey === "string" && data.apiKey.trim()
+                ? { apiKey: data.apiKey.trim() }
+                : {}),
+            },
+            true,
+          );
+          next.model = state.translation;
+          if (
+            state.accounts.length === 1 &&
+            !settings.askModel &&
+            data.action === "save"
+          ) {
+            const initial = await updateDirectAccounts(next, {
+              model: state.translation,
+              target: "ask-default",
+            });
+            next.askModel = initial.ask;
+          } else next.askModel = state.ask;
         }
         await browser.storage.local.set({ settings: next });
         if (next.mode === "bridge") native.start();
@@ -578,7 +693,7 @@ export default defineBackground(() => {
           await browser.storage.session.remove(["apiKey", "balance"]);
         if (typeof data.apiKey === "string") {
           await browser.storage.session.remove("balance");
-          await browser.storage.session.set({ apiKey: data.apiKey });
+          await browser.storage.session.remove("apiKey");
         }
         await syncReadingAccess();
         await notify(next);
@@ -597,6 +712,21 @@ export default defineBackground(() => {
         return { ok: true };
       }
       if (data.action === "forget-key") {
+        const state = await directAccounts(settings);
+        const id = settings.model.accountId;
+        state.accounts = state.accounts.map((account) => {
+          if (
+            id
+              ? account.id !== id
+              : account.model.provider !== settings.model.provider ||
+                account.model.endpoint !== settings.model.endpoint
+          )
+            return account;
+          const { apiKey: _key, ...rest } = account;
+          void _key;
+          return rest;
+        });
+        await browser.storage.local.set({ providerAccounts: state });
         await cancelTransports();
         service.reset();
         await browser.storage.session.remove(["apiKey", "balance"]);
@@ -671,7 +801,7 @@ export default defineBackground(() => {
           new URL(settings.model.endpoint).origin !== "https://api.deepseek.com"
         )
           return { unavailable: true };
-        const key = await apiKey();
+        const key = await directKey(settings, settings.model);
         if (!key) throw new Error("API Key 未配置");
         if (
           !(await browser.permissions.contains({

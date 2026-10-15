@@ -1,14 +1,18 @@
+import * as React from "react";
 import { ReadingAccess } from "./ReadingAccess.js";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { browser } from "wxt/browser";
 import {
   settingsSchema,
+  providerCatalogSchema,
+  type ModelConfig,
   type Settings,
   type Reply,
   type UsageRecord,
 } from "@lingo-sofa/protocol";
 import { summarize, period } from "@lingo-sofa/translation-core";
 import {
+  createAskModelSelector,
   formatTokens,
   formatCost,
   formatExchangeRate,
@@ -24,7 +28,14 @@ async function send<T>(message: unknown): Promise<T> {
   if (reply?.ok === false) throw new Error(reply.error ?? "操作失败");
   return reply;
 }
+const AskModelSelector = createAskModelSelector(() => React);
 export function App() {
+  const [askModel, setAskModel] = useState<ModelConfig | undefined>(undefined);
+  const loadAskModels = useCallback(
+    async () =>
+      providerCatalogSchema.parse(await send({ action: "provider-catalog" })),
+    [],
+  );
   const advanced =
     new URLSearchParams(location.search).get("view") === "activity";
   const [settings, setSettings] = useState<Settings>(settingsSchema.parse({}));
@@ -158,6 +169,7 @@ export function App() {
       setContext(reply.selection || reply.text || "");
       setTurns([]);
       setSessionId(crypto.randomUUID());
+      setAskModel(undefined);
     } else
       setNotice(
         command === "stop"
@@ -227,7 +239,7 @@ export function App() {
       setBalance("未查询");
       setKey("");
       setHasKey(hasKey || Boolean(key));
-      setNotice("设置已保存，API Key 仅在本次浏览器会话保留");
+      setNotice("设置已保存，供应商保存在此浏览器本机");
     });
   }
   async function ask(event: FormEvent) {
@@ -243,6 +255,7 @@ export function App() {
         tabId,
         request: {
           kind: "ask",
+          model: askModel,
           requestId,
           sessionId,
           context,
@@ -300,9 +313,13 @@ export function App() {
       </a>
       <header className="brand-header">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">
-            文
-          </span>
+          <img
+            className="brand-mark"
+            src="/brand/lingo-sofa.svg"
+            alt=""
+            width="64"
+            height="40"
+          />
           <div>
             <h1>LingoSofa</h1>
             <p>原文在上，理解在旁。</p>
@@ -348,7 +365,7 @@ export function App() {
         <div className="section-heading">
           <div>
             <span className="eyebrow">阅读助手</span>
-            <h2>让理解，就在原文旁边。</h2>
+            <h2>阅读，无需来回。</h2>
           </div>
         </div>
         <p className="muted">翻译当前页面或选中文字，随时恢复原页面。</p>
@@ -381,7 +398,7 @@ export function App() {
           aria-label="内容问答"
           aria-busy={Boolean(running)}
         >
-          <h2>先确认发送范围</h2>
+          <h2>Ask Pi</h2>
           {sessionStats && (
             <p>
               Pi 会话汇总（同一消耗的另一视图）：
@@ -407,6 +424,13 @@ export function App() {
               </div>
             ))}
           </div>
+          <AskModelSelector
+            key={sessionId}
+            load={loadAskModels}
+            model={askModel}
+            onChange={setAskModel}
+            disabled={Boolean(running)}
+          />
           <form onSubmit={(event) => void ask(event)}>
             <label>
               问题
@@ -419,7 +443,9 @@ export function App() {
             </label>
             <button
               className="primary"
-              disabled={Boolean(running) || !context || !question.trim()}
+              disabled={
+                Boolean(running) || !context || !question.trim() || !askModel
+              }
             >
               提问
             </button>
@@ -457,6 +483,7 @@ export function App() {
                 setTurns([]);
                 setSessionStats(undefined);
                 setSessionId(crypto.randomUUID());
+                setAskModel(undefined);
               })
             }
           >
@@ -726,7 +753,7 @@ export function App() {
                 }>({ action: "balance" });
                 setBalance(
                   reply.unavailable
-                    ? "当前执行模式未提供账户数据"
+                    ? "当前执行模式未提供供应商数据"
                     : `${reply.data?.balance_infos?.map((info) => `${info.total_balance} ${info.currency}`).join(" / ") ?? "未知"}（DeepSeek 官方，${new Date(reply.updatedAt ?? Date.now()).toLocaleString()} 更新）`,
                 );
               })
@@ -745,6 +772,7 @@ export function App() {
               setTurns([]);
               setSessionStats(undefined);
               setSessionId(crypto.randomUUID());
+              setAskModel(undefined);
             })
           }
         >
@@ -758,7 +786,8 @@ export function App() {
             <fieldset>
               <legend>模型连接</legend>
               <p className="muted">
-                直连密钥仅在当前浏览器会话保留。本地模式的模型由 Bridge 管理。
+                直连供应商配置保存在此浏览器本机。本地助手供应商配置在浏览器与
+                Discord 间共用。
               </p>
               <label>
                 目标语言
