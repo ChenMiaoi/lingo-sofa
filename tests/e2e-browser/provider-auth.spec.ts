@@ -7,7 +7,7 @@ test("shares the same subscription auth card across clients, themes and narrow l
   const bundle = await build({
     stdin: {
       contents: `import React,{useState} from 'react';import{createRoot}from'react-dom/client';import{createProviderAuth}from'./packages/ui-shared/src/provider-auth.tsx';
-const Auth=createProviderAuth(React);window.state={connected:false,phase:'idle'};window.actions=[];
+let hostReact;const Auth=createProviderAuth(()=>hostReact);hostReact=React;window.state={connected:false,phase:'idle'};window.actions=[];
 const request=async action=>{window.actions.push(action);if(action==='start')window.state={connected:false,phase:'pending',authorizationUrl:'https://auth.openai.com/api/accounts/authorize?state=fixture'};if(action==='logout'||action==='cancel')window.state={connected:false,phase:'idle'};return window.state;};
 function Host(){const[mode,setMode]=useState('subscription');return <Auth mode={mode} onMode={setMode} request={request}/>};createRoot(document.getElementById('root')).render(<><Host/><Host/></>);`,
       resolveDir: process.cwd(),

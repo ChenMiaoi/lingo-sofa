@@ -17,7 +17,7 @@ async function send(message: unknown) {
   if (reply?.ok === false) throw new Error(reply.error ?? "操作失败");
   return reply;
 }
-const ProviderAuth = createProviderAuth(React);
+const ProviderAuth = createProviderAuth(() => React);
 export function ProviderPage() {
   const oauthRequest = useCallback(
     (action: "start" | "status" | "cancel" | "logout") =>

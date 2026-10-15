@@ -18,7 +18,7 @@ interface HostReact {
   useRef<T>(initial: T): { current: T };
   createElement: (...args: never[]) => unknown;
 }
-export function createProviderAuth(React: HostReact) {
+export function createProviderAuth(getReact: () => HostReact) {
   return function ProviderAuth({
     mode,
     onMode,
@@ -34,6 +34,8 @@ export function createProviderAuth(React: HostReact) {
     disabled?: boolean;
     onStatus?: (status: OAuthStatus) => void;
   }) {
+    // Vencord resolves its React export after plugin modules are evaluated.
+    const React = getReact();
     const [status, setStatus] = React.useState<OAuthStatus>({
       connected: false,
       phase: "idle",

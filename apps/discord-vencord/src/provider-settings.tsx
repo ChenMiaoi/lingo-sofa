@@ -6,7 +6,7 @@ import type {
   ModelConfig,
 } from "@lingo-sofa/protocol";
 import type { DiscordBridgeClient } from "./client.js";
-const ProviderAuth = createProviderAuth(React);
+const ProviderAuth = createProviderAuth(() => React);
 export function ProviderSettings({
   client,
   onSaved,
