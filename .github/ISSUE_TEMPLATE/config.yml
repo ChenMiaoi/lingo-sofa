@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Installation and troubleshooting / 安装与排查
+    url: https://github.com/ChenMiaoi/lingo-sofa/blob/main/docs/installation.md
+    about: Browser authorization, shared assistant setup, upgrades and Vencord installation. / 浏览器授权、共享助手、升级及 Vencord 安装说明。
+  - name: Compatibility and current limits / 兼容性与当前限制
+    url: https://github.com/ChenMiaoi/lingo-sofa/blob/main/docs/compatibility.md
+    about: Check supported environments and known limitations. / 查看已支持的环境与当前限制。

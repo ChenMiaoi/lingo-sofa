@@ -1,0 +1,47 @@
+name: Feature request / 功能建议
+description: Suggest a feature or improvement based on a concrete use case. / 围绕具体使用场景提出功能或改进建议。
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Chinese are both welcome. Search [existing issues](https://github.com/ChenMiaoi/lingo-sofa/issues) before opening a new request.
+        中文或英文均可，提交前请先搜索已有建议。示例请使用公开或模拟内容，不要包含私人聊天或凭证。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case / 问题与使用场景
+      description: What are you trying to do, and what is difficult with the current behavior? / 你想完成什么？当前体验有什么困难？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior / 建议的行为
+      description: Describe the experience you want and, if helpful, a concrete before/after example. / 描述期望的体验，必要时提供改进前后的具体例子。
+    validations:
+      required: true
+  - type: dropdown
+    id: components
+    attributes:
+      label: Relevant components / 相关组件
+      multiple: true
+      options:
+        - Browser extension / 浏览器扩展
+        - Discord / Vencord plugin / Discord 插件
+        - Local assistant / 本地助手
+        - Installation or upgrade / 安装或升级
+        - Release or CI / 发布或 CI
+        - Shared core or protocol / 共享核心或协议
+        - Documentation / 文档
+        - Other platform or unsure / 其他平台或不确定
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds / 替代方案或临时做法
+      description: Optional. What have you tried, and why is it insufficient? / 可选，你尝试过哪些做法，为什么仍不能满足需求？
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context / 补充信息
+      description: Optional. Attach sketches, examples or references that help explain the request. / 可选，可附草图、示例或参考链接。

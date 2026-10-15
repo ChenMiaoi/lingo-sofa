@@ -1,0 +1,88 @@
+name: Bug report / 问题反馈
+description: Report broken behavior, installation failures or release problems. / 反馈功能、安装或发布问题。
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve LingoSofa! English and Chinese are both welcome.
+        感谢反馈，中文或英文均可。
+
+        Search [existing issues](https://github.com/ChenMiaoi/lingo-sofa/issues) and check the [installation guide](https://github.com/ChenMiaoi/lingo-sofa/blob/main/docs/installation.md) first.
+        请先搜索已有问题并查阅安装说明。
+
+        Remove API keys, authorization headers, account files and private webpage/chat content from examples and attachments. Do not upload your assistant configuration directory.
+        示例和附件请移除 API Key、认证请求头、账户文件及私人网页/聊天内容，不要上传整个助手配置目录。
+  - type: dropdown
+    id: components
+    attributes:
+      label: Affected components / 受影响组件
+      multiple: true
+      options:
+        - Browser extension / 浏览器扩展
+        - Discord / Vencord plugin / Discord 插件
+        - Local assistant / 本地助手
+        - Installation or upgrade / 安装或升级
+        - Release or CI / 发布或 CI
+        - Shared core or protocol / 共享核心或协议
+        - Documentation / 文档
+        - Other or unsure / 其他或不确定
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: LingoSofa version / 项目版本
+      description: Release tag or source commit. Include both client and assistant versions if they differ. / 填写发行版本或源码提交；客户端与助手版本不同时请分别注明。
+      placeholder: "v0.1.0, or commit d539c3b"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      description: Fill in what applies; write "not applicable" for the rest. Never include credentials. / 仅填写相关项，其余可注明“不适用”，不要填写凭证。
+      placeholder: |
+        OS and CPU / 系统与芯片：
+        Browser and version / 浏览器与版本：
+        Discord and Vencord versions / Discord 与 Vencord 版本：
+        Connection mode: local assistant or direct / 本地助手或直连：
+        Installation: release package or source / 发行包或源码安装：
+        Provider and model, if relevant / 供应商与模型（如相关）：
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Use a minimal example with public or synthetic content. For CI failures, link the run and failed job. / 使用公开或模拟内容的最小示例；CI 问题请附运行及失败任务链接。
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+      description: What should happen? / 正常情况下应发生什么？
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+      description: What happens instead? Include the exact error message and how often it occurs. / 实际发生了什么？请附错误原文和出现频率。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and screenshots / 日志与截图
+      description: Optional. Paste a short redacted log or attach a screenshot/video showing the issue. / 可选，提供脱敏后的简短日志、截图或视频。
+  - type: input
+    id: regression
+    attributes:
+      label: Previously working version / 之前正常的版本
+      description: Optional. Note a recent upgrade or configuration change if relevant. / 可选，如与升级或配置变更相关，请一并说明。
