@@ -147,9 +147,11 @@ it("discovers multiple providers and saves credentials locally without returning
       model: { ...next, accountId: expect.any(String) },
       apiKey: "new-fixture-key",
     });
-    expect((await stat(join(directory, "provider.json"))).mode & 0o777).toBe(
-      0o600,
-    );
+    // NTFS exposes synthetic POSIX mode bits; this assertion applies to POSIX hosts.
+    if (process.platform !== "win32")
+      expect((await stat(join(directory, "provider.json"))).mode & 0o777).toBe(
+        0o600,
+      );
     expect((await client.providers()).model.provider).toBe("openai");
     expect(JSON.stringify(await client.providers())).not.toContain(
       "new-fixture-key",

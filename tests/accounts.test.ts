@@ -62,9 +62,11 @@ it("persists multiple named accounts, binds endpoints and keeps independent defa
     expect(restored.key(restored.ask)).toBe("work-key");
     expect(restored.key(restored.translation)).toBe("legacy-key");
     expect(JSON.stringify(restored.list())).not.toContain("work-key");
-    expect((await stat(join(directory, "accounts.json"))).mode & 0o777).toBe(
-      0o600,
-    );
+    // NTFS exposes synthetic POSIX mode bits; this assertion applies to POSIX hosts.
+    if (process.platform !== "win32")
+      expect((await stat(join(directory, "accounts.json"))).mode & 0o777).toBe(
+        0o600,
+      );
     expect(await readFile(join(directory, "accounts.json"), "utf8")).toContain(
       "work-key",
     );

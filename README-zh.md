@@ -54,6 +54,8 @@ LingoSofa 为网页和 Discord 提供原位双语翻译与上下文问答。保�
 
 桌面端当前依赖 [Vencord](https://vencord.dev/)，提供消息翻译、频道自动阅读和上下文问答。自定义插件需要加入自定义 Vencord 构建，直接安装标准 Vencord 并不会包含 LingoSofa。
 
+接入 Windows 安装流程的新 Release 提供 `LingoSofa-Setup-<version>-win32-x64.exe`，可一起安装预编译 Vencord、LingoSofa 和本地助手，无需自己编译或安装 Node。插件设置提供检查、下载和安装新版本入口；安装前退出连接的客户端，安装后启动 Discord 生效。详见 [Windows 安装与更新](docs/installation.md#windows-x64一体化安装与更新)。
+
 启用插件后，会复用已有本地助手；构建中包含发行清单时，缺少助手会自动下载、校验并安装对应版本。浏览器仍需单独授权扩展 ID。辅助构建和安装流程见 [Discord 安装说明](docs/installation.md#vencord-是否能省掉)。
 
 ## 隐私与数据

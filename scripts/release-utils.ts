@@ -51,7 +51,9 @@ export async function validateReleaseVersion(
         version: string;
       };
       if (pkg.version !== version)
-        throw new Error(`${path} version ${pkg.version} does not match ${tag}`);
+        throw new Error(
+          `${path.replaceAll("\\", "/")} version ${pkg.version} does not match ${tag}`,
+        );
     }
   }
   return version;

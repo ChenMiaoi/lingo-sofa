@@ -120,9 +120,38 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  windows:
+    name: Windows x64 combined installer
+    needs: assemble
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.1"
+          cache: false
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: .cache/release-assets
+      - name: Build and verify combined installer and final checksums
+        run: npm run package:windows -- .cache/release-assets .cache/release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-complete
+          path: .cache/release-assets/
+          if-no-files-found: error
+          compression-level: 0
+
   publish:
     name: Publish GitHub Release
-    needs: [validate, assemble]
+    needs: [validate, assemble, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -130,7 +159,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: release-bundle
+          name: release-complete
           path: release-assets
       - name: Verify final checksums
         working-directory: release-assets

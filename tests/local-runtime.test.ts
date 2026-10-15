@@ -269,6 +269,57 @@ it("does not start anything on stop or accept an uninstalled native runtime", as
     await rm(directory, { recursive: true, force: true });
   }
 });
+it("waits for a cold service that becomes ready after the former ten-second limit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-cold-start-"));
+  await config(directory);
+  await writeFile(
+    join(directory, "runtime-install.json"),
+    JSON.stringify({
+      executable: process.execPath,
+      entrypoint: resolve("tests/fixtures/delayed-runtime-service.mjs"),
+    }),
+  );
+  let pid: number | undefined;
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const starting = ensureRuntime(directory, discord).then(
+      (value) => ({ value, error: null }),
+      (error: unknown) => ({ value: null, error }),
+    );
+    await expect
+      .poll(async () => {
+        try {
+          pid = JSON.parse(
+            await readFile(join(directory, "starting.json"), "utf8"),
+          ).pid;
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .toBe(true);
+    vi.setSystemTime(Date.now() + 15_000);
+    await delay(250);
+    await writeFile(join(directory, "ready"), "");
+    const result = await starting;
+    expect(result.error).toBeNull();
+    expect(
+      (await runtimePost(result.value!, discord, "/v1/runtime/status", {}))
+        .status,
+    ).toBe(200);
+  } finally {
+    vi.useRealTimers();
+    if (pid) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        /* Already stopped. */
+      }
+    }
+    await delay(200);
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 15_000);
 it("does not release a newly enabled client when an earlier renewal finishes after stop", async () => {
   const { createServer } = await import("node:http");
   const directory = await mkdtemp(join(tmpdir(), "lingo-lease-race-"));

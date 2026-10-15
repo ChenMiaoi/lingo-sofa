@@ -108,7 +108,8 @@ export async function ensureRuntime(
     launchError = true;
   });
   child.unref();
-  const deadline = Date.now() + 10_000;
+  // First Windows launch may scan the dependency snapshot before the service can bind.
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline && !launchError) {
     await delay(100);
     const connection = await discover(directory, origin);

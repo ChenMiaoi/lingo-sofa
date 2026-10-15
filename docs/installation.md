@@ -10,6 +10,20 @@
 
 ## 用户安装
 
+### Windows x64：一体化安装与更新
+
+在包含 Windows 组合包的新版本 Release 中，下载 `LingoSofa-Setup-<version>-win32-x64.exe`，双击后选择本地 Discord 目录（通常为 `%LOCALAPPDATA%\Discord`，该目录中应有 `app-*`）。从托盘退出 Discord，并关闭连接本地助手的浏览器，然后开始安装。安装器自带预编译的 LingoSofa/Vencord 和 Windows x64 助手；用户不需要 Git、Node、npm 或自行编译。安装完成后可勾选启动 Discord，LingoSofa 首次安装默认启用。
+
+插件设置中的“LingoSofa 更新”提供“检查更新 → 下载 → 退出 Discord 并安装更新”。检查只访问本项目 GitHub 的最新正式 Release；只有包含对应 Windows 安装包且具有 GitHub SHA-256 digest 的新版本才可下载。执行前再次校验文件。已经通过组合包安装的用户无需重新选择目录：安装器显示进度，更新 Vencord、插件及助手，成功后自动启动 Discord。其他自定义安装首次升级仍会显示完整安装向导。旧版 `v0.1.0` 不会因仓库更新而自动增加安装包或更新按钮；第一次需要安装包含此功能的新 Release。
+
+插件只下载，不在 Discord 进程运行期间替换代码。点击安装会正常退出 Discord，独立安装器等待相关客户端和助手退出，最多等待三分钟；浏览器仍连接助手时需先关闭浏览器。安装器取消或下载失败不会切换版本；安装步骤失败会尝试恢复原 Discord 补丁、助手入口及配置，并报告恢复失败。旧运行目录保留，不自动删除账户和历史。安装锁发生异常中断后，确认无安装器运行再移除助手目录下的 `.windows-install-lock`。
+
+组合安装记录位于助手目录 `windows-install.json`，宿主文件放在 `windows/v<version>/vencord`。更新默认使用记录的 Discord 目录，不自动迁移到另一份客户端。现有 Vencord 设置保持原位置，显式停用的 LingoSofa 不会因更新被强制开启。本组合构建关闭 Vencord 自带的上游更新入口，更新统一来自 LingoSofa Release；Discord 自身升级仍沿用 Vencord 的补丁保留逻辑，失效时可重新运行同版本安装包修复。
+
+此安装器当前未签名，支持常规用户目录安装的 Discord Stable/PTB/Canary；受管理目录、第三方客户端和 ARM64 原生安装不属于此交付范围。本机 Windows Stable 的实际安装、助手连接、冷启动与更新界面结果见 [Windows 验收记录](windows-discord-acceptance.md)。安装器只是组合安装入口，不注册系统服务或额外的 Windows 应用卸载项。
+
+### 其他平台与单独安装助手
+
 Discord 启用 LingoSofa 时先检查已安装助手；不存在时，从插件构建中固定的版本地址下载适配系统的安装包，验证固定 SHA-256，拒绝路径穿越、链接与特殊文件，再调用包内 Node 安装，完成后自动启动服务。下载/安装状态及失败重试在插件设置中显示。已安装时直接复用，不在网络故障或配置损坏时覆盖安装，也不自动重放模型请求。插件停用时不再启动助手；已开始的下载/文件安装可能完成，但不会因此启动服务。
 
 浏览器扩展受沙箱限制，首次需用户运行本地安装程序：

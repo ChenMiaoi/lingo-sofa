@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.exe binary
+*.png binary
+*.zip binary
+*.gz binary

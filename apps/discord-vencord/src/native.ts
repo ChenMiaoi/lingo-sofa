@@ -1,5 +1,7 @@
 import { homedir } from "node:os";
 import { RuntimeClient } from "@lingo-sofa/local-runtime";
+import { WindowsUpdater } from "@lingo-sofa/local-runtime/updates";
+import { createRequire } from "node:module";
 import {
   AssistantInstaller,
   type AssistantRelease,
@@ -19,6 +21,31 @@ const installer = new AssistantInstaller(
     message = value;
   },
 );
+const updater = new WindowsUpdater(
+  directory,
+  typeof LINGO_SOFA_ASSISTANT_RELEASE === "undefined"
+    ? "0.1.0"
+    : LINGO_SOFA_ASSISTANT_RELEASE.version,
+);
+export async function checkUpdate(event: unknown) {
+  void event;
+  return updater.check();
+}
+export async function downloadUpdate(event: unknown) {
+  void event;
+  return updater.download();
+}
+export async function applyUpdate(event: unknown) {
+  void event;
+  await updater.launch();
+  enabled = false;
+  await runtime.stop();
+  // Return the IPC response before asking Discord to exit normally.
+  const electron = createRequire(process.execPath)("electron") as {
+    app: { quit(): void };
+  };
+  setTimeout(() => electron.app.quit(), 500);
+}
 export async function installationStatus(event: unknown) {
   void event;
   return { message, busy: Boolean(pending) };
@@ -60,6 +87,7 @@ export async function connection(event: unknown) {
   if (!enabled || pending) return null;
   try {
     const { port, token } = await runtime.connection();
+    message = "已连接共享本地助手";
     return { port, token };
   } catch {
     return null;

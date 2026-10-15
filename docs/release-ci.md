@@ -21,7 +21,8 @@ git push origin v0.1.0
 1. **校验**：版本一致性、`npm run check`、浏览器 E2E 和固定 Vencord 宿主集成检查。任一失败均不会发布。
 2. **各平台助手构建**：在对应系统/架构的 runner 原生打包，运行 Bridge/安装回归，并实际安装到临时目录；删除解压目录后检查包内 Node、服务启动、浏览器/Discord 共用实例与认证连接。不会发送模型请求。
 3. **汇总客户端**：收齐全部平台安装包，验证每个平台版本、固定下载 URL 和 SHA-256，再生成统一 `assistant-release.json`。随后构建嵌入这份完整清单的 Discord userplugin、浏览器 ZIP、准确对应 tag 的源码归档和最终校验文件。最后再次审计 MV3 并验证含完整下载清单的 Vencord 构建。
-4. **发布**：下载本次工作流的完整产物，复核全部校验值，再通过 `gh release create --verify-tag` 上传附件并公开 Release。GitHub CLI 先创建草稿、上传附件，再公开，避免正常运行时暴露尚未上传完整的下载集合。
+4. **Windows 组合安装包**：Windows x64 runner 获取已汇总的产物，重新构建嵌入助手清单的 Vencord，并关闭上游更新入口。固定 revision 的 Vencord Installer CLI 从源码编译；预编译宿主、Windows 助手、对应源码与许可证一起封装为 Inno Setup EXE。在临时 Discord Canary 资源目录验证实际助手安装和上游补丁安装、重复安装及数据保留，再运行更新/恢复回归测试，重新生成包含 EXE 的完整校验清单。
+5. **发布**：必须等待 Windows 组合安装 job 成功，下载 `release-complete` 的完整产物，复核全部校验值，再通过 `gh release create --verify-tag` 上传附件并公开 Release。GitHub CLI 先创建草稿、上传附件，再公开，避免正常运行时暴露尚未上传完整的下载集合。
 
 | 系统 / 芯片         | Runner             |
 | ------------------- | ------------------ |
@@ -34,6 +35,9 @@ git push origin v0.1.0
 工作流会核对 runner 的实际系统和架构，避免把一种架构的可执行文件贴上另一种标签。不支持的平台不会假装有可用下载。
 
 ## Release 附件
+
+- `LingoSofa-Setup-<version>-win32-x64.exe`：包含 LingoSofa 的预编译 Vencord、上游 CLI 安装器、Windows 助手及对应源码/许可证。
+- `windows-release.json`：组合包版本、固定下载 URL、SHA-256 和上游源码 revision。运行时检查以 GitHub Release API 的最新正式版本与资产 digest 为准，不接受 renderer 提供任意 URL 或执行参数。
 
 - 五个平台的 `lingo-sofa-assistant-<version>-<platform>-<arch>.tar.gz`：自带 Node、共享服务、Native Host 和安装入口。
 - `lingo-sofa-browser-<version>.zip`：Chrome/Edge MV3 扩展。
@@ -66,3 +70,11 @@ npm run release:assemble -- v0.1.0 /absolute/native-artifacts /absolute/empty-re
 ```
 
 本地汇总不创建 tag、不推送、不公开 Release。
+
+在 Windows x64 上，已汇总客户端和助手产物后执行：
+
+```sh
+npm run package:windows -- .cache/release-assets .cache/release-assets
+```
+
+构建需要 Node 24、Git 和 Go；Inno Setup 6.7.3 编译工具包从固定 NuGet URL 下载并按内置 SHA-256 校验，只解压到项目缓存，不安装到系统。也可用 `LINGO_SOFA_ISCC` 指定已有编译器。Node 安装缺少 LICENSE 时，按助手打包约定用 `LINGO_SOFA_NODE_LICENSE` 指定同版本官方许可证。组合安装 smoke test 不修改真实 Discord；本机运行时需先退出 Discord Canary，防止上游按分支名查找进程影响正在使用的 Canary。

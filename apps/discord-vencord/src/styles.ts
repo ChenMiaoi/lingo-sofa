@@ -10,6 +10,13 @@ export const pluginStyles =
   overflow-wrap: anywhere;
 }
 .lingo-sofa-panel { padding: 20px; }
+.lingo-sofa-maintenance { margin: 16px 0; padding: 16px; border: 1px solid var(--lingo-border); border-radius: 12px; background: var(--lingo-surface); }
+.lingo-sofa-maintenance h3 { margin: 0 0 8px; font-size: 16px; }
+.lingo-sofa-maintenance p { margin: 8px 0; }
+.lingo-sofa-update-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.lingo-sofa-update-actions button { margin: 0; max-width: 100%; min-height: 40px; white-space: normal; overflow-wrap: anywhere; }
+.lingo-sofa-maintenance .lingo-sofa-maintenance-status { margin: 12px 0 0; color: var(--ls-muted); font-size: 13px; }
+.lingo-sofa-maintenance [role=alert] { color: var(--ls-error); }
 .lingo-sofa-panel h2, .lingo-sofa-panel h3 { color: var(--text-strong, var(--header-primary, var(--lingo-text))); font-weight: 650; margin: 4px 0 16px; }
 .lingo-sofa-panel h3:not(:first-child) { border-top: 1px solid var(--lingo-border); padding-top: 20px; margin-top: 24px; }
 .lingo-sofa-panel p { margin: 12px 0; }
@@ -28,6 +35,7 @@ export const pluginStyles =
 }
 .lingo-sofa-panel button:hover:not(:disabled), .lingo-sofa-accessory button:hover:not(:disabled) { background: var(--ls-subtle); }
 .lingo-sofa-panel button.lingo-sofa-primary { background: var(--ls-accent); color: var(--ls-on-accent); border-color: transparent; }
+.lingo-sofa-panel button.lingo-sofa-primary:hover:not(:disabled) { background: var(--ls-accent); filter: brightness(.92); }
 .lingo-sofa-panel button:disabled, .lingo-sofa-accessory button:disabled { opacity: .5; cursor: not-allowed; }
 .lingo-sofa-panel :focus-visible, .lingo-sofa-accessory :focus-visible { outline: 3px solid var(--ls-accent); outline-offset: 3px; }
 .lingo-sofa-panel [role=alert] { color: var(--text-feedback-critical, var(--text-danger, var(--lingo-text))); }

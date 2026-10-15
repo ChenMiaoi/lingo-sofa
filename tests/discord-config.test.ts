@@ -25,7 +25,9 @@ it("loads the Discord source config in a clean checkout without a Vencord cache"
     expect(config.error).toBeUndefined();
     const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, app);
     expect(parsed.errors).toEqual([]);
-    expect(parsed.fileNames).toContain(join(app, "src/client.ts"));
+    expect(parsed.fileNames.map((path) => resolve(path))).toContain(
+      resolve(app, "src/client.ts"),
+    );
     expect(parsed.options.jsx).toBe(ts.JsxEmit.Preserve);
   } finally {
     await rm(root, { recursive: true, force: true });

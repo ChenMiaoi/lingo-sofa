@@ -99,6 +99,9 @@ execFileSync(
     "--config.manage-package-manager-versions=false",
     "build",
     "--standalone",
+    ...(process.env.LINGO_SOFA_MANAGED_WINDOWS === "1"
+      ? ["--disable-updater"]
+      : []),
   ],
   { stdio: "inherit" },
 );

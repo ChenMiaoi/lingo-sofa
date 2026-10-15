@@ -54,6 +54,8 @@ Automatic translation is enabled separately for each website. **Restore original
 
 The desktop integration currently requires [Vencord](https://vencord.dev/). LingoSofa adds message translation, channel-level automatic reading and contextual chat. Custom plugins must be included in a custom Vencord build; the standard Vencord installer does not include LingoSofa.
 
+Releases built with Windows installer support provide `LingoSofa-Setup-<version>-win32-x64.exe`: install the prebuilt Vencord integration and local assistant together, without a compiler or Node installation. Plugin settings offer checking, downloading and installing newer LingoSofa releases. Exit connected clients before installation; start Discord after installation to use the new version. See the [installation guide](docs/installation.md#windows-x64一体化安装与更新).
+
 Once the plugin is enabled, it reuses an installed assistant or downloads and verifies the matching assistant package when the build includes a release manifest. Browser access still needs its own extension authorization. See [Discord installation](docs/installation.md#vencord-是否能省掉) for the assisted build/install workflow.
 
 ## Privacy and data

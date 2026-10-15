@@ -186,7 +186,14 @@ it("keeps the workflow matrix, version checks and publication dependency chain c
     ),
   );
   expect(jobs.assemble.needs).toEqual(["validate", "assistant"]);
-  expect(jobs.publish.needs).toEqual(["validate", "assemble"]);
+  expect(jobs.windows.needs).toBe("assemble");
+  expect(jobs.windows["runs-on"]).toBe("windows-2022");
+  expect(
+    jobs.windows.steps.some((step: { run?: string }) =>
+      step.run?.includes("npm run package:windows"),
+    ),
+  ).toBe(true);
+  expect(jobs.publish.needs).toEqual(["validate", "assemble", "windows"]);
   expect(jobs.publish.permissions).toEqual({ contents: "write" });
   const publish = jobs.publish.steps.at(-1).run as string;
   expect(publish).toContain("--verify-tag");

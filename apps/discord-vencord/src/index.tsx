@@ -19,6 +19,7 @@ import type { Message } from "@vencord/discord-types";
 import { ChannelControls } from "./channel-controls.js";
 import type { ModelConfig, ProviderCatalog } from "@lingo-sofa/protocol";
 import { ProviderSettings } from "./provider-settings.js";
+import { UpdateSettings } from "./update-settings.js";
 import { pluginStyles } from "./styles.js";
 import { DiscordBridgeClient } from "./client.js";
 import {
@@ -645,7 +646,11 @@ function AssistantStatus() {
     };
   }, []);
   return (
-    <section aria-label="本地助手">
+    <section
+      className="lingo-sofa-panel lingo-sofa-maintenance"
+      aria-label="本地助手"
+    >
+      <h3>本地助手</h3>
       <p role="status">{status.message}</p>
       <button
         disabled={status.busy}
@@ -663,6 +668,7 @@ function ProviderSettingsPanel() {
   return (
     <>
       <AssistantStatus />
+      <UpdateSettings native={Native} />
       <ProviderSettings
         client={client}
         onSaved={(target) => {

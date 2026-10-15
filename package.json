@@ -24,6 +24,7 @@
     "prepare:release": "npm run build && npm run package:native --workspace @lingo-sofa/pi-bridge && node scripts/prepare-release.mjs",
     "verify:release": "node scripts/verify-release.mjs",
     "package:distribution": "node scripts/package-distribution.mjs",
+    "package:windows": "tsx scripts/package-windows.mjs",
     "setup:discord": "node scripts/setup-discord.mjs",
     "verify:assistant": "node scripts/verify-assistant.mjs",
     "release:validate": "node scripts/release.mjs validate",
