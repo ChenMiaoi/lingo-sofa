@@ -83,7 +83,7 @@ npm run package:windows -- .cache/release-assets .cache/release-assets
 
 助手打包、助手验收、Windows 组合打包与 Windows 安装验收会自动输出 `[timing]` 日志，无需额外开关。每个阶段先输出 `start`，结束时输出 `elapsed=...ms`，结束时还会输出 `total`（有清理阶段的脚本包含清理时间）。耗时使用单调时钟；阶段开始日志可用于定位失败或停滞位置；`elapsed` 只表示耗时，不表示验收成功。
 
-- `package-assistant`：依赖暂存、运行时复制、逐文件校验、归档压缩、发布清单生成和暂存清理。
+- `package-assistant`：依赖暂存、运行时移入打包目录、逐文件校验、归档压缩、发布清单生成和暂存清理。
 - `verify-assistant`：归档路径检查、解压、安装、删除解压目录、授权入口、服务启动、共享协议验收、服务停止和临时文件清理。
 - `package-windows`：助手归档校验与解压、Vencord 构建、Go 安装器构建、源码归档、载荷校验、直接安装验收、Inno 工具准备、EXE 编译压缩、EXE 安装验收和最终校验清单。
 - `verify-windows-direct` / `verify-windows-exe`：首次安装、重复安装、重启观察程序构建、EXE 成功安装、失败路径、结果校验与临时安装目录清理。
@@ -91,3 +91,19 @@ npm run package:windows -- .cache/release-assets .cache/release-assets
 组合打包的阶段包含其子验收脚本的耗时，分析时不能把父子耗时相加。比较优化前后结果时应使用相同 runner、版本和缓存状态，并保留完整验收；本机 Windows 结果不能直接当作 GitHub runner 的耗时。
 
 普通 CI 不构建组合安装包。需要测量完整 Windows 流程时，可手动运行 `Windows packaging profile` 工作流；可选的 `revision` 输入用于指定基线或优化提交。它使用与 Release 相同的 `windows-2022` runner、Node 和 Go 配置，从指定提交构建助手与源码归档，再执行完整组合安装验收。工作流仅有只读权限，不创建 tag、不上传安装包、不发布 Release；计时记录保留在 Actions 日志中。
+
+### 2026-10-15 GitHub runner 测量
+
+对比 [CI 基线](https://github.com/ChenMiaoi/lingo-sofa/actions/runs/38761023326) 和 [优化 CI](https://github.com/ChenMiaoi/lingo-sofa/actions/runs/38761601349)，Windows 助手打包的结果如下：
+
+| 阶段                 | 基线    | 优化后   |
+| -------------------- | ------- | -------- |
+| 运行时移入及文件准备 | 31.7 秒 | 0.088 秒 |
+| 助手打包总计         | 96.9 秒 | 48.7 秒  |
+| 包内文件数量         | 15,868  | 15,868   |
+
+优化将同一临时工作目录中的私有运行时快照直接移入载荷，省去第二次全量复制；依赖暂存时已完成符号链接解引用。所有文件校验和跨平台安装验收保留。以上为单轮对照，其他阶段及 job 总耗时还受 runner 波动影响。
+
+[完整 Windows 基线](https://github.com/ChenMiaoi/lingo-sofa/actions/runs/38761025244) 检出计时提交 `d46cc5b`，组合打包脚本耗时 346.1 秒：EXE 成功安装 89.3 秒、编译压缩 68.2 秒、直接安装及重装验收 52.9 秒、失败路径 42.5 秒。父阶段包含子阶段，不应重复求和。该 runner 的逐文件校验仅需数秒，不能用本机首次读取大量文件的耗时推断 CI 热点。
+
+[完整优化诊断](https://github.com/ChenMiaoi/lingo-sofa/actions/runs/38761603749) 检出优化提交 `1530d26`，同样通过全部验收；前置助手打包由 110.5 秒降至 53.9 秒。组合打包脚本本身为 341.8 秒，与基线接近，本次优化主要减少其前置助手打包耗时，未更改 EXE 编译或安装行为。
