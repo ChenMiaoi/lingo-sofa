@@ -112,6 +112,7 @@ export const settingsSchema = z.strictObject({
     )
     .max(200)
     .default([]),
+  // Legacy budget fields are accepted for saved-config compatibility only; never enforced.
   dailyTokens: z.number().int().positive().nullable().default(null),
   monthlyTokens: z.number().int().positive().nullable().default(null),
   dailyCost: z.number().positive().nullable().default(null),

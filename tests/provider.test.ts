@@ -97,3 +97,45 @@ it("times out slow output without retrying or inventing usage", async () => {
     await server.close();
   }
 });
+
+it("reports upstream insufficient balance without retrying", async () => {
+  const server = await modelServer({ status: 402 });
+  try {
+    const config = modelConfigSchema.parse({
+      provider: "openai-compatible",
+      endpoint: server.endpoint,
+      model: "fixture",
+    });
+    await expect(
+      createPiClient(config, "fixture").complete(
+        "system",
+        "hello",
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("balance or quota");
+    expect(server.requests).toHaveLength(1);
+  } finally {
+    await server.close();
+  }
+});
+
+it("reports upstream service overload without retrying", async () => {
+  const server = await modelServer({ status: 503 });
+  try {
+    const config = modelConfigSchema.parse({
+      provider: "openai-compatible",
+      endpoint: server.endpoint,
+      model: "fixture",
+    });
+    await expect(
+      createPiClient(config, "fixture").complete(
+        "system",
+        "hello",
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("service unavailable (503)");
+    expect(server.requests).toHaveLength(1);
+  } finally {
+    await server.close();
+  }
+});

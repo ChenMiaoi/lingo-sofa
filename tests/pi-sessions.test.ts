@@ -104,7 +104,7 @@ it("serializes concurrent requests to one native session and skips cancelled que
   }
 });
 
-it("native Pi compaction passes through accounting and a denied summary sends no provider request", async () => {
+it("native Pi compaction passes through accounting and a recording refusal sends no provider request", async () => {
   const model = await modelServer({
     contextWindow: 4096,
     maxOutputTokens: 1024,
@@ -127,7 +127,7 @@ it("native Pi compaction passes through accounting and a denied summary sends no
     requestId: crypto.randomUUID(),
     begin: async (call) => {
       if (deny && call.purpose === "compaction")
-        throw new Error("Summary budget exceeded");
+        throw new Error("Usage recording unavailable");
       const record = {
         purpose: call.purpose,
         output: call.outputTokens,

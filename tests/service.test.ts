@@ -260,3 +260,52 @@ it("retains the in-flight checkpoint if session usage cannot be persisted", asyn
   expect(finished).toBe(false);
   expect(service.ledger.list()).toHaveLength(1);
 });
+
+it("ignores legacy budget settings and unknown costs while preserving usage records", async () => {
+  const service = new TranslationService({
+    client: async () => ({
+      complete: async () => ({ text: '[{"id":"one","text":"你好"}]', metrics }),
+    }),
+  });
+  const old = {
+    ...metrics,
+    requestId: crypto.randomUUID(),
+    scope: "scope",
+    model: "m",
+    provider: "p",
+    mode: "direct" as const,
+    sourceKind: "web" as const,
+    status: "unknown" as const,
+    timestamp: Date.now(),
+  };
+  service.ledger.restore([old]);
+  const reply = await service.handle(
+    {
+      kind: "translate",
+      automatic: false,
+      requestId: crypto.randomUUID(),
+      units: [
+        {
+          id: "one",
+          revision: "1",
+          sourceKind: "web",
+          text: "Hello",
+          targetLanguage: "中文",
+          protectedParts: [],
+        },
+      ],
+    },
+    "scope",
+    settingsSchema.parse({
+      dailyTokens: 1,
+      monthlyTokens: 1,
+      dailyCost: 0.000001,
+      monthlyCost: 0.000001,
+      strictBudget: true,
+    }),
+    "web",
+  );
+  expect(reply).toMatchObject({ ok: true, results: [{ text: "你好" }] });
+  expect(service.ledger.list()).toHaveLength(2);
+  expect(service.ledger.list()[0]).toEqual(old);
+});

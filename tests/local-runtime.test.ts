@@ -226,7 +226,7 @@ it("launches a single daemon concurrently from two hosts, recovers a dead instan
     });
     expect(await blocked.json()).toMatchObject({
       ok: false,
-      error: expect.stringContaining("unknown"),
+      error: expect.not.stringMatching(/budget|unknown/i),
     });
     expect(
       JSON.parse(await readFile(join(directory, "usage.json"), "utf8")),

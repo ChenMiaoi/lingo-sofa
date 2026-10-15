@@ -33,8 +33,6 @@ export interface ServiceOptions {
   ) => Promise<ModelClient>;
   onBegin?: (record: UsageRecord) => Promise<void>;
   onFinish?: (requestId: string) => Promise<void>;
-  budgetScope?: (scope: string) => string | undefined;
-  pricing?: (settings: Settings) => Settings["model"]["prices"];
   onRecords?: (records: UsageRecord[]) => Promise<void>;
   ask?: (
     key: string,
@@ -90,22 +88,7 @@ export class TranslationService {
       requestId,
       scope,
       begin: async (call) => {
-        const prices =
-          this.options.pricing?.(settings) ?? settings.model.prices;
-        const cost = prices
-          ? (call.inputTokens *
-              Math.max(prices.input, prices.cacheRead, prices.cacheWrite) +
-              call.outputTokens * prices.output) /
-            1_000_000
-          : null;
-        this.ledger.reserve(
-          call.id,
-          call.inputTokens + call.outputTokens,
-          cost,
-          settings,
-          Date.now(),
-          this.options.budgetScope?.(scope),
-        );
+        this.ledger.begin(call.id);
         const base: UsageRecord = {
           ...unknown,
           requestId: call.id,
@@ -266,57 +249,7 @@ export class TranslationService {
                 },
               })),
             };
-          const content =
-            request.kind === "translate"
-              ? JSON.stringify(
-                  request.units.filter(
-                    (_unit, index) => cached[index] === undefined,
-                  ),
-                )
-              : JSON.stringify({
-                  question: request.question,
-                  context: request.context,
-                  priorTurns: this.conversations.get(sessionKey)?.turns ?? [],
-                }) +
-                (this.options.ask
-                  ? request.context.repeat(
-                      this.conversations.get(sessionKey)?.turns.length ?? 0,
-                    )
-                  : "");
-          const outputTokens =
-            settings.model.maxOutputTokens ||
-            new TextEncoder().encode(content).length * 2;
-          const estimate =
-            new TextEncoder().encode(content).length + outputTokens + 4_096;
-          const prices =
-            this.options.pricing?.(settings) ?? settings.model.prices;
-          const cost = prices
-            ? (estimate *
-                Math.max(prices.input, prices.cacheRead, prices.cacheWrite) +
-                outputTokens * prices.output) /
-              1_000_000
-            : null;
-          if (this.options.sessionCalls) {
-            // Check existing limits/unknown charges before Pi prepares credentials or recovery.
-            this.ledger.reserve(
-              request.requestId,
-              0,
-              prices ? 0 : null,
-              settings,
-              Date.now(),
-              this.options.budgetScope?.(scope),
-            );
-            this.ledger.release(request.requestId);
-          }
-          if (!this.options.sessionCalls)
-            this.ledger.reserve(
-              request.requestId,
-              estimate,
-              cost,
-              settings,
-              Date.now(),
-              this.options.budgetScope?.(scope),
-            );
+          if (!this.options.sessionCalls) this.ledger.begin(request.requestId);
           let metrics = unknown;
           const started = Date.now();
           const base: UsageRecord = {

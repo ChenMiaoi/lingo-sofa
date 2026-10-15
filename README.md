@@ -26,11 +26,11 @@ npm run benchmark
 2. 在 Chrome/Edge 扩展管理页启用开发者模式，加载 `apps/browser-extension/.output/chrome-mv3` 目录。
 3. 打开扩展设置，在 Provider 面板选择供应商与模型、填写 API Key 并保存；标准模型地址自动填充，自定义兼容接口才填写地址。直连 Key 只在浏览器会话保留，本地助手模式的 Key 仅保存在 Bridge。
 4. 在普通网页点击“在页面中打开控制”，页边面板只保留目标语言、当前供应商模型、网站自动翻译，布局与 Discord 一致。悬停正文可只翻译一段；选区译文也就地显示。暂停保留完成的译文，扩展弹窗的“关闭翻译”恢复原文。
-5. 自动开关识别当前网站；首次缺少权限时会打开扩展页面，由用户点击“允许并开启自动翻译”，无需填写网址。问答与用量在辅助入口；设置首页只显示 Provider，预算、术语与历史保留在“用量与高级”。
+5. 自动开关识别当前网站；首次缺少权限时会打开扩展页面，由用户点击“允许并开启自动翻译”，无需填写网址。问答与用量在辅助入口；设置首页只显示 Provider，术语与历史保留在“用量与高级”。
 
 可使用 `npm run zip --workspace @lingo-sofa/browser-extension` 生成带版本的 Chrome ZIP；发布前仍需完成真机矩阵验收和第三方许可交付。
 
-默认模型为官方当前 `deepseek-flash`（DeepSeek-V4.1-Flash），验收使用此模型。Pi 目录含计价；费用按请求开始时的官方峰/谷费率估算，预算预留按峰时上限，详见 [价格记录](docs/compatibility.md#已选择的真实验收模型与价格)。
+默认模型为官方当前 `deepseek-flash`（DeepSeek-V4.1-Flash），验收使用此模型。Pi 目录含计价；费用按请求开始时的官方峰/谷费率估算，详见 [价格记录](docs/compatibility.md#已选择的真实验收模型与价格)。
 
 浏览器直连目前使用 DeepSeek 或 OpenAI 兼容端点，其他 Pi provider 使用 Bridge。授权范围、内容边界和清理行为见 [隐私说明](docs/privacy.md)。Firefox、PDF、移动端和跨域 iframe 尚不支持。
 
@@ -58,7 +58,7 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 
 该命令同时安装服务启动入口、添加扩展白名单，并注册用户级 Native Messaging manifest；Windows 使用 HKCU。安装不会覆盖已有 manifest，更新前核对并移除自己的旧注册。浏览器、Native Host、Bridge 与 Discord 插件需一起升级；旧 `pairing.json` 和 `discord-connection.json` 不再用于新连接机制。
 
-`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。`shareBudget` 也默认关闭，独立控制跨前端预算。正文缓存保持上下文隔离。后台恢复不重发已发送请求，未知用量继续触发已有严格预算保护。`settings.persistUsage` 控制元数据持久化，`settings.retentionDays` 控制保留期。
+`shareUsage` 默认关闭；开启仅共享用量元数据，会话正文仍隔离。本地不设置预算上限，余额/配额由供应商判断。旧 `shareBudget` 等字段仅兼容读取，不执行。正文缓存保持上下文隔离。后台恢复不重发已发送请求，未知用量如实保留，不按免费处理，也不拦截后续请求。`settings.persistUsage` 控制元数据持久化，`settings.retentionDays` 控制保留期。
 
 卸载时关闭 Bridge，移除 `com.lingosofa.bridge.json` 用户级 manifest，Windows 同时移除对应 Chrome/Edge 的 HKCU NativeMessagingHosts 项；不再需要配置时删除 `LINGO_SOFA_HOME` 目录。密钥若由系统环境管理，也应在对应环境中清理。
 

@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { resolveModel, listModels } from "@lingo-sofa/provider-pi/node";
 import { capabilities } from "@lingo-sofa/provider-pi";
-import { TranslationService, budgetStatus } from "@lingo-sofa/translation-core";
+import { TranslationService } from "@lingo-sofa/translation-core";
 import { providerUpdateSchema, type UsageRecord } from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
 import { UsageHistory } from "./history.js";
@@ -49,8 +49,6 @@ export function createBridge(
     ]);
   const service = new TranslationService({
     sessionCalls: true,
-    budgetScope: (scope) =>
-      config.shareBudget ? undefined : `${scope.split("|")[0]}|`,
     onBegin: async (record) => {
       inFlight.set(record.requestId, record);
       await checkpoint();
@@ -62,10 +60,6 @@ export function createBridge(
     onRecords: async () => {
       service.ledger.prune(Date.now(), config.settings.retentionDays);
       await checkpoint();
-    },
-    pricing: (settings) => {
-      const resolved = resolveModel(settings.model, Date.now(), true);
-      return resolved.costKnown ? resolved.model.cost : null;
     },
     client: async (settings, onMetrics, call) =>
       sessions.translationClient(
@@ -327,16 +321,9 @@ export function createBridge(
             .filter((record) => record.scope.startsWith(`${origin}|`));
         result.sharedUsage = config.shareUsage;
         result.settings = config.settings;
-        result.shareBudget = config.shareBudget;
-        result.budgets = budgetStatus(
-          service.ledger
-            .list()
-            .filter(
-              (record) =>
-                config.shareBudget || record.scope.startsWith(`${origin}|`),
-            ),
-          config.settings,
-        );
+        // Retain empty legacy response fields for installed clients during upgrades.
+        result.shareBudget = false;
+        result.budgets = [];
         result.cacheStats = config.shareUsage
           ? service.cacheStats()
           : service.cacheStats(

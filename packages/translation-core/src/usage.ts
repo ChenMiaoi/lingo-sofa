@@ -1,4 +1,4 @@
-import type { Settings, UsageRecord } from "@lingo-sofa/protocol";
+import type { UsageRecord } from "@lingo-sofa/protocol";
 export function period(
   timestamp: number,
   timeZone: string,
@@ -15,10 +15,7 @@ export function period(
 }
 export class UsageLedger {
   private records = new Map<string, UsageRecord>();
-  private reservations = new Map<
-    string,
-    { tokens: number; cost: number | null; scopePrefix: string | undefined }
-  >();
+  private inFlight = new Set<string>();
   restore(records: readonly UsageRecord[]): void {
     for (const record of records) this.records.set(record.requestId, record);
   }
@@ -36,85 +33,17 @@ export class UsageLedger {
     for (const [id, record] of this.records)
       if (record.timestamp < now - days * 86_400_000) this.records.delete(id);
   }
-  reserve(
-    id: string,
-    tokens: number,
-    cost: number | null,
-    settings: Settings,
-    now = Date.now(),
-    scopePrefix?: string,
-  ): void {
-    if (this.reservations.has(id) || this.records.has(id))
+  begin(id: string): void {
+    if (this.inFlight.has(id) || this.records.has(id))
       throw new Error("Request already accounted for");
-    const current = period(now, settings.timeZone);
-    const inMonth = this.list().filter(
-      (record) =>
-        (scopePrefix === undefined || record.scope.startsWith(scopePrefix)) &&
-        period(record.timestamp, settings.timeZone).month === current.month,
-    );
-    const inDay = inMonth.filter(
-      (record) =>
-        period(record.timestamp, settings.timeZone).day === current.day,
-    );
-    const reservations = [...this.reservations.values()].filter(
-      (item) => scopePrefix === undefined || item.scopePrefix === scopePrefix,
-    );
-    const reservedTokens = reservations.reduce(
-      (sum, item) => sum + item.tokens,
-      0,
-    );
-    const reservedCost = reservations.reduce(
-      (sum, item) => sum + (item.cost ?? 0),
-      0,
-    );
-    const limits = [
-      [inDay, settings.dailyTokens, settings.dailyCost],
-      [inMonth, settings.monthlyTokens, settings.monthlyCost],
-    ] as const;
-    for (const [records, tokenLimit, costLimit] of limits) {
-      if (
-        settings.strictBudget &&
-        (tokenLimit !== null || costLimit !== null) &&
-        records.some(
-          (record) =>
-            record.usage === null || (costLimit !== null && !record.costKnown),
-        )
-      )
-        throw new Error("Budget paused: previous consumption is unknown");
-      if (
-        tokenLimit !== null &&
-        records.reduce((sum, item) => sum + (item.usage?.totalTokens ?? 0), 0) +
-          reservedTokens +
-          tokens >
-          tokenLimit
-      )
-        throw new Error("Token budget exceeded");
-      if (costLimit !== null) {
-        if (
-          settings.strictBudget &&
-          (cost === null || reservations.some((item) => item.cost === null))
-        )
-          throw new Error("Budget paused: price is unknown");
-        if (
-          records.reduce(
-            (sum, item) => sum + (item.usage?.cost.total ?? 0),
-            0,
-          ) +
-            reservedCost +
-            (cost ?? 0) >
-          costLimit
-        )
-          throw new Error("Cost budget exceeded");
-      }
-    }
-    this.reservations.set(id, { tokens, cost, scopePrefix });
+    this.inFlight.add(id);
   }
   settle(record: UsageRecord): void {
-    this.reservations.delete(record.requestId);
+    this.inFlight.delete(record.requestId);
     this.records.set(record.requestId, record);
   }
   release(id: string): void {
-    this.reservations.delete(id);
+    this.inFlight.delete(id);
   }
 }
 export function summarize(records: readonly UsageRecord[]) {
@@ -158,40 +87,4 @@ export function summarize(records: readonly UsageRecord[]) {
         : null,
     unknown: unique.filter((record) => record.usage === null).length,
   };
-}
-
-export function budgetStatus(
-  records: readonly UsageRecord[],
-  settings: Settings,
-  now = Date.now(),
-) {
-  const current = period(now, settings.timeZone);
-  return (["day", "month"] as const).flatMap((window) => {
-    const matching = records.filter(
-      (record) =>
-        period(record.timestamp, settings.timeZone)[window] === current[window],
-    );
-    const total = summarize(matching);
-    const tokens =
-      window === "day" ? settings.dailyTokens : settings.monthlyTokens;
-    const cost = window === "day" ? settings.dailyCost : settings.monthlyCost;
-    return [
-      {
-        metric: "tokens" as const,
-        used: total.unknown ? null : total.tokens,
-        limit: tokens,
-      },
-      { metric: "cost" as const, used: total.cost, limit: cost },
-    ]
-      .filter((item) => item.limit !== null)
-      .map((item) => ({
-        ...item,
-        window,
-        ratio: item.used === null ? null : item.used / item.limit!,
-        warning:
-          item.used === null
-            ? settings.strictBudget
-            : item.used / item.limit! >= settings.warningRatio,
-      }));
-  });
 }

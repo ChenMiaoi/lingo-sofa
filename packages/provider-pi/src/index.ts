@@ -37,6 +37,18 @@ export function measure(
 }
 
 export function failureMessage(message: AssistantMessage): string {
+  if (
+    /\b503\b|service_unavailable|service.is.too.busy/i.test(
+      message.errorMessage ?? "",
+    )
+  )
+    return "Provider service unavailable (503); retry later. No automatic retry was sent.";
+  if (
+    /\b402\b|insufficient.(?:balance|quota|credit)|quota.exceeded|余额不足/i.test(
+      message.errorMessage ?? "",
+    )
+  )
+    return "Provider balance or quota is insufficient; check your provider account.";
   if (/\b429\b|rate.?limit|too many requests/i.test(message.errorMessage ?? ""))
     return "Provider rate limit (429); retry later. Reset time unavailable.";
   return message.stopReason === "aborted"

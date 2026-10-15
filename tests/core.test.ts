@@ -277,7 +277,7 @@ describe("bounded cancellable queue", () => {
     await Promise.all(failures);
   });
 });
-describe("usage and budget accounting", () => {
+describe("usage accounting", () => {
   it("deduplicates snapshots and never adds reasoning twice", () => {
     const result = summarize([record("one"), record("one")]);
     expect(result).toMatchObject({
@@ -289,32 +289,22 @@ describe("usage and budget accounting", () => {
     });
     expect(summarize([{ ...record("unknown"), usage: null }]).cost).toBeNull();
   });
-  it("reserves concurrent spend and stops at the daily limit", () => {
+  it("tracks concurrent requests without a local spend ceiling and prevents duplicate accounting", () => {
     const ledger = new UsageLedger();
-    const settings = settingsSchema.parse({ dailyTokens: 100 });
-    const now = record("one").timestamp;
-    ledger.reserve("one", 60, null, settings, now);
-    expect(() => ledger.reserve("two", 60, null, settings, now)).toThrow(
-      "budget",
-    );
+    ledger.begin("one");
+    ledger.begin("two");
+    expect(() => ledger.begin("one")).toThrow("already accounted");
     ledger.settle(record("one"));
-    ledger.reserve("two", 60, null, settings, now);
-    expect(() => ledger.reserve("three", 4, null, settings, now)).toThrow(
-      "budget",
-    );
+    expect(() => ledger.begin("one")).toThrow("already accounted");
+    ledger.release("two");
+    ledger.begin("two");
+    expect(ledger.list()).toHaveLength(1);
   });
-  it("pauses strict budgets on unknown usage and calculates timezone boundaries", () => {
+  it("preserves unknown consumption without blocking new requests and calculates timezone boundaries", () => {
     const ledger = new UsageLedger();
     ledger.settle({ ...record("one"), usage: null });
-    expect(() =>
-      ledger.reserve(
-        "two",
-        10,
-        null,
-        settingsSchema.parse({ dailyTokens: 100 }),
-        record("one").timestamp,
-      ),
-    ).toThrow("unknown");
+    ledger.begin("two");
+    expect(ledger.list()[0]!.usage).toBeNull();
     expect(period(Date.UTC(2026, 9, 13, 17), "Asia/Shanghai").day).toBe(
       "2026-10-14",
     );
@@ -351,50 +341,19 @@ it("validates exact automatic site origins", () => {
     settingsSchema.parse({ autoOrigins: ["https://example.com"] }).autoOrigins,
   ).toEqual(["https://example.com"]);
 });
-it("warns on local budget thresholds and unknown costs", async () => {
-  const { budgetStatus } = await import("@lingo-sofa/translation-core");
-  const settings = settingsSchema.parse({
-    dailyTokens: 40,
-    monthlyCost: 0.1,
-    warningRatio: 0.8,
-  });
-  expect(
-    budgetStatus([record("one")], settings, record("one").timestamp),
-  ).toMatchObject([
-    { window: "day", metric: "tokens", used: 37, warning: true },
-    { window: "month", metric: "cost", used: 0.032, warning: false },
-  ]);
-  expect(
-    budgetStatus(
-      [{ ...record("one"), costKnown: false }],
-      settings,
-      record("one").timestamp,
-    )[1],
-  ).toMatchObject({ used: null, ratio: null, warning: true });
-});
-it("isolates frontend budget reservations unless a global budget is explicitly selected", () => {
+it("keeps accounting isolated by record scope without enforcing frontend budgets", () => {
   const ledger = new UsageLedger();
-  const settings = settingsSchema.parse({ dailyTokens: 100 });
-  const now = record("sample").timestamp;
-  ledger.reserve("web", 60, null, settings, now, "extension|");
-  ledger.reserve("discord", 60, null, settings, now, "discord|");
-  expect(() =>
-    ledger.reserve("another-web", 50, null, settings, now, "extension|"),
-  ).toThrow("budget");
-  expect(() => ledger.reserve("shared", 1, null, settings, now)).toThrow(
-    "budget",
-  );
+  ledger.begin("web");
+  ledger.begin("discord");
   ledger.settle({ ...record("web"), scope: "extension|page" });
-  ledger.reserve("another-web", 60, null, settings, now, "extension|");
   ledger.settle({
     ...record("discord"),
     scope: "discord|channel",
     usage: null,
   });
-  expect(() =>
-    ledger.reserve("discord-next", 1, null, settings, now, "discord|"),
-  ).toThrow("unknown");
-  ledger.reserve("web-small", 1, null, settings, now, "extension|");
+  ledger.begin("discord-next");
+  ledger.clearScope("extension|page");
+  expect(ledger.list()).toMatchObject([{ requestId: "discord", usage: null }]);
 });
 
 it("serializes one scope without blocking other scopes or running cancelled waiting jobs", async () => {

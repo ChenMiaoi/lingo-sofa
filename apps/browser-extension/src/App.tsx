@@ -6,9 +6,8 @@ import {
   type Settings,
   type Reply,
   type UsageRecord,
-  type BudgetSnapshot,
 } from "@lingo-sofa/protocol";
-import { summarize, period, budgetStatus } from "@lingo-sofa/translation-core";
+import { summarize, period } from "@lingo-sofa/translation-core";
 import {
   formatTokens,
   formatCost,
@@ -33,8 +32,6 @@ export function App() {
   const [executionSettings, setExecutionSettings] = useState<Settings>(
     settingsSchema.parse({}),
   );
-  const [budgetSnapshots, setBudgetSnapshots] = useState<BudgetSnapshot[]>();
-  const [shareBudget, setShareBudget] = useState(false);
   const [bridgeError, setBridgeError] = useState("");
   const [sharedUsage, setSharedUsage] = useState(false);
   const [queue, setQueue] = useState({ running: 0, pending: 0 });
@@ -73,8 +70,6 @@ export function App() {
     settings: Settings;
     usage: UsageRecord[];
     bridgeUsage?: UsageRecord[];
-    budgets?: BudgetSnapshot[];
-    shareBudget?: boolean;
     cacheStats?: { hits: number; lookups: number; ratio: number | null };
     executionSettings?: Settings;
     bridgeError?: string;
@@ -89,8 +84,6 @@ export function App() {
     setBridgeError(data.bridgeError ?? "");
     setSharedUsage(data.sharedUsage ?? false);
     setCacheStats(data.cacheStats ?? { hits: 0, lookups: 0, ratio: null });
-    setBudgetSnapshots(data.budgets);
-    setShareBudget(data.shareBudget ?? false);
     setQueue(data.queue ?? { running: 0, pending: 0 });
     setHasKey(data.hasKey);
   }
@@ -285,9 +278,6 @@ export function App() {
                   today.month)),
       );
   const totals = summarize(filtered);
-  const budgets = bridgeError
-    ? []
-    : (budgetSnapshots ?? budgetStatus(usage, executionSettings));
   const trend = [
     ...new Set(
       filtered.map((record) => period(record.timestamp, settings.timeZone).day),
@@ -475,7 +465,7 @@ export function App() {
         </section>
       )}
       <section id="usage" aria-label="用量监控">
-        <h2>用量与预算</h2>
+        <h2>用量与费用</h2>
         {bridgeError && <p role="alert">{bridgeError}</p>}
         <p>
           当前模型：{bridgeError ? "未知" : executionSettings.model.model} ·
@@ -487,30 +477,9 @@ export function App() {
             {sharedUsage
               ? "Bridge 已启用跨端共享统计"
               : "仅当前扩展的 Bridge 用量；跨端统计未启用"}
-            。预算与提醒使用 Bridge 配置；
-            {shareBudget
-              ? "跨端预算共享已启用"
-              : "预算仅限当前前端，跨端共享未启用"}
-            。
+            。余额与请求额度由模型供应商判断。
           </p>
         )}
-        {budgets.map((budget) => (
-          <p
-            key={`${budget.window}:${budget.metric}`}
-            role={budget.warning ? "status" : undefined}
-          >
-            {budget.window === "day" ? "日" : "月"}
-            {budget.metric === "tokens" ? " token" : "费用（USD）"}预算：
-            {budget.used === null
-              ? "消耗未知"
-              : `${budget.used.toFixed(2)} / ${budget.limit}`}{" "}
-            ·{" "}
-            {budget.ratio === null
-              ? "不可计算"
-              : `${Math.round(budget.ratio * 100)}%`}
-            {budget.warning ? " · 达到提醒阈值或需要处理未知消耗" : ""}
-          </p>
-        ))}
         <div className="metric-grid stats" aria-label="用量摘要">
           <div>
             <span>输入 tokens</span>
@@ -642,16 +611,6 @@ export function App() {
             : "仅当前浏览器会话；未启用历史持久化"}{" "}
           · {totals.requests} 次请求 · {totals.unknown} 次消耗未知
         </p>
-        <p>
-          日 token 预算：
-          {settings.dailyTokens === null
-            ? "未设置"
-            : formatTokens(settings.dailyTokens)}
-          ；月预算：
-          {settings.monthlyTokens === null
-            ? "未设置"
-            : formatTokens(settings.monthlyTokens)}
-        </p>
         <details>
           <summary>请求明细</summary>
           <div className="table-scroll">
@@ -742,7 +701,7 @@ export function App() {
           <p>
             人民币展示按核对日期的汇率快照折算，非实时牌价；底层美元费用按请求开始时的官方峰/谷费率、Pi
             目录或用户单价估算（USD），不代表账单实扣。{formatExchangeRate()}{" "}
-            官方价格核对时间见每条记录；跨时段请求以开始时间估算，预算预留按峰时上限。TPS
+            官方价格核对时间见每条记录；跨时段请求以开始时间估算。TPS
             为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
           </p>
         </details>
@@ -795,8 +754,7 @@ export function App() {
             <fieldset>
               <legend>模型连接</legend>
               <p className="muted">
-                直连密钥仅在当前浏览器会话保留。本地模式的模型与预算由 Bridge
-                管理。
+                直连密钥仅在当前浏览器会话保留。本地模式的模型由 Bridge 管理。
               </p>
               <label>
                 目标语言
@@ -942,42 +900,7 @@ export function App() {
               </label>
             </fieldset>
             <fieldset>
-              <legend>预算与计价</legend>
-              <div className="form-grid">
-                {(
-                  [
-                    "dailyTokens",
-                    "monthlyTokens",
-                    "dailyCost",
-                    "monthlyCost",
-                  ] as const
-                ).map((field) => (
-                  <label key={field}>
-                    {
-                      {
-                        dailyTokens: "日 token 预算",
-                        monthlyTokens: "月 token 预算",
-                        dailyCost: "日费用预算（USD）",
-                        monthlyCost: "月费用预算（USD）",
-                      }[field]
-                    }
-                    <input
-                      type="number"
-                      min="0"
-                      step={field.endsWith("Cost") ? "0.01" : "1"}
-                      value={settings[field] ?? ""}
-                      onChange={(event) =>
-                        update(
-                          field,
-                          event.target.value
-                            ? Number(event.target.value)
-                            : null,
-                        )
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
+              <legend>计价</legend>
               <label>
                 单价（每百万 tokens，USD；留空使用官方或目录价格）
                 <input
@@ -985,16 +908,6 @@ export function App() {
                   value={priceInput}
                   onChange={(event) => setPriceInput(event.target.value)}
                 />
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.strictBudget}
-                  onChange={(event) =>
-                    update("strictBudget", event.target.checked)
-                  }
-                />
-                消耗未知时暂停预算任务
               </label>
             </fieldset>
             <fieldset>
@@ -1018,19 +931,6 @@ export function App() {
                   value={settings.retentionDays}
                   onChange={(event) =>
                     update("retentionDays", Number(event.target.value))
-                  }
-                />
-              </label>
-              <label>
-                预算提醒阈值
-                <input
-                  type="number"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={settings.warningRatio}
-                  onChange={(event) =>
-                    update("warningRatio", Number(event.target.value))
                   }
                 />
               </label>
