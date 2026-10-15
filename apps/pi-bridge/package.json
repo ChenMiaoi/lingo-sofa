@@ -18,7 +18,8 @@
     "init": "node dist/index.js --init",
     "package:native": "node package-native.mjs",
     "install:native": "node install-native.mjs",
-    "install:service": "node install-runtime.mjs"
+    "install:service": "node install-runtime.mjs",
+    "package:assistant": "node package-assistant.mjs"
   },
   "devDependencies": {
     "postject": "1.0.0-alpha.6"

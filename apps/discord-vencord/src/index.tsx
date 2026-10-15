@@ -620,16 +620,58 @@ function Accessory({ message }: { message: Message }) {
     </div>
   );
 }
+function AssistantStatus() {
+  const [status, setStatus] = React.useState({
+    message: "正在连接本地助手…",
+    busy: false,
+  });
+  React.useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void Native?.installationStatus()
+        .then((value) => {
+          if (active) setStatus(value);
+        })
+        .catch(() => {
+          if (active)
+            setStatus({ message: "无法读取本地助手状态", busy: false });
+        });
+    };
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+  return (
+    <section aria-label="本地助手">
+      <p role="status">{status.message}</p>
+      <button
+        disabled={status.busy}
+        onClick={() => {
+          void Native?.start();
+        }}
+      >
+        重试安装 / 连接
+      </button>
+      <p>所有平台共用此电脑上的一个本地助手。</p>
+    </section>
+  );
+}
 function ProviderSettingsPanel() {
   return (
-    <ProviderSettings
-      client={client}
-      onSaved={(target) => {
-        if (target !== "translation") return;
-        translations.clear();
-        settings.store.modelRevision++;
-      }}
-    />
+    <>
+      <AssistantStatus />
+      <ProviderSettings
+        client={client}
+        onSaved={(target) => {
+          if (target !== "translation") return;
+          translations.clear();
+          settings.store.modelRevision++;
+        }}
+      />
+    </>
   );
 }
 function FloatingControls() {

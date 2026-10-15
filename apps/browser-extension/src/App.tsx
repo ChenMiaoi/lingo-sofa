@@ -1,4 +1,5 @@
 import * as React from "react";
+import { AssistantSetup } from "./AssistantSetup.js";
 import { ReadingAccess } from "./ReadingAccess.js";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { browser } from "wxt/browser";
@@ -494,6 +495,7 @@ export function App() {
       <section id="usage" aria-label="用量监控">
         <h2>用量与费用</h2>
         {bridgeError && <p role="alert">{bridgeError}</p>}
+        {settings.mode === "bridge" && bridgeError && <AssistantSetup />}
         <p>
           当前模型：{bridgeError ? "未知" : executionSettings.model.model} ·
           排队 {bridgeError ? "未知" : queue.pending} / 运行{" "}

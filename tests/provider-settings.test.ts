@@ -175,7 +175,7 @@ it("connects Discord only to a valid, authenticated runtime descriptor", async (
   const directory = await mkdtemp(join(tmpdir(), "lingo-connect-"));
   const previous = process.env.LINGO_SOFA_HOME;
   process.env.LINGO_SOFA_HOME = directory;
-  const { connection, stop } =
+  const { connection, start, stop } =
     await import("../apps/discord-vencord/src/native.js");
   const instanceId = crypto.randomUUID();
   const token = "a".repeat(64);
@@ -198,14 +198,18 @@ it("connects Discord only to a valid, authenticated runtime descriptor", async (
       JSON.stringify(value),
     );
   try {
+    await start(undefined);
     expect(await connection(undefined)).toBeNull();
     await stop(undefined);
+    await writeFile(join(directory, "runtime-install.json"), "{}");
     await write(descriptor);
+    expect(await start(undefined)).toEqual({ ok: true });
     expect(await connection(undefined)).toEqual({
       port: descriptor.port,
       token,
     });
     await stop(undefined);
+    expect(await connection(undefined)).toBeNull();
     for (const invalid of [
       { ...descriptor, version: 2 },
       { ...descriptor, instanceId: crypto.randomUUID() },
@@ -215,10 +219,12 @@ it("connects Discord only to a valid, authenticated runtime descriptor", async (
       { ...descriptor, port: 43187.5 },
     ]) {
       await write(invalid);
+      await start(undefined);
       expect(await connection(undefined)).toBeNull();
       await stop(undefined);
     }
     await writeFile(join(directory, "runtime-connection.json"), "malformed");
+    await start(undefined);
     expect(await connection(undefined)).toBeNull();
   } finally {
     await stop(undefined);

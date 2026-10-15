@@ -16,7 +16,8 @@
     "@lingo-sofa/provider-pi": "0.1.0",
     "@lingo-sofa/translation-core": "0.1.0",
     "@lingo-sofa/web-extraction": "0.1.0",
-    "@lingo-sofa/ui-shared": "0.1.0"
+    "@lingo-sofa/ui-shared": "0.1.0",
+    "@lingo-sofa/local-runtime": "0.1.0"
   },
   "devDependencies": {
     "@wxt-dev/module-react": "1.2.2",

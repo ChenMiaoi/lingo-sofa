@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate tag and source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Validate tag against workspace versions
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run release:validate -- "$RELEASE_TAG"
+      - run: npm run check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run verify:vencord
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: release-test-results
+          path: test-results/
+
+  assistant:
+    name: Assistant / ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: windows-2022
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Check runner architecture
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: node -e "if (process.platform + '-' + process.arch !== process.env.EXPECTED_TARGET) throw new Error('Runner architecture does not match the release target')"
+      - run: npm ci
+      - run: npm run build --workspace @lingo-sofa/pi-bridge
+      - run: npm run package:native --workspace @lingo-sofa/pi-bridge
+      - run: npm test -- tests/bridge.test.ts tests/assistant-installer.test.ts
+      - run: npm run package:assistant --workspace @lingo-sofa/pi-bridge
+      - run: npm run verify:assistant
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assistant-${{ matrix.target }}
+          path: apps/pi-bridge/dist/installers/
+          if-no-files-found: error
+          compression-level: 0
+
+  assemble:
+    name: Assemble verified release assets
+    needs: [validate, assistant]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-assistant-*
+          merge-multiple: true
+          path: .cache/release-native
+      - name: Verify native archives and package clients
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: npm run release:assemble -- "$RELEASE_TAG" .cache/release-native .cache/release-assets
+      - run: npm run verify:extension
+      - name: Verify Vencord with all pinned assistant downloads
+        env:
+          LINGO_SOFA_RELEASE_MANIFEST: ${{ github.workspace }}/.cache/release-assets/assistant-release.json
+        run: npm run verify:vencord
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: .cache/release-assets/
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, assemble]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release-assets
+      - name: Verify final checksums
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS
+      - name: Publish complete release without replacing an existing version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: >-
+          gh release create "$RELEASE_TAG" release-assets/*
+          --repo "$GH_REPO" --verify-tag
+          --title "LingoSofa $RELEASE_TAG"
+          --notes-file release-assets/RELEASE-NOTES.md

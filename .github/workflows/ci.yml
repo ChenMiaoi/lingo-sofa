@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
 
 permissions:
@@ -49,4 +50,11 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace @lingo-sofa/pi-bridge
       - run: npm run package:native --workspace @lingo-sofa/pi-bridge
-      - run: npm test -- tests/bridge.test.ts
+      - run: npm test -- tests/bridge.test.ts tests/assistant-installer.test.ts
+      - run: npm run package:assistant --workspace @lingo-sofa/pi-bridge
+      - run: npm run verify:assistant
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assistant-${{ runner.os }}-${{ runner.arch }}
+          path: apps/pi-bridge/dist/installers/
+          if-no-files-found: error

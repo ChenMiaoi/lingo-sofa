@@ -1,6 +1,6 @@
 # 发布准备与环境依赖
 
-日期：2026-10-14。当前阶段是本地候选产物审查；不自动上传、签名、安装或公开发布。
+日期：2026-10-15。当前阶段是本地候选产物审查；不自动上传、签名、安装或公开发布。
 
 ## 可复现的本机流程
 
@@ -10,9 +10,13 @@
 4. 检查 `release-review.json` 的版本、源码 revision、运行时、依赖许可清单和未决问题；执行 `npm run verify:release -- <候选目录>` 核对所有 SHA-256、许可文件、版本和额外文件。该清单明确标为 `publicReleaseReady: false`。
 5. 浏览器单独 ZIP 可通过 `npm run zip --workspace @lingo-sofa/browser-extension` 生成；它是开发验收产物，不能跳过下述发行条件。
 
-候选目录包括实际 MV3、Native Host、供本地 Vencord 构建的插件、文档、原项目许可证、已取得的完整依赖许可/NOTICE、当前 Node 运行时的完整许可，以及准确对应 Git revision 的 `source.tar`。不包含 Discord/Vencord 二进制、API Key、配对令牌、测试 profile 或自动安装器。Native Host 是 stdio 转发程序；本地安装脚本把编译 Bridge 及依赖复制到用户助手目录，由两端自动启动共享服务。仍依赖已安装的 Node 24 和安装入口注册；此目录不是已签名、公证的自包含 Bridge 安装包。
+候选目录包括实际 MV3、Native Host、供本地 Vencord 构建的插件、文档、原项目许可证、已取得的完整依赖许可/NOTICE、当前 Node 运行时的完整许可，以及准确对应 Git revision 的 `source.tar`。此旧审查目录不包含 Discord/Vencord 二进制、API Key、配对令牌、测试 profile 或自动安装器。Native Host 是 stdio 转发程序；本地安装脚本把编译 Bridge 及依赖复制到用户助手目录，由两端自动启动共享服务。仍依赖已安装的 Node 24 和安装入口注册；此目录不是已签名、公证的自包含 Bridge 安装包。
 
 许可清单保守收集锁文件中所有已安装的非开发依赖，覆盖运行依赖的超集；它不能证明每个包都出现在浏览器 bundle。Pi 1.2.0 未随 npm 包提供的根 LICENSE 从固定上游版本保留；data-uri-to-buffer 4.0.1 的 README 中完整许可段也按固定来源提取。两者均校验来源记录中的 SHA-256。收集缺少根许可文本的包时不会假定其声明等同于完整许可，会在报告中留下问题。嵌入供应商代码与 NOTICE 仍需审查。
+
+## 自带运行环境的安装候选
+
+新增 `npm run package:distribution`，单独生成带 Node 的共享助手归档、双击安装入口、固定 SHA-256 下载清单、Vencord userplugin 包与浏览器 ZIP，详见 [安装说明](installation.md)。源代码安装入口也复制 Node，不再依赖开发机的 Node 安装路径。该候选与上面的旧许可审查目录是两种产物；新打包流程不意味着旧有许可缺项、跨平台验收、签名/公证或 Vencord 组合发行已经完成。尚未公开上传资产时，不能宣称 Discord 的真实网络下载安装已经验收。
 
 ## 本机可完成与已取得的证据
 

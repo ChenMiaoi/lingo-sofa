@@ -8,6 +8,7 @@ import {
   designStyles,
 } from "@lingo-sofa/ui-shared";
 import { colorTheme } from "./appearance.js";
+import { AssistantSetup } from "./AssistantSetup.js";
 import { ReadingAccess } from "./ReadingAccess.js";
 const AISettings = createAISettings(() => React);
 const ProviderEditor = createProviderEditor(() => React);
@@ -206,6 +207,7 @@ function ProductSettings({
       </aside>
       <div className="ls-product-content">
         <ReadingAccess />
+        {ready && mode === "bridge" && <AssistantSetup />}
         {(error || failure) && <p role="alert">{error || failure}</p>}
         {section === "accounts" ? (
           <>

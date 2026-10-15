@@ -22,7 +22,12 @@
     "benchmark": "tsx scripts/benchmark.mjs",
     "verify:real": "tsx scripts/verify-real-provider.mjs",
     "prepare:release": "npm run build && npm run package:native --workspace @lingo-sofa/pi-bridge && node scripts/prepare-release.mjs",
-    "verify:release": "node scripts/verify-release.mjs"
+    "verify:release": "node scripts/verify-release.mjs",
+    "package:distribution": "node scripts/package-distribution.mjs",
+    "setup:discord": "node scripts/setup-discord.mjs",
+    "verify:assistant": "node scripts/verify-assistant.mjs",
+    "release:validate": "node scripts/release.mjs validate",
+    "release:assemble": "node scripts/release.mjs assemble"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -39,7 +44,8 @@
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.2",
-    "vitest": "5.0.4"
+    "vitest": "5.0.4",
+    "yaml": "2.9.0"
   },
   "workspaces": [
     "apps/*",

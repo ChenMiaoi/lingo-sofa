@@ -5,6 +5,7 @@ import {
   rename,
   access,
   cp,
+  chmod,
   mkdtemp,
   rm,
 } from "node:fs/promises";
@@ -62,6 +63,7 @@ const lock = JSON.parse(lockText);
 const digest = createHash("sha256")
   .update(await readFile(builtEntry))
   .update(lockText)
+  .update(await readFile(process.execPath))
   .digest("hex")
   .slice(0, 16);
 const runtimeDirectory = join(directory, `runtime-${digest}`);
@@ -136,6 +138,12 @@ if (!installed) {
       JSON.stringify({ type: "module", private: true }),
     );
     await cp(builtEntry, join(temporary, "index.js"));
+    const node = join(
+      temporary,
+      process.platform === "win32" ? "node.exe" : "node",
+    );
+    await cp(process.execPath, node);
+    await chmod(node, 0o755);
     await rename(temporary, runtimeDirectory);
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -146,7 +154,10 @@ for (const [name, value] of [
   [
     "runtime-install.json",
     {
-      executable: process.execPath,
+      executable: join(
+        runtimeDirectory,
+        process.platform === "win32" ? "node.exe" : "node",
+      ),
       entrypoint: join(runtimeDirectory, "index.js"),
     },
   ],

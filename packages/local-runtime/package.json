@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./leases": "./src/leases.ts"
+    "./leases": "./src/leases.ts",
+    "./installer": "./src/installer.ts",
+    "./release": "./src/release.ts"
   }
 }

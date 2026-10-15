@@ -20,6 +20,14 @@ npm run benchmark
 
 真实供应商验收为显式操作：在被 Git 忽略的 `.env` 中配置 `API_KEY` 后执行 `npm run package:native --workspace @lingo-sofa/pi-bridge` 和 `npm run verify:real`。它使用临时浏览器 profile 和合成文本发起 5 次真实模型请求，查询一次余额，临时注册 Native Host 并在退出时清理；不会记录密钥或余额金额。目前脚本支持 macOS/Linux，Windows 尚待实现。详见 [真实验收记录](docs/real-provider-acceptance.md)。
 
+## 安装与打包
+
+推送 `v0.1.0` 这类版本 tag 后，专门的 Release CI 会验证版本、原生打包五个平台、汇总客户端并自动发布 GitHub Release，详见 [按 Tag 发布](docs/release-ci.md)。
+
+普通用户的安装流程、Discord 自动下载助手、浏览器首次授权，以及 Vencord 的安装边界见 [一体化安装说明](docs/installation.md)。
+
+`npm run package:distribution` 生成本机系统/架构的自带 Node 助手安装包、固定下载校验值的 Vencord 插件包和浏览器 ZIP；不上传或修改已安装客户端。开发构建未配置发行清单时不自动下载助手。自定义 Vencord 可通过 `npm run setup:discord` 准备，关闭 Discord 后显式执行 `npm run setup:discord -- --install` 调起上游安装器。
+
 ## 浏览器扩展
 
 1. 执行 `npm run build`。
@@ -36,14 +44,14 @@ npm run benchmark
 
 ## 本地 Pi Bridge
 
-首次需要安装一次本地助手；安装后，网页与 Discord 的本地模式自动启动并连接同一个后台服务，不再手动开终端或每小时重新配对。新浏览器配置默认本地模式；已有明确选择的直连模式保留，直连不使用共享助手。
+首次需要安装一次本地助手（发行候选包自带 Node；下列命令是源码开发安装入口）；安装后，网页与 Discord 的本地模式自动启动并连接同一个后台服务，不再手动开终端或每小时重新配对。新浏览器配置默认本地模式；已有明确选择的直连模式保留，直连不使用共享助手。
 
 ```sh
 npm run build --workspace @lingo-sofa/pi-bridge
 npm run install:service --workspace @lingo-sofa/pi-bridge
 ```
 
-默认目录为 `~/.config/lingo-sofa`，可通过 `LINGO_SOFA_HOME` 指定。安装把 Bridge 及运行依赖复制到当前用户的助手目录，记录固定的 Node 24 路径。安装后不依赖源码目录，Node 路径变化时重新安装。安装保留已有配置、Provider 和用量，不自动清除未知消耗。新的助手配置默认持久化用量，已有 `settings.persistUsage` 选择保持不变。
+默认目录为 `~/.config/lingo-sofa`，可通过 `LINGO_SOFA_HOME` 指定。安装把 Bridge 及运行依赖复制到当前用户的助手目录，同时复制 Node 24 到助手目录。安装后不依赖源码目录或原 Node 路径。安装保留已有配置、Provider 和用量，不自动清除未知消耗。新的助手配置默认持久化用量，已有 `settings.persistUsage` 选择保持不变。
 
 供应商连接可在任一端保存多个，以服务商名称及 API 地址区分；连接与独立的翻译/Ask 默认配置保存在助手目录中的 `accounts.json`（POSIX 0600），两端共用。旧 `provider.json` 自动迁移，翻译默认配置仍写入该文件供旧安装启动时兼容读取。切换已保存账户不需要重新输入 Key；Ask 内的切换只作用于本会话并保留历史。也可使用服务启动环境的 `LINGO_SOFA_API_KEY`；不会自动读取聊天内容或其他应用凭证。`usePiAuth` 默认为关闭；显式启用才读取指定的 Pi 认证文件。
 
