@@ -215,3 +215,64 @@ it("retains billing in a Discord message state and clears it when edited", async
   expect(app.get(message)).toBeUndefined();
   app.clear();
 });
+it("shows subscription usage as API-equivalent CNY without claiming a subscription charge", async () => {
+  const { measure } = await import("@lingo-sofa/provider-pi");
+  const { resolvePricing } = await import("@lingo-sofa/provider-pi");
+  const model = settingsSchema.parse({
+    model: {
+      provider: "openai",
+      model: "gpt-4o",
+      endpoint: "https://api.openai.com/v1",
+      authMode: "subscription",
+      prices: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0 },
+    },
+  }).model;
+  const pricing = resolvePricing(model, undefined);
+  // Actual mutually exclusive input/cache buckets, with reasoning already included in output.
+  const usage = {
+    ...metrics.usage!,
+    input: 80,
+    cacheRead: 10,
+    reasoning: 5,
+    totalTokens: 110,
+  };
+  const measured = measure(
+    {
+      role: "assistant",
+      content: [],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-4o",
+      timestamp: 0,
+      stopReason: "stop",
+      usage,
+    },
+    100,
+    null,
+    null,
+    null,
+    0,
+    true,
+    pricing,
+  );
+  expect(measured.usage?.cost.total).toBeCloseTo(0.000121);
+  const display = formatTranslationBilling({
+    source: "request",
+    billingMode: "subscription",
+    batchSize: 1,
+    tokens: measured.usage!.totalTokens,
+    cost: measured.usage!.cost.total,
+    pricing,
+  });
+  expect(display.text).toContain("110 Tokens · API 等值 ≈ ¥");
+  expect(display.title).toContain("不代表订阅账单实扣");
+  expect(
+    formatTranslationBilling({
+      source: "request",
+      billingMode: "subscription",
+      batchSize: 1,
+      tokens: null,
+      cost: null,
+    }).text,
+  ).toContain("未知");
+});

@@ -3,6 +3,7 @@ import {
   settingsSchema,
   requestSchema,
   providerUpdateSchema,
+  oauthRequestSchema,
 } from "@lingo-sofa/protocol";
 export const bridgeConfigSchema = z.strictObject({
   port: z.number().int().min(1_024).max(65_535).default(43_187),
@@ -25,6 +26,13 @@ export const bridgeEnvelopeSchema = z.strictObject({
 });
 
 export const nativeProviderEnvelopeSchema = z.discriminatedUnion("operation", [
+  z.strictObject({
+    version: z.literal(1),
+    sourceKind: z.literal("web"),
+    scope: z.literal("browser"),
+    operation: z.literal("oauth"),
+    request: oauthRequestSchema,
+  }),
   z.strictObject({
     version: z.literal(1),
     sourceKind: z.literal("web"),

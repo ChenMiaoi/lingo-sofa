@@ -139,3 +139,35 @@ it("reports upstream service overload without retrying", async () => {
     await server.close();
   }
 });
+it("shows safe subscription quota and re-login guidance without returning raw provider details", async () => {
+  const { failureMessage } = await import("@lingo-sofa/provider-pi");
+  const base = {
+    role: "assistant" as const,
+    content: [],
+    api: "openai-responses" as const,
+    provider: "openai",
+    model: "gpt-4o",
+    stopReason: "error" as const,
+    timestamp: 0,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+  };
+  const quota = failureMessage({
+    ...base,
+    errorMessage: "subscription_sharing_usage_limit_exceeded private-user-id",
+  });
+  expect(quota).toContain("订阅额度暂不可用");
+  expect(quota).not.toContain("private-user-id");
+  const login = failureMessage({
+    ...base,
+    errorMessage: "invalid_grant private-refresh-token",
+  });
+  expect(login).toContain("重新登录");
+  expect(login).not.toContain("private-refresh-token");
+});

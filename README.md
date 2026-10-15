@@ -84,3 +84,5 @@ npm run install:native --workspace @lingo-sofa/pi-bridge -- YOUR_EXTENSION_ID
 项目原创材料暂采用 [商业专有 LICENSE](LICENSE)，依赖保留各自授权，见 [第三方许可清单](THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍需单独核对 GPL 条件；当前开发产物尚未完成公开发行的许可交付。
 
 浏览器本地助手模式的 Provider 配置与模型切换需更新 Native Host 和 Bridge，并在 `allowedExtensions` 中授权该扩展 ID。网页只收到当前模型/可选模型等阅读状态，完整配置和 Key 操作仅允许扩展界面；Native 调用仍要求短期令牌、来源白名单与 Host 校验。
+
+OpenAI 在本地助手模式支持 **ChatGPT 订阅登录 / API Key** 两种方式，网页与 Discord 共用 Bridge 的登录状态。订阅用量按实际 Tokens 展示 **API 等值费用**，并非订阅账单实扣；详情见 [OAuth 与计价](docs/oauth.md)。

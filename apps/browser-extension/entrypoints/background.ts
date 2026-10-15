@@ -7,6 +7,8 @@ import {
 } from "@lingo-sofa/provider-pi/browser";
 import {
   providerCatalogSchema,
+  oauthRequestSchema,
+  oauthStatusSchema,
   providerUpdateSchema,
   replySchema,
   requestSchema,
@@ -250,6 +252,7 @@ export default defineBackground(() => {
         enabled?: unknown;
         update?: unknown;
         mode?: unknown;
+        oauth?: unknown;
       };
       async function catalog(mode = settings.mode) {
         if (mode === "bridge")
@@ -446,6 +449,18 @@ export default defineBackground(() => {
         throw new Error(
           "Settings and account data are restricted to extension pages",
         );
+      if (data.action === "provider-oauth") {
+        const request = oauthRequestSchema.parse(data.oauth);
+        return oauthStatusSchema.parse(
+          await native.request({
+            version: 1,
+            sourceKind: "web",
+            scope: "browser",
+            operation: "oauth",
+            request,
+          }),
+        );
+      }
       if (data.action === "provider-catalog")
         return catalog(
           data.mode === "bridge"
@@ -456,6 +471,8 @@ export default defineBackground(() => {
         );
       if (data.action === "provider-update") {
         const update = providerUpdateSchema.parse(data.update);
+        if (data.mode !== "bridge" && update.model.authMode === "subscription")
+          throw new Error("ChatGPT 订阅登录需要选择本地助手");
         if (data.mode === "bridge") {
           const reply = replySchema.parse(
             await native.request({

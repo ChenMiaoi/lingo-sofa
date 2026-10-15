@@ -10,9 +10,9 @@ test("configures multiple providers in the actual compact settings component", a
       contents: `import React from "react";
 import {createRoot} from "react-dom/client";
 import {ProviderSettings} from "./apps/discord-vencord/src/provider-settings.tsx";
-let catalog = {model:{provider:"deepseek",model:"deepseek-flash",endpoint:"https://api.deepseek.com",maxOutputTokens:512,timeoutMs:30000,prices:null},keyConfigured:true,piAuth:false,providers:[{id:"deepseek",name:"DeepSeek",models:[{id:"deepseek-flash",endpoint:"https://api.deepseek.com",api:"openai-completions"}]},{id:"openai",name:"OpenAI",models:[{id:"gpt-4o",endpoint:"https://api.openai.com/v1",api:"openai-completions"}]}]};
-window.saved=[]; window.fail=false;
-createRoot(document.getElementById("root")).render(React.createElement(ProviderSettings,{client:{providers:async()=>catalog,configureProvider:async(value)=>{if(window.fail)throw Error("fixture failure");window.saved.push(value);catalog={...catalog,model:value.model,keyConfigured:true};return {ok:true};}},onSaved:()=>{window.cleared=true;}}));`,
+let catalog = {model:{provider:"deepseek",model:"deepseek-flash",endpoint:"https://api.deepseek.com",maxOutputTokens:512,timeoutMs:30000,prices:null},keyConfigured:true,piAuth:false,oauth:{connected:false,phase:"idle"},providers:[{id:"deepseek",name:"DeepSeek",models:[{id:"deepseek-flash",endpoint:"https://api.deepseek.com",api:"openai-completions"}]},{id:"openai",name:"OpenAI",models:[{id:"gpt-4o",endpoint:"https://api.openai.com/v1",api:"openai-completions"}]}]};
+window.saved=[]; window.fail=false; window.oauth={connected:false,phase:"idle"};
+createRoot(document.getElementById("root")).render(React.createElement(ProviderSettings,{client:{oauth:async(action)=>{if(action==="start")window.oauth={connected:false,phase:"pending",authorizationUrl:"https://auth.openai.com/api/accounts/authorize?state=fixture"};if(action==="logout"||action==="cancel")window.oauth={connected:false,phase:"idle"};return window.oauth;},providers:async()=>catalog,configureProvider:async(value)=>{if(window.fail)throw Error("fixture failure");window.saved.push(value);catalog={...catalog,model:value.model,keyConfigured:true};return {ok:true};}},onSaved:()=>{window.cleared=true;}}));`,
       resolveDir: process.cwd(),
       loader: "js",
     },
@@ -73,6 +73,7 @@ createRoot(document.getElementById("root")).render(React.createElement(ProviderS
     {
       model: {
         provider: "openai",
+        authMode: "api_key",
         model: "gpt-4o",
         endpoint: "https://api.openai.com/v1",
         maxOutputTokens: 512,
@@ -82,6 +83,34 @@ createRoot(document.getElementById("root")).render(React.createElement(ProviderS
       apiKey: "fixture-openai-key",
     },
   ]);
+  await page.getByRole("button", { name: "ChatGPT 订阅", exact: true }).click();
+  await expect(page.getByLabel("API Key")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存配置" })).toBeDisabled();
+  await page
+    .getByRole("button", { name: "使用 ChatGPT 登录", exact: true })
+    .click();
+  await expect(page.getByRole("link", { name: /继续前往/ })).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { oauth: unknown }).oauth = {
+      connected: true,
+      phase: "idle",
+    };
+  });
+  await expect(page.getByRole("button", { name: "保存配置" })).toBeEnabled();
+  await page.getByRole("button", { name: "保存配置" }).click();
+  await expect(
+    page.getByText("已保存，下次翻译使用新的配置", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          window as unknown as { saved: { model: { authMode: string } }[] }
+        ).saved.at(-1)?.model.authMode,
+    ),
+  ).toBe("subscription");
+  await page.getByRole("button", { name: "退出本机登录", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存配置" })).toBeDisabled();
   await page
     .getByLabel("供应商", { exact: true })
     .selectOption("openai-compatible");

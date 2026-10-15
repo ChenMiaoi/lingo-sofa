@@ -80,6 +80,11 @@ export function translationParts(unit: TranslationUnit, limit: number) {
             cost: bills.some((bill) => bill!.cost === null)
               ? null
               : bills.reduce((sum, bill) => sum + bill!.cost!, 0),
+            billingMode: bills.every(
+              (bill) => bill!.billingMode === bills[0]!.billingMode,
+            )
+              ? bills[0]!.billingMode
+              : undefined,
             pricing: bills.every(
               (bill) =>
                 JSON.stringify(bill!.pricing) ===

@@ -1,9 +1,12 @@
 import { ReadingAccess } from "./ReadingAccess.js";
-import { useEffect, useState } from "react";
+import * as React from "react";
+import { createProviderAuth } from "@lingo-sofa/ui-shared";
+import { useCallback, useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import {
   providerCatalogSchema,
   providerUpdateSchema,
+  type OAuthStatus,
   type ProviderCatalog,
   type ModelConfig,
   type Settings,
@@ -14,11 +17,22 @@ async function send(message: unknown) {
   if (reply?.ok === false) throw new Error(reply.error ?? "操作失败");
   return reply;
 }
+const ProviderAuth = createProviderAuth(React);
 export function ProviderPage() {
+  const oauthRequest = useCallback(
+    (action: "start" | "status" | "cancel" | "logout") =>
+      send({ action: "provider-oauth", oauth: { action } }),
+    [],
+  );
   const [mode, setMode] = useState<"direct" | "bridge">("bridge");
   const [catalog, setCatalog] = useState<ProviderCatalog | null>(null);
   const [model, setModel] = useState<ModelConfig | null>(null);
   const [key, setKey] = useState("");
+  const [oauthConnected, setOAuthConnected] = useState(false);
+  const onOAuthStatus = useCallback(
+    (status: OAuthStatus) => setOAuthConnected(status.connected),
+    [],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -146,6 +160,7 @@ export function ProviderPage() {
                     setModel({
                       ...model,
                       provider: id,
+                      authMode: "api_key",
                       model: first?.id ?? "",
                       endpoint: first?.endpoint ?? "https://api.example.com/v1",
                       prices: null,
@@ -221,24 +236,40 @@ export function ProviderPage() {
                 />
               </label>
             )}
-            <label>
-              API Key
-              <input
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={key}
-                disabled={busy}
-                placeholder={
-                  configured
-                    ? "已配置 · 留空保留现有 Key"
-                    : catalog.piAuth
-                      ? "使用本地 Pi 登录，或输入 API Key"
-                      : "输入该供应商的 API Key"
-                }
-                onChange={(event) => setKey(event.target.value)}
-              />
-            </label>
+            {mode === "bridge" &&
+              model.provider === "openai" &&
+              catalog.oauth && (
+                <ProviderAuth
+                  mode={model.authMode}
+                  onMode={(authMode) => {
+                    setModel({ ...model, authMode });
+                    setKey("");
+                  }}
+                  request={oauthRequest}
+                  onStatus={onOAuthStatus}
+                  disabled={busy}
+                />
+              )}
+            {model.authMode !== "subscription" && (
+              <label>
+                API Key
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={key}
+                  disabled={busy}
+                  placeholder={
+                    configured
+                      ? "已配置 · 留空保留现有 Key"
+                      : catalog.piAuth && model.provider !== "openai"
+                        ? "使用本地 Pi 登录，或输入 API Key"
+                        : "输入该供应商的 API Key"
+                  }
+                  onChange={(event) => setKey(event.target.value)}
+                />
+              </label>
+            )}
             <p className="muted">
               {mode === "direct"
                 ? "Key 仅在本次浏览器会话保留，网页无法读取。直连支持 DeepSeek 与 OpenAI 兼容接口；其他供应商使用本地助手。"
@@ -253,7 +284,11 @@ export function ProviderPage() {
                 disabled={
                   busy ||
                   !model.model.trim() ||
-                  (!key.trim() && !configured && !catalog.piAuth)
+                  (model.authMode === "subscription" && !oauthConnected) ||
+                  (model.authMode !== "subscription" &&
+                    !key.trim() &&
+                    !configured &&
+                    !(catalog.piAuth && model.provider !== "openai"))
                 }
                 onClick={async () => {
                   setBusy(true);

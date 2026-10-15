@@ -1,5 +1,7 @@
 import {
   providerCatalogSchema,
+  oauthRequestSchema,
+  oauthStatusSchema,
   type ProviderUpdate,
   replySchema,
   usageRecordSchema,
@@ -64,6 +66,11 @@ export class DiscordBridgeClient {
         { version: 1, sourceKind: "discord", scope, request },
         signal,
       ),
+    );
+  }
+  async oauth(action: "start" | "status" | "cancel" | "logout") {
+    return oauthStatusSchema.parse(
+      await this.post("/v1/oauth", oauthRequestSchema.parse({ action })),
     );
   }
   async providers() {

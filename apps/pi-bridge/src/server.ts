@@ -4,10 +4,15 @@ import { timingSafeEqual } from "node:crypto";
 import { resolveModel, listModels } from "@lingo-sofa/provider-pi/node";
 import { capabilities } from "@lingo-sofa/provider-pi";
 import { TranslationService } from "@lingo-sofa/translation-core";
-import { providerUpdateSchema, type UsageRecord } from "@lingo-sofa/protocol";
+import {
+  oauthRequestSchema,
+  providerUpdateSchema,
+  type UsageRecord,
+} from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
 import { UsageHistory } from "./history.js";
 import { SafePiSessions } from "./sdk.js";
+import { BridgeOAuth } from "./oauth.js";
 import { saveProviderSettings } from "./provider-settings.js";
 import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
 
@@ -26,15 +31,21 @@ export function createBridge(
 ) {
   if (token.length < 32)
     throw new Error("Pairing token must have at least 32 characters");
+  const oauth = new BridgeOAuth(directory, undefined, () => {
+    service.reset();
+    sessions.dispose();
+  });
   let configuring = false;
   let currentKey = apiKey;
   let sessions = new SafePiSessions(
     config.settings.model,
     apiKey,
     directory,
-    config.usePiAuth
-      ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
-      : undefined,
+    config.settings.model.authMode === "subscription"
+      ? oauth.authPath
+      : config.usePiAuth && config.settings.model.provider !== "openai"
+        ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
+        : undefined,
   );
   const history = new UsageHistory(directory, config.settings.persistUsage);
   const inFlight = new Map<string, UsageRecord>();
@@ -189,7 +200,11 @@ export function createBridge(
         return;
       }
       if (request.url === "/v1/provider") {
-        await sessions.runtime();
+        if (
+          config.settings.model.authMode !== "subscription" ||
+          oauth.status().connected
+        )
+          await sessions.runtime();
         reply(200, {
           capabilities: capabilities(
             config.settings.model,
@@ -197,9 +212,39 @@ export function createBridge(
           ),
           model: config.settings.model,
           keyConfigured: Boolean(currentKey),
+          oauth: oauth.status(),
           piAuth: config.usePiAuth,
           providers: listModels(config.usePiAuth),
         });
+        return;
+      }
+      if (request.url === "/v1/oauth") {
+        const operation = oauthRequestSchema.parse(raw);
+        if (
+          operation.action !== "status" &&
+          operation.action !== "cancel" &&
+          (configuring || service.queue.size || inFlight.size)
+        ) {
+          reply(409, {
+            ok: false,
+            error: "请等待当前请求完成后再更改登录状态",
+          });
+          return;
+        }
+        if (operation.action === "status") reply(200, oauth.status());
+        else if (operation.action === "start") reply(200, await oauth.start());
+        else if (operation.action === "cancel")
+          reply(200, await oauth.cancel());
+        else {
+          configuring = true;
+          try {
+            service.reset();
+            sessions.dispose();
+            reply(200, await oauth.logout());
+          } finally {
+            configuring = false;
+          }
+        }
         return;
       }
       if (configuring) {
@@ -227,7 +272,24 @@ export function createBridge(
           update.model.endpoint === config.settings.model.endpoint;
         const nextKey =
           update.apiKey ?? (sameCredentialTarget ? currentKey : "");
-        if (!nextKey && !config.usePiAuth) {
+        const subscription = update.model.authMode === "subscription";
+        if (
+          subscription &&
+          (update.model.provider !== "openai" ||
+            update.model.endpoint !== "https://api.openai.com/v1" ||
+            !oauth.status().connected)
+        ) {
+          reply(400, {
+            ok: false,
+            error: "请先登录 ChatGPT；订阅仅支持 OpenAI 官方端点",
+          });
+          return;
+        }
+        if (
+          !subscription &&
+          !nextKey &&
+          (!config.usePiAuth || update.model.provider === "openai")
+        ) {
           reply(400, {
             ok: false,
             error: "An API key is required for this provider",
@@ -235,6 +297,7 @@ export function createBridge(
           return;
         }
         if (
+          oauth.busy ||
           service.queue.runningCount ||
           service.queue.pendingCount ||
           inFlight.size
@@ -260,9 +323,11 @@ export function createBridge(
             update.model,
             nextKey,
             directory,
-            config.usePiAuth
-              ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
-              : undefined,
+            subscription
+              ? oauth.authPath
+              : config.usePiAuth && update.model.provider !== "openai"
+                ? (config.piAuthPath ?? `${homedir()}/.pi/agent/auth.json`)
+                : undefined,
           );
           reply(200, { ok: true });
         } finally {
@@ -304,6 +369,10 @@ export function createBridge(
       ) {
         await service.clearScopes(`${origin}|`);
         reply(200, { ok: true });
+        return;
+      }
+      if (oauth.busy && ["translate", "ask"].includes(envelope.request.kind)) {
+        reply(409, { ok: false, error: "请完成或取消 ChatGPT 登录后再翻译" });
         return;
       }
       service.ledger.prune(Date.now(), config.settings.retentionDays);
@@ -356,6 +425,7 @@ export function createBridge(
   server.headersTimeout = 10_000;
   server.requestTimeout = 60_000;
   server.on("close", () => {
+    void oauth.cancel();
     service.reset();
     sessions.dispose();
   });
@@ -364,6 +434,7 @@ export function createBridge(
     service,
     get busy() {
       return (
+        oauth.busy ||
         configuring ||
         Boolean(
           inFlight.size ||
@@ -372,6 +443,7 @@ export function createBridge(
         )
       );
     },
+    cancelOAuth: () => oauth.cancel(),
     flush: checkpoint,
     get sessions() {
       return sessions;

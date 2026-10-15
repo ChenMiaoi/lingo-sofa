@@ -38,6 +38,18 @@ export function measure(
 
 export function failureMessage(message: AssistantMessage): string {
   if (
+    /subscription_sharing_(?:usage_limit_exceeded|usage_unavailable)/i.test(
+      message.errorMessage ?? "",
+    )
+  )
+    return "ChatGPT 订阅额度暂不可用，请稍后重试或手动切换 API Key。";
+  if (
+    /subscription_sharing_invalid_user|invalid_grant/i.test(
+      message.errorMessage ?? "",
+    )
+  )
+    return "ChatGPT 登录已失效，请重新登录。";
+  if (
     /\b503\b|service_unavailable|service.is.too.busy/i.test(
       message.errorMessage ?? "",
     )

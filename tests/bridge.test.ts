@@ -379,6 +379,25 @@ it.skipIf(!existsSync(packagedNative))(
       expect(
         await exchange({
           version: 1,
+          sourceKind: "web",
+          scope: "browser",
+          operation: "oauth",
+          request: { action: "status" },
+        }),
+      ).toEqual({ connected: false, phase: "idle" });
+      expect(
+        await exchange({
+          version: 1,
+          sourceKind: "web",
+          scope: "browser",
+          operation: "oauth",
+          request: { action: "status", accessToken: "must-not-pass" },
+        }),
+      ).toMatchObject({ ok: false });
+
+      expect(
+        await exchange({
+          version: 1,
           sourceKind: "discord",
           scope: "browser",
           operation: "provider",

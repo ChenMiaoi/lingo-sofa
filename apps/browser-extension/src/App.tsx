@@ -385,7 +385,7 @@ export function App() {
           {sessionStats && (
             <p>
               Pi 会话汇总（同一消耗的另一视图）：
-              {formatTokens(sessionStats.tokens)} tokens ·{" "}
+              {formatTokens(sessionStats.tokens)} tokens · API 等值{" "}
               {formatCost(sessionStats.cost)} · {sessionStats.messages} 条消息
             </p>
           )}
@@ -490,7 +490,7 @@ export function App() {
             <strong>{formatTokens(bridgeError ? null : totals.output)}</strong>
           </div>
           <div>
-            <span>估算费用 · 人民币</span>
+            <span>API 等值费用 · 人民币</span>
             <strong title={formatExchangeRate()}>
               {formatCost(bridgeError ? null : totals.cost)}
             </strong>
@@ -590,7 +590,7 @@ export function App() {
                 <th>日期</th>
                 <th>请求</th>
                 <th>Tokens</th>
-                <th>估算费用</th>
+                <th>API 等值费用</th>
               </tr>
             </thead>
             <tbody>
@@ -632,6 +632,9 @@ export function App() {
                     <tr key={record.requestId}>
                       <td>
                         {record.model}
+                        {record.billingMode === "subscription"
+                          ? " · ChatGPT 订阅"
+                          : ""}
                         <br />
                         {record.status}
                       </td>
@@ -700,7 +703,8 @@ export function App() {
           <summary>费用与统计如何计算</summary>
           <p>
             人民币展示按核对日期的汇率快照折算，非实时牌价；底层美元费用按请求开始时的官方峰/谷费率、Pi
-            目录或用户单价估算（USD），不代表账单实扣。{formatExchangeRate()}{" "}
+            目录或用户单价折算（USD），订阅调用同样按实际 Tokens 计算 API
+            等值，不代表账单实扣。{formatExchangeRate()}{" "}
             官方价格核对时间见每条记录；跨时段请求以开始时间估算。TPS
             为客户端观测平均单请求吞吐。模型缓存与本地译文缓存分开，未知值不视作免费。
           </p>

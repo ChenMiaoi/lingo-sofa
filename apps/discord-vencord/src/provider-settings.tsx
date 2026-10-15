@@ -1,18 +1,34 @@
+import { createProviderAuth } from "@lingo-sofa/ui-shared";
 import { React } from "@webpack/common";
-import type { ProviderCatalog, ModelConfig } from "@lingo-sofa/protocol";
+import type {
+  OAuthStatus,
+  ProviderCatalog,
+  ModelConfig,
+} from "@lingo-sofa/protocol";
 import type { DiscordBridgeClient } from "./client.js";
+const ProviderAuth = createProviderAuth(React);
 export function ProviderSettings({
   client,
   onSaved,
 }: {
-  client: Pick<DiscordBridgeClient, "providers" | "configureProvider">;
+  client: Pick<DiscordBridgeClient, "providers" | "configureProvider"> &
+    Partial<Pick<DiscordBridgeClient, "oauth">>;
   onSaved: () => void;
 }) {
   const [catalog, setCatalog] = React.useState<ProviderCatalog | null>(null);
   const [model, setModel] = React.useState<ModelConfig | null>(null);
   const [key, setKey] = React.useState("");
+  const [oauthConnected, setOAuthConnected] = React.useState(false);
+  const onOAuthStatus = React.useCallback(
+    (status: OAuthStatus) => setOAuthConnected(status.connected),
+    [],
+  );
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
+  const oauthRequest = React.useCallback(
+    (action: "start" | "status" | "cancel" | "logout") => client.oauth!(action),
+    [client],
+  );
   const [saved, setSaved] = React.useState(false);
   const load = React.useCallback(async () => {
     setBusy(true);
@@ -74,6 +90,7 @@ export function ProviderSettings({
                   change({
                     ...model,
                     provider: id,
+                    authMode: "api_key",
                     model: first?.id ?? "",
                     endpoint: first?.endpoint ?? "https://api.example.com/v1",
                     prices: null,
@@ -140,32 +157,46 @@ export function ProviderSettings({
               />
             </label>
           )}
-          <label>
-            API Key
-            <input
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={key}
-              placeholder={
-                catalog.keyConfigured &&
-                model.provider === catalog.model.provider &&
-                model.endpoint === catalog.model.endpoint
-                  ? "已配置 · 留空保留现有 Key"
-                  : catalog.piAuth
-                    ? "可使用本地 Pi 登录，或输入 API Key"
-                    : "输入该供应商的 API Key"
-              }
-              onChange={(event) => {
-                setKey(event.target.value);
-                setSaved(false);
+          {model.provider === "openai" && catalog.oauth && client.oauth && (
+            <ProviderAuth
+              mode={model.authMode}
+              onMode={(authMode) => {
+                change({ ...model, authMode });
+                setKey("");
               }}
+              request={oauthRequest}
+              onStatus={onOAuthStatus}
+              disabled={busy}
             />
-          </label>
+          )}
+          {model.authMode !== "subscription" && (
+            <label>
+              API Key
+              <input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={key}
+                placeholder={
+                  catalog.keyConfigured &&
+                  model.provider === catalog.model.provider &&
+                  model.endpoint === catalog.model.endpoint
+                    ? "已配置 · 留空保留现有 Key"
+                    : catalog.piAuth && model.provider !== "openai"
+                      ? "可使用本地 Pi 登录，或输入 API Key"
+                      : "输入该供应商的 API Key"
+                }
+                onChange={(event) => {
+                  setKey(event.target.value);
+                  setSaved(false);
+                }}
+              />
+            </label>
+          )}
           <p className="lingo-sofa-control-hint">
             Key 仅保存在本机助手中，不写入 Discord
             设置。配置应用于该助手的所有连接端；供应商变更会清理 Ask Pi
-            对话，用量和预算继续保留。
+            对话，用量继续保留。
           </p>
           <footer className="lingo-sofa-provider-footer">
             <span role="status">
@@ -178,8 +209,10 @@ export function ProviderSettings({
               disabled={
                 busy ||
                 !model.model.trim() ||
-                (!key.trim() &&
-                  !catalog.piAuth &&
+                (model.authMode === "subscription" && !oauthConnected) ||
+                (model.authMode !== "subscription" &&
+                  !key.trim() &&
+                  !(catalog.piAuth && model.provider !== "openai") &&
                   !(
                     catalog.keyConfigured &&
                     model.provider === catalog.model.provider &&

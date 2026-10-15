@@ -11,5 +11,5 @@ export function formatCost(usd: number | null): string {
   return cny > 0 && cny < 0.000001 ? "≈ < ¥0.000001" : `≈ ¥${cny.toFixed(6)}`;
 }
 export function formatExchangeRate(): string {
-  return `人民币展示按汇率快照折算：1 USD = ${usdCnySnapshot.rate} CNY（${usdCnySnapshot.date}，${usdCnySnapshot.source}）。非实时牌价；美元记账与预算不变。来源：${usdCnySnapshot.sourceUrl}`;
+  return `人民币展示按汇率快照折算：1 USD = ${usdCnySnapshot.rate} CNY（${usdCnySnapshot.date}，${usdCnySnapshot.source}）。非实时牌价；美元原值不变。来源：${usdCnySnapshot.sourceUrl}`;
 }

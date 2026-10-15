@@ -45,6 +45,7 @@ export const pricingSnapshotSchema = z.strictObject({
 });
 export type PricingSnapshot = z.infer<typeof pricingSnapshotSchema>;
 export const modelConfigSchema = z.strictObject({
+  authMode: z.enum(["api_key", "subscription"]).default("api_key"),
   provider: z.string().min(1).max(100),
   model: z.string().min(1).max(200),
   endpoint: z.url().refine((value) => {
@@ -85,6 +86,7 @@ export const settingsSchema = z.strictObject({
   targetLanguage: z.string().min(1).max(64).default("简体中文"),
   mode: z.enum(["direct", "bridge"]).default("bridge"),
   model: modelConfigSchema.default({
+    authMode: "api_key",
     provider: "deepseek",
     model: "deepseek-flash",
     endpoint: "https://api.deepseek.com",
@@ -173,6 +175,7 @@ export interface Usage {
   };
 }
 export interface Metrics {
+  billingMode?: "api" | "subscription" | undefined;
   usage: Usage | null;
   costKnown: boolean;
   durationMs: number;
@@ -203,6 +206,7 @@ export interface UsageRecord extends Metrics {
   purpose?: "translation" | "ask" | "compaction" | undefined;
 }
 export interface TranslationBilling {
+  billingMode?: "api" | "subscription" | undefined;
   source: "request" | "cache";
   batchSize: number;
   tokens: number | null;
@@ -264,6 +268,7 @@ export const usageSchema = z.strictObject({
   }),
 });
 export const metricsSchema = z.strictObject({
+  billingMode: z.enum(["api", "subscription"]).optional(),
   usage: usageSchema.nullable(),
   costKnown: z.boolean(),
   durationMs: z.number().nonnegative(),
@@ -275,6 +280,7 @@ export const metricsSchema = z.strictObject({
 });
 export const translationBillingSchema = z
   .strictObject({
+    billingMode: z.enum(["api", "subscription"]).optional(),
     source: z.enum(["request", "cache"]),
     batchSize: z.number().int().min(1).max(16),
     tokens: count.nullable(),
@@ -352,7 +358,27 @@ export const providerUpdateSchema = z.strictObject({
   apiKey: z.string().trim().min(1).max(4096).optional(),
 });
 export type ProviderUpdate = z.infer<typeof providerUpdateSchema>;
+export const oauthRequestSchema = z.strictObject({
+  action: z.enum(["start", "status", "cancel", "logout"]),
+});
+export const oauthStatusSchema = z.strictObject({
+  connected: z.boolean(),
+  phase: z.enum(["idle", "pending", "failed"]),
+  authorizationUrl: z
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return (
+        url.origin === "https://auth.openai.com" &&
+        url.pathname === "/api/accounts/authorize"
+      );
+    })
+    .optional(),
+  error: z.string().max(500).optional(),
+});
+export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
 export const providerCatalogSchema = z.strictObject({
+  oauth: oauthStatusSchema.optional(),
   capabilities: modelConfigSchema.shape.capabilities,
   model: modelConfigSchema,
   keyConfigured: z.boolean(),

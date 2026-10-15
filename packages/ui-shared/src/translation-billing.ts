@@ -22,8 +22,8 @@ export function formatTranslationBilling(billing?: TranslationBilling): {
       : `${new Intl.NumberFormat("zh-CN").format(billing.tokens)} Tokens`;
   const cost = billing.cost === null ? "费用未知" : formatCost(billing.cost);
   return {
-    text: `${billing.batchSize > 1 ? `同批 ${billing.batchSize} 段合计 · ` : ""}${tokens} · ${cost}`,
-    title: `${billing.batchSize > 1 ? "供应商仅提供整批计量，各段显示同一批用量，不能逐段累加。" : "本次翻译请求的供应商用量。"} 费用为人民币估算，不代表账单实扣。美元原值：${billing.cost === null ? "未知" : billing.cost.toPrecision(7) + " USD"}。${formatExchangeRate()} ${formatPricing(billing.pricing)}`,
+    text: `${billing.batchSize > 1 ? `同批 ${billing.batchSize} 段合计 · ` : ""}${tokens} · ${billing.billingMode === "subscription" ? "API 等值 " : ""}${cost}`,
+    title: `${billing.billingMode === "subscription" ? "ChatGPT 订阅：按实际 Tokens 与 API 单价折算，不代表订阅账单实扣。" : ""}${billing.batchSize > 1 ? "供应商仅提供整批计量，各段显示同一批用量，不能逐段累加。" : "本次翻译请求的供应商用量。"} 费用为人民币估算，不代表账单实扣。美元原值：${billing.cost === null ? "未知" : billing.cost.toPrecision(7) + " USD"}。${formatExchangeRate()} ${formatPricing(billing.pricing)}`,
   };
 }
 

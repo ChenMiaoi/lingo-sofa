@@ -63,6 +63,7 @@ export async function startDaemon(
       (stopping ??= (async () => {
         clearInterval(timer);
         runtime.accepting = false;
+        await bridge.cancelOAuth();
         // Keep the port reserved until paid work and checkpoints have drained.
         while (bridge.busy) await delay(25);
         try {

@@ -109,7 +109,15 @@ export class TranslationService {
           throw error;
         }
         return async (metrics, status) => {
-          this.ledger.settle({ ...base, ...metrics, status });
+          this.ledger.settle({
+            ...base,
+            ...metrics,
+            status,
+            billingMode:
+              settings.model.authMode === "subscription"
+                ? "subscription"
+                : "api",
+          });
           await this.options.onRecords?.(this.ledger.list());
           await this.options.onFinish?.(call.id);
         };
@@ -321,6 +329,7 @@ export class TranslationService {
                         cost: metrics.costKnown
                           ? (metrics.usage?.cost.total ?? null)
                           : null,
+                        billingMode: metrics.billingMode,
                         pricing: metrics.pricing,
                       },
               }));

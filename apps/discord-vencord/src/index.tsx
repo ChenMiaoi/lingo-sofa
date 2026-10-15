@@ -211,7 +211,7 @@ function Ask({
       </div>
       {sessionStats && (
         <p>
-          Pi 会话汇总：{formatTokens(sessionStats.tokens)} tokens ·{" "}
+          Pi 会话汇总：{formatTokens(sessionStats.tokens)} tokens · API 等值{" "}
           {formatCost(sessionStats.cost)} · {sessionStats.messages}{" "}
           条消息（与请求统计为同一消耗）
         </p>

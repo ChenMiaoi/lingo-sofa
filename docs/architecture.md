@@ -63,3 +63,7 @@ Native Messaging 与 Discord loopback 使用同一 Zod 应用协议，版本不�
 模型容量来自供应商 `/models`、官方规格快照或已安装 Pi 的模型目录，注明来源。DeepSeek 官方端点在 Runtime 初始化时读取 `/models`；网络暂不可用时使用注明核对日期的官方快照。兼容端点缺少容量元数据时拒绝猜测，可在本地配置文件的 Provider 模型配置中提供带模型标识和来源的已核实 `model.capabilities`。`maxOutputTokens: 0` 表示按本次任务自动分配，并受真实模型输出/上下文额度约束；正值保留为用户明确选择的请求额度，不再有应用的 8,192 上限。自动分配不是供应商的精确 tokenizer。分批、队列与 Native Messaging 帧限制是传输/资源策略，不是宣称模型只支持这些上下文大小。
 
 浏览器模型直连仍为独立 `pi-ai` 请求，供应商前缀缓存可以生效；原生 Pi 会话与压缩需要共享本地 Bridge，设置页明确说明这一差异。网页与 Discord 的默认 Bridge 模式共用上述能力。
+
+## OpenAI OAuth 与 API 等值用量
+
+OpenAI 可选择 API Key 或 ChatGPT 订阅，认证集中于 Bridge；两端复用一个注入宿主 React 的登录组件，兼容各自运行时。OAuth 使用独立的 Pi 凭据文件，订阅请求限制为官方 OpenAI Responses 端点；登录状态和操作不暴露给网页内容脚本。重新登录/退出清理旧上下文，自动刷新保留同账号上下文。订阅与 API Key 均按响应的实际 Tokens、缓存分桶及价格快照估算 API 等值金额，不以 SDK 的订阅零 cost 代替折算，也不把等值金额标为账单实扣。具体存储、流程和升级见 [OAuth 说明](oauth.md)。

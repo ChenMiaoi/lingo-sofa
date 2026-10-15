@@ -170,6 +170,24 @@ test("unifies browser provider settings and the three floating reading controls"
       return results[0]?.result;
     });
     expect(denied).toMatchObject({ ok: false });
+    const deniedOAuth = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+      const results = await api.scripting.executeScript({
+        target: { tabId: tab!.id! },
+        func: async () =>
+          (
+            globalThis as typeof globalThis & { chrome: ExtensionApi }
+          ).chrome.runtime.sendMessage({
+            action: "provider-oauth",
+            oauth: { action: "start" },
+          }),
+      });
+      return results[0]?.result;
+    });
+    expect(deniedOAuth).toMatchObject({ ok: false });
+
     await page.getByRole("button", { name: "收起页面控制" }).click();
     await page
       .getByRole("button", { name: "LingoSofa 页面控制，可拖动或用方向键移动" })
