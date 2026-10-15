@@ -89,3 +89,5 @@ npm run package:windows -- .cache/release-assets .cache/release-assets
 - `verify-windows-direct` / `verify-windows-exe`：首次安装、重复安装、重启观察程序构建、EXE 成功安装、失败路径、结果校验与临时安装目录清理。
 
 组合打包的阶段包含其子验收脚本的耗时，分析时不能把父子耗时相加。比较优化前后结果时应使用相同 runner、版本和缓存状态，并保留完整验收；本机 Windows 结果不能直接当作 GitHub runner 的耗时。
+
+普通 CI 不构建组合安装包。需要测量完整 Windows 流程时，可手动运行 `Windows packaging profile` 工作流；可选的 `revision` 输入用于指定基线或优化提交。它使用与 Release 相同的 `windows-2022` runner、Node 和 Go 配置，从指定提交构建助手与源码归档，再执行完整组合安装验收。工作流仅有只读权限，不创建 tag、不上传安装包、不发布 Release；计时记录保留在 Actions 日志中。

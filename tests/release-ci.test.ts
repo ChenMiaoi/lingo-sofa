@@ -201,3 +201,19 @@ it("keeps the workflow matrix, version checks and publication dependency chain c
   const ci = parse(await readFile(".github/workflows/ci.yml", "utf8"));
   expect(ci.on.push.branches).toEqual(["**"]);
 });
+
+it("profiles Windows on demand with read-only permissions and full installer verification", async () => {
+  const workflow = parse(
+    await readFile(".github/workflows/windows-profile.yml", "utf8"),
+  );
+  expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+  expect(workflow.permissions).toEqual({ contents: "read" });
+  expect(workflow.jobs.windows["runs-on"]).toBe("windows-2022");
+  const commands = workflow.jobs.windows.steps
+    .map((step: { run?: string }) => step.run ?? "")
+    .join("\n");
+  expect(commands).toContain("npm run verify:assistant");
+  expect(commands).toContain("npm run package:windows");
+  expect(commands).toContain("git archive");
+  expect(commands).not.toMatch(/gh release|git push|release:assemble/);
+});
