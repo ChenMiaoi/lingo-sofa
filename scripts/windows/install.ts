@@ -117,13 +117,14 @@ export type RunInstaller = (
   env: NodeJS.ProcessEnv,
 ) => Promise<void>;
 
-/** Called only from the packaged bootstrap, after all connected clients have exited. */
+/** Stage and verify immutable files first; wait for clients only before switching installation pointers. */
 export async function installWindowsBundle(options: {
   payload: string;
   home: string;
   target: string;
   settings: string;
   run: RunInstaller;
+  beforeInstall?: () => Promise<void>;
 }) {
   const { payload, home, target, settings, run } = options;
   const bundle = await verifyBundle(payload);
@@ -159,16 +160,6 @@ export async function installWindowsBundle(options: {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    for (const path of [
-      statePath,
-      settings,
-      join(home, "runtime-install.json"),
-      join(home, "config.json"),
-      join(home, "lingo-sofa-native-host.exe"),
-      join(resources, "app.asar"),
-      join(resources, "_app.asar"),
-    ])
-      await snapshot(path);
     // Immutable version directories remain available for recovery. Never overwrite a running host.
     try {
       await access(versionDirectory);
@@ -194,6 +185,17 @@ export async function installWindowsBundle(options: {
     const installed = await verifyBundle(versionDirectory, false);
     if (JSON.stringify(installed) !== JSON.stringify(bundle))
       throw new Error("同版本安装内容不同，请发布新版本");
+    await options.beforeInstall?.();
+    for (const path of [
+      statePath,
+      settings,
+      join(home, "runtime-install.json"),
+      join(home, "config.json"),
+      join(home, "lingo-sofa-native-host.exe"),
+      join(resources, "app.asar"),
+      join(resources, "_app.asar"),
+    ])
+      await snapshot(path);
     changed = true;
     const assistant = join(payload, bundle.assistantDirectory);
     await run(

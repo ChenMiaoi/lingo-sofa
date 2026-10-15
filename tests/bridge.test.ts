@@ -286,7 +286,12 @@ it.skipIf(!existsSync(packagedNative))(
       token,
       expiresAt,
       directory,
-      { instanceId, server: createServer(), leases: new ClientLeases() },
+      {
+        instanceId,
+        server: createServer(),
+        leases: new ClientLeases(),
+        appVersion: "9.8.7",
+      },
     );
     await new Promise<void>((resolve) =>
       bridge.server.listen(0, "127.0.0.1", resolve),
@@ -365,6 +370,19 @@ it.skipIf(!existsSync(packagedNative))(
           },
         }),
       ).toMatchObject({ transportId, payload: { ok: true } });
+      const status = await exchange({
+        version: 1,
+        sourceKind: "web",
+        scope: "browser",
+        operation: "runtime-status",
+      });
+      expect(status).toMatchObject({
+        version: 1,
+        instanceId,
+        appVersion: "9.8.7",
+      });
+      expect(status).not.toHaveProperty("token");
+      expect(status).not.toHaveProperty("pid");
       const catalog = await exchange({
         version: 1,
         sourceKind: "web",

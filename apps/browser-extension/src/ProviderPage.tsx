@@ -104,6 +104,11 @@ function ProductSettings({
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
   }, []);
+  const [connectionRevision, setConnectionRevision] = useState(0);
+  const connected = useCallback(
+    () => setConnectionRevision((value) => value + 1),
+    [],
+  );
   const [query, setQuery] = useState("");
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const [settings, setSettings] = useState<Settings>();
@@ -163,7 +168,7 @@ function ProductSettings({
       <style>{designStyles + productSettingsStyles}</style>
       <header className="ls-settings-topbar workspace-header">
         <a href="options.html" className="ls-settings-wordmark">
-          LingoSofa <span>设置</span>
+          LingoSofa <span>设置 · v{browser.runtime.getManifest().version}</span>
         </a>
         <a href="options.html?view=activity">用量与记录 ↗</a>
       </header>
@@ -200,14 +205,16 @@ function ProductSettings({
             ) && <p className="ls-search-empty">没有匹配的设置</p>}
         </nav>
         <footer>
-          <span>浏览器扩展 / v0.1</span>
+          <span>浏览器扩展 / v{browser.runtime.getManifest().version}</span>
           <span>Read together.</span>
           <a href="options.html?view=activity">阅读与用量 ↗</a>
         </footer>
       </aside>
       <div className="ls-product-content">
         <ReadingAccess />
-        {ready && mode === "bridge" && <AssistantSetup />}
+        {ready && mode === "bridge" && (
+          <AssistantSetup onConnected={connected} />
+        )}
         {(error || failure) && <p role="alert">{error || failure}</p>}
         {section === "accounts" ? (
           <>
@@ -218,7 +225,7 @@ function ProductSettings({
             {ready && (
               <section className="ls-provider-page" aria-label="连接服务商">
                 <ProviderEditor
-                  key={mode}
+                  key={`${mode}:${connectionRevision}`}
                   client={client}
                   initialSection="account"
                 />
@@ -238,7 +245,7 @@ function ProductSettings({
           <>
             {ready && (
               <AISettings
-                key={mode}
+                key={`${mode}:${connectionRevision}`}
                 client={client}
                 onManage={() => {
                   setSection("accounts");

@@ -30,6 +30,9 @@ export function createBridge(
     server: Server;
     leases: ClientLeases;
     accepting?: boolean;
+    readAllowedExtensions?: () => Promise<readonly string[]>;
+    appVersion?: string;
+    updateRequested?: boolean;
   },
 ) {
   if (token.length < 32)
@@ -160,12 +163,26 @@ export function createBridge(
   });
   service.ledger.restore(history.read());
   service.ledger.prune(Date.now(), config.settings.retentionDays);
-  const allowed = new Set([
+  const discordOrigins = new Set([
     "https://discord.com",
     "https://canary.discord.com",
     "https://ptb.discord.com",
-    ...config.allowedExtensions.map((id) => `chrome-extension://${id}`),
   ]);
+  async function allowedOrigin(origin: string) {
+    if (discordOrigins.has(origin)) return true;
+    const extension = /^chrome-extension:\/\/([a-p]{32})$/.exec(origin)?.[1];
+    if (!extension) return false;
+    try {
+      // Reload only browser authorization; active sessions and model settings stay intact.
+      const extensions = runtime?.readAllowedExtensions
+        ? await runtime.readAllowedExtensions()
+        : config.allowedExtensions;
+      return extensions.includes(extension);
+    } catch {
+      // A missing or invalid authorization file must never grant browser access.
+      return false;
+    }
+  }
   const rate = new Map<string, { count: number; until: number }>();
   const server = runtime?.server ?? createServer();
   server.on("request", async (request, response) => {
@@ -177,7 +194,7 @@ export function createBridge(
       response.end(JSON.stringify(body));
     };
     const origin = request.headers.origin;
-    if (!origin || !allowed.has(origin)) {
+    if (!origin || !(await allowedOrigin(origin))) {
       reply(403, { ok: false, error: "Origin rejected" });
       return;
     }
@@ -252,7 +269,17 @@ export function createBridge(
           version: 1,
           instanceId: runtime.instanceId,
           clients: runtime.leases.count,
+          ...(runtime.appVersion ? { appVersion: runtime.appVersion } : {}),
         });
+        return;
+      }
+      if (runtime && request.url === "/v1/runtime/prepare-update") {
+        if (!discordOrigins.has(origin)) {
+          reply(403, { ok: false, error: "Update requires a local installer" });
+          return;
+        }
+        runtime.updateRequested = true;
+        reply(200, { ok: true, clients: runtime.leases.count });
         return;
       }
       if (runtime && request.url === "/v1/runtime/lease") {

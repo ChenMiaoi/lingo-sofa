@@ -8,9 +8,35 @@ import {
   parseWindowsUpdate,
   WindowsUpdater,
   latestReleaseUrl,
+  waitForInstallerReady,
 } from "../packages/local-runtime/src/updates.js";
 
 afterEach(() => vi.unstubAllGlobals());
+it("waits for prepared files before closing the client and reports preparation failures", async () => {
+  const home = await mkdtemp(join(tmpdir(), "lingo-update-ready-"));
+  const path = join(home, "ready.json");
+  try {
+    let ready = false;
+    const pending = waitForInstallerReady(path).then(() => {
+      ready = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ready).toBe(false);
+    await writeFile(path, JSON.stringify({ ready: true }));
+    await pending;
+    expect(ready).toBe(true);
+    await expect(readFile(path)).rejects.toThrow();
+    await writeFile(path, JSON.stringify({ error: "Preparation cancelled" }));
+    await expect(waitForInstallerReady(path)).rejects.toThrow(
+      "Preparation cancelled",
+    );
+    await expect(waitForInstallerReady(path, 1)).rejects.toThrow(
+      "Discord 保持打开",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
 function release(data = Buffer.from("installer")) {
   return {
     tag_name: "v0.2.0",

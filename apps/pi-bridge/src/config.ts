@@ -30,6 +30,12 @@ export const nativeProviderEnvelopeSchema = z.discriminatedUnion("operation", [
     version: z.literal(1),
     sourceKind: z.literal("web"),
     scope: z.literal("browser"),
+    operation: z.literal("runtime-status"),
+  }),
+  z.strictObject({
+    version: z.literal(1),
+    sourceKind: z.literal("web"),
+    scope: z.literal("browser"),
     operation: z.literal("oauth"),
     request: oauthRequestSchema,
   }),

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -22,7 +22,13 @@ const home = resolve(
 );
 const branch = /(?:ptb|canary|development)$/i.exec(target)?.[0] ?? "";
 const selectedDiscord = new RegExp(`^"Discord${branch}\\.exe"`, "im");
-try {
+async function reportReady(status) {
+  const path = process.env.LINGO_SOFA_UPDATE_READY;
+  if (!path) return;
+  await writeFile(`${path}.tmp`, JSON.stringify(status), "utf8");
+  await rename(`${path}.tmp`, path);
+}
+async function waitForClients() {
   // No process is killed. Let Discord and any browser leases finish before replacing files.
   const deadline = Date.now() + 180_000;
   while (true) {
@@ -39,6 +45,28 @@ try {
         try {
           process.kill(connection.pid, 0);
           assistantRunning = true;
+          if (
+            Number.isInteger(connection.port) &&
+            connection.port >= 1024 &&
+            connection.port <= 65535 &&
+            /^[a-f0-9]{64}$/.test(connection.token ?? "")
+          ) {
+            await globalThis
+              .fetch(
+                `http://127.0.0.1:${connection.port}/v1/runtime/prepare-update`,
+                {
+                  method: "POST",
+                  headers: {
+                    Origin: "https://discord.com",
+                    Authorization: `Bearer ${connection.token}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: "{}",
+                  signal: globalThis.AbortSignal.timeout(1000),
+                },
+              )
+              .catch(() => undefined);
+          }
         } catch (error) {
           if (error.code !== "ESRCH") throw error;
         }
@@ -53,9 +81,15 @@ try {
       );
     await setTimeout(1000);
   }
+}
+try {
   await installWindowsBundle({
     payload: import.meta.dirname,
     home,
+    beforeInstall: async () => {
+      await reportReady({ ready: true });
+      await waitForClients();
+    },
     target: resolve(target),
     settings: join(
       process.env.VENCORD_USER_DATA_DIR ??
@@ -75,6 +109,9 @@ try {
   });
   await writeFile(resultFile, "OK", "utf8");
 } catch (error) {
+  await reportReady({
+    error: error instanceof Error ? error.message : "安装准备失败",
+  });
   await writeFile(
     resultFile,
     error instanceof Error ? error.message : "安装失败",

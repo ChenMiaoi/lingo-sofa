@@ -1,6 +1,23 @@
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
+export const runtimeStatusSchema = z.object({
+  version: z.literal(1),
+  instanceId: z.uuid(),
+  clients: z.number().int().nonnegative(),
+  appVersion: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/)
+    .optional(),
+});
+export const assistantConnectionSchema = z.strictObject({
+  connected: z.boolean(),
+  installed: z.boolean().nullable(),
+  version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/)
+    .optional(),
+});
 const text = z.string().trim().min(1);
 export const translationUnitSchema = z.strictObject({
   id: z.string().min(1).max(128),

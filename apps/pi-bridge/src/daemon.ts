@@ -7,16 +7,19 @@ import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
 import { bridgeConfigSchema } from "./config.js";
 import { readProviderSettings } from "./provider-settings.js";
 import { createBridge } from "./server.js";
+declare const LINGO_SOFA_VERSION: string;
 
 export async function startDaemon(
   directory: string,
   lifecycle = { leases: new ClientLeases(), pollMs: 1_000 },
 ) {
-  const config = bridgeConfigSchema.parse(
-    JSON.parse(
-      await readFile(join(directory, "config.json"), "utf8"),
-    ) as unknown,
-  );
+  const readConfig = async () =>
+    bridgeConfigSchema.parse(
+      JSON.parse(
+        await readFile(join(directory, "config.json"), "utf8"),
+      ) as unknown,
+    );
+  const config = await readConfig();
   const saved = await readProviderSettings(directory);
   if (saved) config.settings.model = saved.model;
   // Bind first: simultaneous launchers cannot initialize competing history writers.
@@ -31,7 +34,17 @@ export async function startDaemon(
   const instanceId = randomUUID();
   const token = randomBytes(32).toString("hex");
   const { leases } = lifecycle;
-  const runtime = { instanceId, server, leases, accepting: true };
+  const runtime = {
+    instanceId,
+    server,
+    leases,
+    accepting: true,
+    ...(typeof LINGO_SOFA_VERSION === "string"
+      ? { appVersion: LINGO_SOFA_VERSION }
+      : {}),
+    updateRequested: false,
+    readAllowedExtensions: async () => (await readConfig()).allowedExtensions,
+  };
   try {
     const bridge = createBridge(
       config,
@@ -76,7 +89,10 @@ export async function startDaemon(
         }
       })());
     const timer = setInterval(() => {
-      if (leases.shouldStop(bridge.busy))
+      if (
+        leases.shouldStop(bridge.busy) ||
+        (runtime.updateRequested && leases.count === 0)
+      )
         void stop().catch(() => {
           process.exitCode = 1;
         });

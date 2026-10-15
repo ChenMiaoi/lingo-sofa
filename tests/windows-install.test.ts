@@ -206,3 +206,66 @@ it("rejects altered files, unexpected files, downgrades and concurrent installer
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+it("prepares immutable files before requesting client exit and snapshots the latest settings afterwards", async () => {
+  const f = await fixture();
+  let prepared = false;
+  try {
+    await installWindowsBundle({
+      ...f,
+      beforeInstall: async () => {
+        expect(
+          await readFile(
+            join(f.home, "windows/v0.2.0/vencord/dist/patcher.js"),
+            "utf8",
+          ),
+        ).toBe("vencord/dist/patcher.js");
+        expect(await readFile(join(f.resources, "app.asar"), "utf8")).toBe(
+          "original discord",
+        );
+        await mkdir(join(f.root, "settings/settings"), { recursive: true });
+        await writeFile(
+          f.settings,
+          JSON.stringify({
+            userChangedWhilePreparing: true,
+            plugins: { LingoSofa: { enabled: false } },
+          }),
+        );
+        prepared = true;
+      },
+      run: async (...args) => {
+        expect(prepared).toBe(true);
+        await f.run(...args);
+      },
+    });
+    expect(JSON.parse(await readFile(f.settings, "utf8"))).toMatchObject({
+      userChangedWhilePreparing: true,
+      plugins: { LingoSofa: { enabled: false } },
+    });
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+it("does not change the installed host or runtime when preparation is cancelled", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(join(f.home, "runtime-install.json"), "existing runtime");
+    await expect(
+      installWindowsBundle({
+        ...f,
+        beforeInstall: async () => {
+          throw new Error("cancelled before exit");
+        },
+      }),
+    ).rejects.toThrow("cancelled before exit");
+    expect(await readFile(join(f.home, "runtime-install.json"), "utf8")).toBe(
+      "existing runtime",
+    );
+    expect(await readFile(join(f.resources, "app.asar"), "utf8")).toBe(
+      "original discord",
+    );
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});

@@ -1,12 +1,34 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { downloadAssistant } from "./installer.js";
 import { assistantDownloads } from "./release.js";
 
 export const latestReleaseUrl =
   "https://api.github.com/repos/ChenMiaoi/lingo-sofa/releases/latest";
+export async function waitForInstallerReady(path: string, timeoutMs = 600_000) {
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      try {
+        const status = JSON.parse(await readFile(path, "utf8")) as {
+          ready?: boolean;
+          error?: string;
+        };
+        if (status.error) throw new Error(status.error);
+        if (status.ready === true) return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      await delay(250);
+    }
+    throw new Error("安装准备超时，Discord 保持打开；请检查安装器后重试。");
+  } finally {
+    await rm(path, { force: true });
+  }
+}
 export function compareVersions(left: string, right: string): number {
   const parse = (value: string) => {
     if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value))
@@ -169,12 +191,20 @@ export class WindowsUpdater {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
+      const readyFile = join(
+        this.directory,
+        "updates",
+        update.version,
+        `ready-${randomUUID()}.json`,
+      );
       await this.startInstaller(path, args, {
         ...process.env,
         LINGO_SOFA_HOME: this.directory,
         NODE_OPTIONS: "",
+        LINGO_SOFA_UPDATE_READY: readyFile,
       });
       this.staged = null;
+      return readyFile;
     });
   }
 }

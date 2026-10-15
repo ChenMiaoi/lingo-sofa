@@ -36,7 +36,7 @@ export function UpdateSettings({
         await Native.downloadUpdate();
         setDownloaded(true);
         setNotice(
-          "下载和校验完成。安装时将退出 Discord；请同时关闭使用助手的浏览器。",
+          "下载和校验完成。安装器会先准备文件，准备好后 Discord 才会退出；请关闭使用助手的浏览器。",
         );
       } else {
         await Native.applyUpdate();
@@ -88,7 +88,7 @@ export function UpdateSettings({
             disabled={busy || !Native}
             onClick={() => void perform("apply")}
           >
-            {action === "apply" ? "正在准备安装…" : "退出 Discord 并安装更新"}
+            {action === "apply" ? "正在准备，Discord 可继续使用…" : "安装更新"}
           </button>
         )}
       </div>
@@ -100,7 +100,9 @@ export function UpdateSettings({
         {busy
           ? action === "download"
             ? "正在下载完整安装包并校验，请稍候。"
-            : "正在处理更新…"
+            : action === "apply"
+              ? "正在解压和校验，准备好后才会退出 Discord。"
+              : "正在处理更新…"
           : notice ||
             (!Native
               ? "当前客户端无法使用本地更新。"

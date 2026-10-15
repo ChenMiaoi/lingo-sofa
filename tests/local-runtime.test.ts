@@ -1,7 +1,14 @@
 import { it, expect, vi } from "vitest";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+  stat,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -373,3 +380,178 @@ it("does not release a newly enabled client when an earlier renewal finishes aft
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("applies browser grants and revocations without restarting Discord or dropping an in-flight request", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-live-authorization-"));
+  let finishResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    finishResponse = resolve;
+  });
+  const model = await modelServer({ responseGate });
+  const configured = await config(directory, model.endpoint);
+  await writeFile(
+    join(directory, "provider.json"),
+    JSON.stringify({ model: configured.settings.model, apiKey: "fixture-key" }),
+  );
+  const daemon = await startDaemon(directory);
+  const desktop = new RuntimeClient(directory, discord);
+  const addedOrigin = `chrome-extension://${"b".repeat(32)}`;
+  const browser = new RuntimeClient(directory, addedOrigin);
+  const save = async () => {
+    await writeFile(
+      join(directory, "config.json.tmp"),
+      JSON.stringify(configured),
+    );
+    await rename(
+      join(directory, "config.json.tmp"),
+      join(directory, "config.json"),
+    );
+  };
+  try {
+    const connection = await desktop.start();
+    const post = (origin: string) =>
+      runtimePost(connection, origin, "/v1/runtime/status", {});
+    expect((await post(addedOrigin)).status).toBe(403);
+    const pending = runtimePost(connection, discord, "/v1/request", {
+      version: 1,
+      sourceKind: "discord",
+      scope: "live-authorization",
+      request: {
+        kind: "translate",
+        requestId: crypto.randomUUID(),
+        units: [
+          {
+            id: "hello",
+            revision: "1",
+            sourceKind: "discord",
+            text: "Hello",
+            targetLanguage: "中文",
+            protectedParts: [],
+          },
+        ],
+      },
+    });
+    await expect.poll(() => model.requests.length).toBe(1);
+    configured.allowedExtensions.push("b".repeat(32));
+    await save();
+    const added = await browser.start();
+    expect(added).toEqual(connection);
+    expect(daemon.leases.count).toBe(2);
+    expect((await post(web)).status).toBe(200);
+    expect((await post(addedOrigin)).status).toBe(200);
+    expect(
+      (
+        await runtimePost(
+          { ...connection, token: "0".repeat(64) },
+          addedOrigin,
+          "/v1/runtime/status",
+          {},
+        )
+      ).status,
+    ).toBe(401);
+    configured.allowedExtensions = ["b".repeat(32)];
+    await save();
+    expect((await post(web)).status).toBe(403);
+    expect((await post(addedOrigin)).status).toBe(200);
+    expect((await post(discord)).status).toBe(200);
+    await writeFile(join(directory, "config.json"), "invalid JSON");
+    expect((await post(addedOrigin)).status).toBe(403);
+    expect((await post(discord)).status).toBe(200);
+    await save();
+    finishResponse();
+    expect(await (await pending).json()).toMatchObject({
+      ok: true,
+      results: [{ text: "译文 Hello" }],
+    });
+    const descriptor = JSON.parse(
+      await readFile(join(directory, "runtime-connection.json"), "utf8"),
+    );
+    expect(descriptor.instanceId).toBe(connection.instanceId);
+    expect(descriptor.token).toBe(connection.token);
+    expect(model.requests).toHaveLength(1);
+  } finally {
+    finishResponse();
+    await Promise.all([browser.stop(), desktop.stop()]);
+    await daemon.stop();
+    await model.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 15_000);
+
+it("skips the idle grace during an authenticated update but drains active work and waits for clients", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-update-drain-"));
+  let finish!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const model = await modelServer({ responseGate });
+  const configured = await config(directory, model.endpoint);
+  await writeFile(
+    join(directory, "provider.json"),
+    JSON.stringify({ model: configured.settings.model, apiKey: "fixture-key" }),
+  );
+  const daemon = await startDaemon(directory, {
+    leases: new ClientLeases(45_000, 60_000),
+    pollMs: 10,
+  });
+  const desktop = new RuntimeClient(directory, discord);
+  try {
+    const connection = await desktop.start();
+    expect(
+      (await runtimePost(connection, web, "/v1/runtime/prepare-update", {}))
+        .status,
+    ).toBe(403);
+    expect(
+      (
+        await runtimePost(
+          { ...connection, token: "0".repeat(64) },
+          discord,
+          "/v1/runtime/prepare-update",
+          {},
+        )
+      ).status,
+    ).toBe(401);
+    const pending = runtimePost(connection, discord, "/v1/request", {
+      version: 1,
+      sourceKind: "discord",
+      scope: "updating",
+      request: {
+        kind: "translate",
+        requestId: crypto.randomUUID(),
+        units: [
+          {
+            id: "hello",
+            revision: "1",
+            sourceKind: "discord",
+            text: "Hello",
+            targetLanguage: "中文",
+            protectedParts: [],
+          },
+        ],
+      },
+    });
+    await expect.poll(() => model.requests.length).toBe(1);
+    expect(
+      (await runtimePost(connection, discord, "/v1/runtime/prepare-update", {}))
+        .status,
+    ).toBe(200);
+    await delay(25);
+    expect(daemon.server.listening).toBe(true);
+    await desktop.stop();
+    await delay(25);
+    expect(daemon.server.listening).toBe(true);
+    expect(daemon.busy).toBe(true);
+    finish();
+    expect(await (await pending).json()).toMatchObject({ ok: true });
+    await expect
+      .poll(() => daemon.server.listening, { timeout: 2000 })
+      .toBe(false);
+    expect(model.requests).toHaveLength(1);
+  } finally {
+    finish();
+    await desktop.stop();
+    await daemon.stop();
+    await model.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 15_000);

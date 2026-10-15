@@ -6,6 +6,10 @@ export class NativeConnection {
   private enabled = false;
   private retry: ReturnType<typeof setTimeout> | undefined;
   private retryDelay = 1_000;
+  private hostSeen = false;
+  get installed(): true | null {
+    return this.hostSeen ? true : null;
+  }
   private pending = new Map<
     string,
     {
@@ -24,6 +28,7 @@ export class NativeConnection {
     try {
       const port = (this.port = this.connect());
       port.onMessage.addListener((raw: unknown) => {
+        this.hostSeen = true;
         const message = raw as {
           transportId?: unknown;
           payload?: unknown;
@@ -39,7 +44,8 @@ export class NativeConnection {
       port.onDisconnect.addListener(() => {
         if (this.port !== port) return;
         // Read lastError to acknowledge browser-native launch failures.
-        void browser.runtime.lastError;
+        const error = browser.runtime.lastError?.message ?? "";
+        if (/forbidden|exited|not allowed/i.test(error)) this.hostSeen = true;
         this.port = undefined;
         this.rejectPending("本地助手连接中断；请求未自动重发");
         this.schedule();
@@ -73,6 +79,11 @@ export class NativeConnection {
     this.rejectPending("本地助手连接已关闭");
   }
   request(payload: unknown): Promise<unknown> {
+    if (!this.port) {
+      // A new request (including connection checks after authorization) can retry now.
+      clearTimeout(this.retry);
+      this.retry = undefined;
+    }
     this.start();
     const port = this.port;
     if (!port) return Promise.reject(new Error("请先安装 LingoSofa 本地助手"));

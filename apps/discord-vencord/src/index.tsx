@@ -625,6 +625,8 @@ function AssistantStatus() {
   const [status, setStatus] = React.useState({
     message: "正在连接本地助手…",
     busy: false,
+    pluginVersion: "",
+    assistantVersion: undefined as string | undefined,
   });
   React.useEffect(() => {
     let active = true;
@@ -635,7 +637,11 @@ function AssistantStatus() {
         })
         .catch(() => {
           if (active)
-            setStatus({ message: "无法读取本地助手状态", busy: false });
+            setStatus((previous) => ({
+              ...previous,
+              message: "无法读取本地助手状态",
+              busy: false,
+            }));
         });
     };
     refresh();
@@ -651,6 +657,11 @@ function AssistantStatus() {
       aria-label="本地助手"
     >
       <h3>本地助手</h3>
+      <p className="lingo-sofa-maintenance-status">
+        插件 {status.pluginVersion ? `v${status.pluginVersion}` : "版本读取中"}{" "}
+        · 助手{" "}
+        {status.assistantVersion ? `v${status.assistantVersion}` : "版本未提供"}
+      </p>
       <p role="status">{status.message}</p>
       <button
         disabled={status.busy}

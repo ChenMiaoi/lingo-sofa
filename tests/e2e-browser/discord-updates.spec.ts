@@ -17,7 +17,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 window.events=[]; window.downloadFails=true;
 const native={checkUpdate:async()=>{window.events.push('check'); return {version:'0.2.0'};},
 downloadUpdate:async()=>{window.events.push('download'); await new Promise(r=>window.finishDownload=r); if(window.downloadFails)throw new Error('安装包校验失败');},
-applyUpdate:async()=>{window.events.push('apply');}};
+applyUpdate:async()=>{window.events.push('apply'); await new Promise(r=>window.finishPreparation=r); }};
 createRoot(document.getElementById('root')).render(React.createElement(UpdateSettings,{native}));`,
     },
     bundle: true,
@@ -47,7 +47,7 @@ createRoot(document.getElementById('root')).render(React.createElement(UpdateSet
   );
   await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
   await expect(
-    page.getByRole("button", { name: "退出 Discord 并安装更新" }),
+    page.getByRole("button", { name: "安装更新", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "检查更新" }).click();
   await page.setViewportSize({ width: 320, height: 640 });
@@ -83,7 +83,7 @@ createRoot(document.getElementById('root')).render(React.createElement(UpdateSet
   );
   await expect(page.getByRole("alert")).toHaveText("安装包校验失败");
   await expect(
-    page.getByRole("button", { name: "退出 Discord 并安装更新" }),
+    page.getByRole("button", { name: "安装更新", exact: true }),
   ).toHaveCount(0);
   await page.evaluate(() => {
     (window as unknown as { downloadFails: boolean }).downloadFails = false;
@@ -93,7 +93,18 @@ createRoot(document.getElementById('root')).render(React.createElement(UpdateSet
     (window as unknown as { finishDownload: () => void }).finishDownload(),
   );
   await expect(page.getByRole("status")).toContainText("下载和校验完成");
-  await page.getByRole("button", { name: "退出 Discord 并安装更新" }).click();
+  await page.getByRole("button", { name: "安装更新", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "准备好后才会退出 Discord",
+  );
+  await expect(
+    page.getByRole("button", { name: "正在准备，Discord 可继续使用…" }),
+  ).toBeDisabled();
+  await page.evaluate(() =>
+    (
+      window as unknown as { finishPreparation: () => void }
+    ).finishPreparation(),
+  );
   await expect(page.getByRole("status")).toContainText("Discord 即将退出");
   expect(
     await page.evaluate(

@@ -1,6 +1,11 @@
 import { homedir } from "node:os";
 import { RuntimeClient } from "@lingo-sofa/local-runtime";
-import { WindowsUpdater } from "@lingo-sofa/local-runtime/updates";
+import {
+  WindowsUpdater,
+  waitForInstallerReady,
+} from "@lingo-sofa/local-runtime/updates";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createRequire } from "node:module";
 import {
   AssistantInstaller,
@@ -37,7 +42,8 @@ export async function downloadUpdate(event: unknown) {
 }
 export async function applyUpdate(event: unknown) {
   void event;
-  await updater.launch();
+  const readyFile = await updater.launch();
+  await waitForInstallerReady(readyFile);
   enabled = false;
   await runtime.stop();
   // Return the IPC response before asking Discord to exit normally.
@@ -48,7 +54,28 @@ export async function applyUpdate(event: unknown) {
 }
 export async function installationStatus(event: unknown) {
   void event;
-  return { message, busy: Boolean(pending) };
+  let assistantVersion: string | undefined;
+  try {
+    const value = JSON.parse(
+      await readFile(join(directory, "runtime-install.json"), "utf8"),
+    );
+    if (
+      typeof value.version === "string" &&
+      /^\d+\.\d+\.\d+$/.test(value.version)
+    )
+      assistantVersion = value.version;
+  } catch {
+    /* Installation may still be in progress. */
+  }
+  return {
+    message,
+    busy: Boolean(pending),
+    pluginVersion:
+      typeof LINGO_SOFA_ASSISTANT_RELEASE === "undefined"
+        ? "开发版"
+        : LINGO_SOFA_ASSISTANT_RELEASE.version,
+    assistantVersion,
+  };
 }
 
 // Native IPC exposes only our connection; provider keys and Discord credentials stay private.

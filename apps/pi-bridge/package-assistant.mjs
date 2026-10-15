@@ -78,7 +78,7 @@ try {
   );
   await writeFile(
     join(payload, "README.txt"),
-    `LingoSofa ${version} — ${process.platform}/${process.arch}\n\n解压后双击 ${process.platform === "win32" ? "Install.cmd" : "Install.command"}。浏览器用户先从扩展设置复制扩展 ID，在安装提示中粘贴。仅 Discord 使用可直接回车。\n安装到当前用户目录，无需另装 Node。所有客户端共用一份助手。升级或新增浏览器授权前关闭所有客户端，等待助手退出。\nCLI: runtime/${process.platform === "win32" ? "node.exe" : "node"} install.mjs [EXTENSION_ID ...]\n本开发包尚未签名/公证；公开发行条件见 THIRD_PARTY_NOTICES.md 和项目文档。\n`,
+    `LingoSofa ${version} — ${process.platform}/${process.arch}\n\n解压后双击 ${process.platform === "win32" ? "Install.cmd" : "Install.command"}。浏览器用户先从扩展设置复制扩展 ID，在安装提示中粘贴。仅 Discord 使用可直接回车。\n安装到当前用户目录，无需另装 Node。所有客户端共用一份助手。升级助手前关闭所有客户端并等待退出；仅新增浏览器授权时，复制扩展设置中的授权命令即可，无需关闭客户端。\nCLI: runtime/${process.platform === "win32" ? "node.exe" : "node"} install.mjs [EXTENSION_ID ...]\n本开发包尚未签名/公证；公开发行条件见 THIRD_PARTY_NOTICES.md 和项目文档。\n`,
   );
   const files = {};
   async function inventory(directory, prefix = "") {

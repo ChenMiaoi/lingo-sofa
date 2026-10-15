@@ -12,6 +12,7 @@ import {
 } from "@lingo-sofa/provider-pi/browser";
 import {
   providerCatalogSchema,
+  runtimeStatusSchema,
   accountMatches,
   oauthRequestSchema,
   oauthStatusSchema,
@@ -515,6 +516,37 @@ export default defineBackground(() => {
         throw new Error(
           "Settings and account data are restricted to extension pages",
         );
+      if (data.action === "assistant-status") {
+        try {
+          const reply = await native.request({
+            version: 1,
+            sourceKind: "web",
+            scope: "browser",
+            operation: "runtime-status",
+          });
+          const runtime = runtimeStatusSchema.safeParse(reply);
+          if (!runtime.success) await catalog("bridge");
+          await browser.storage.local.set({ assistantInstalled: true });
+          return {
+            connected: true,
+            installed: true,
+            ...(runtime.success && runtime.data.appVersion
+              ? { version: runtime.data.appVersion }
+              : {}),
+          };
+        } catch {
+          const saved = await browser.storage.local.get("assistantInstalled");
+          return {
+            connected: false,
+            installed:
+              saved.assistantInstalled === false
+                ? false
+                : saved.assistantInstalled === true || native.installed === true
+                  ? true
+                  : null,
+          };
+        }
+      }
       if (data.action === "provider-oauth") {
         const request = oauthRequestSchema.parse(data.oauth);
         return oauthStatusSchema.parse(

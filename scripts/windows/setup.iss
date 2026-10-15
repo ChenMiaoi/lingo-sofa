@@ -43,7 +43,7 @@ procedure InitializeWizard;
 begin
   DiscordPage := CreateInputDirPage(wpWelcome, 'Discord installation',
     'Choose the Discord installation to install or update.',
-    'LingoSofa installs a custom Vencord build and a shared local assistant. Exit Discord from the tray and close browsers using the assistant before continuing. Existing accounts and settings are preserved. Choose the Discord directory containing app-*.',
+    'LingoSofa installs a custom Vencord build and a shared local assistant. Files are prepared first. Exit Discord from the tray and close browsers using the assistant when installation is ready. Existing accounts and settings are preserved. Choose the Discord directory containing app-*.',
     False, '');
   DiscordPage.Add('Discord directory:');
   DiscordPage.Values[0] := ExpandConstant('{param:DISCORDDIR|{localappdata}\Discord}');
@@ -79,7 +79,7 @@ var
   ResultText: AnsiString;
 begin
   if CurStep = ssPostInstall then begin
-    WizardForm.StatusLabel.Caption := 'Waiting for Discord and the assistant to exit; then installing...';
+    WizardForm.StatusLabel.Caption := 'Preparing and verifying files; clients only need to exit before switching versions...';
     ResultFile := ExpandConstant('{tmp}\lingo-sofa-result.txt');
     if not Exec(ExpandConstant('{tmp}\lingo-sofa\{#AssistantDirectory}\runtime\node.exe'),
       '"' + ExpandConstant('{tmp}\lingo-sofa\install.js') + '" "' + DiscordPage.Values[0] + '" "' + ResultFile + '"',

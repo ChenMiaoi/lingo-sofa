@@ -1,5 +1,5 @@
 import { it, expect, vi } from "vitest";
-import type { Browser } from "wxt/browser";
+import { browser, type Browser } from "wxt/browser";
 vi.mock("wxt/browser", () => ({ browser: { runtime: {} } }));
 import { NativeConnection } from "../apps/browser-extension/src/native-connection.js";
 function port() {
@@ -70,3 +70,60 @@ it("reconnects after a broken host but rejects outstanding work without replayin
     vi.useRealTimers();
   }
 });
+
+it("checks a newly authorized host immediately while a reconnect timer is pending", async () => {
+  vi.useFakeTimers();
+  const first = port();
+  const next = port();
+  const connect = vi
+    .fn()
+    .mockReturnValueOnce(first.api)
+    .mockReturnValue(next.api);
+  const client = new NativeConnection(connect);
+  try {
+    client.start();
+    first.disconnects[0]!();
+    const check = client.request({ operation: "provider" });
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(next.sent).toHaveLength(1);
+    next.messages[0]!({
+      transportId: next.sent[0]!.transportId,
+      payload: "connected",
+    });
+    expect(await check).toBe("connected");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(connect).toHaveBeenCalledTimes(2);
+  } finally {
+    client.stop();
+    vi.useRealTimers();
+  }
+});
+
+it.each([
+  { message: "Specified native messaging host not found.", installed: null },
+  {
+    message: "Access to the specified native messaging host is forbidden.",
+    installed: true,
+  },
+])(
+  "does not confuse missing registration with missing installation: $message",
+  ({ message, installed }) => {
+    const native = port();
+    const client = new NativeConnection(() => native.api);
+    Object.defineProperty(browser.runtime, "lastError", {
+      value: { message },
+      configurable: true,
+    });
+    try {
+      client.start();
+      native.disconnects[0]!();
+      expect(client.installed).toBe(installed);
+    } finally {
+      client.stop();
+      Object.defineProperty(browser.runtime, "lastError", {
+        value: undefined,
+        configurable: true,
+      });
+    }
+  },
+);

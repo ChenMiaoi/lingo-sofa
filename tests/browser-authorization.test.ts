@@ -23,7 +23,7 @@ it("generates platform commands with the extension ID and rejects shell input", 
   }
 });
 
-it("authorizes an installed runtime without its installer, preserves data and rejects active or conflicting installs", async () => {
+it("authorizes an installed runtime without its installer, preserves data while the runtime is active and rejects conflicting installs", async () => {
   const work = await mkdtemp(join(tmpdir(), "lingo authorization ' "));
   const home = join(work, "assistant");
   const runtime = join(home, "runtime");
@@ -152,22 +152,29 @@ it("authorizes an installed runtime without its installer, preserves data and re
         },
       });
     }
-    const original = await readFile(join(home, "config.json"), "utf8");
     await writeFile(
       join(home, "runtime-connection.json"),
       JSON.stringify({ pid: process.pid }),
     );
-    await expect(authorize("c".repeat(32))).rejects.toThrow("关闭浏览器");
-    expect(await readFile(join(home, "config.json"), "utf8")).toBe(original);
+    await authorize("c".repeat(32));
+    expect(
+      JSON.parse(await readFile(join(home, "config.json"), "utf8"))
+        .allowedExtensions,
+    ).toEqual(["b".repeat(32), id, "c".repeat(32)]);
+    expect(
+      JSON.parse(await readFile(join(home, "runtime-connection.json"), "utf8"))
+        .pid,
+    ).toBe(process.pid);
+    const authorized = await readFile(join(home, "config.json"), "utf8");
     await rm(join(home, "runtime-connection.json"));
     await writeFile(
       registration,
       JSON.stringify({ name: "com.lingosofa.bridge", path: "/other/host" }),
     );
-    await expect(authorize("c".repeat(32))).rejects.toThrow(
+    await expect(authorize("d".repeat(32))).rejects.toThrow(
       "different Native Host",
     );
-    expect(await readFile(join(home, "config.json"), "utf8")).toBe(original);
+    expect(await readFile(join(home, "config.json"), "utf8")).toBe(authorized);
     await expect(authorize("invalid-id")).rejects.toThrow(
       "Invalid extension ID",
     );

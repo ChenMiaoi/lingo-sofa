@@ -83,11 +83,13 @@ export function startNative(
               : bridgeEnvelopeSchema.parse(raw);
             const route =
               "operation" in envelope
-                ? envelope.operation === "oauth"
-                  ? "/v1/oauth"
-                  : envelope.operation === "provider"
-                    ? "/v1/provider"
-                    : "/v1/provider/update"
+                ? envelope.operation === "runtime-status"
+                  ? "/v1/runtime/status"
+                  : envelope.operation === "oauth"
+                    ? "/v1/oauth"
+                    : envelope.operation === "provider"
+                      ? "/v1/provider"
+                      : "/v1/provider/update"
                 : "/v1/request";
             const body =
               "operation" in envelope
