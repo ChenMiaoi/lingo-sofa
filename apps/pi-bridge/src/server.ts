@@ -6,7 +6,10 @@ import { createServer, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { resolveModel, listModels } from "@lingo-sofa/provider-pi/node";
 import { capabilities } from "@lingo-sofa/provider-pi";
-import { TranslationService } from "@lingo-sofa/translation-core";
+import {
+  TranslationService,
+  summarizeModels,
+} from "@lingo-sofa/translation-core";
 import {
   oauthRequestSchema,
   providerUpdateSchema,
@@ -484,6 +487,19 @@ export function createBridge(
         : "discord";
       if (envelope.sourceKind !== expectedKind)
         throw new Error("Source boundary mismatch");
+      if (
+        expectedKind === "web" &&
+        envelope.scope === "browser:summary" &&
+        envelope.request.kind === "usage"
+      ) {
+        service.ledger.prune(Date.now(), config.settings.retentionDays);
+        reply(200, {
+          ok: true,
+          usageSummary: summarizeModels(service.ledger.list()),
+          settings: config.settings,
+        });
+        return;
+      }
       if (
         expectedKind === "web" &&
         envelope.scope === "browser" &&

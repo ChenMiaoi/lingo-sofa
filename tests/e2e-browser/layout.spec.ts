@@ -1,5 +1,5 @@
 import { test, expect, chromium } from "@playwright/test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -32,97 +32,72 @@ for (const colorScheme of ["light", "dark"] as const) {
       await page.setViewportSize({ width: 1200, height: 900 });
       await page.goto(`chrome-extension://${id}/options.html?view=activity`);
       await expect(
-        page.getByRole("heading", { name: "LingoSofa", exact: true }),
+        page.getByRole("heading", { name: "用量与费用", exact: true }),
       ).toBeVisible();
-      await page.evaluate(() => {
-        const fixture = globalThis as typeof globalThis & {
-          uiFeedback: number[];
-        };
-        fixture.uiFeedback = [];
-        document.addEventListener(
-          "click",
-          (event) => {
-            if (
-              !(event.target instanceof Element) ||
-              !event.target.closest(".page-nav a")
-            )
-              return;
-            const started = performance.now();
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() =>
-                fixture.uiFeedback.push(performance.now() - started),
-              ),
-            );
-          },
-          true,
-        );
-      });
+      await expect(page).toHaveURL(/options.html#usage$/);
       await page.keyboard.press("Tab");
+      await expect(page.getByRole("link", { name: /LingoSofa/ })).toBeFocused();
+
+      await page.getByText("直连模型的自定义计价", { exact: true }).click();
+      await page.getByLabel("输入单价", { exact: true }).fill("0.2,");
+      await page.getByRole("button", { name: "保存计价", exact: true }).click();
+      await expect(page.getByRole("alert")).toContainText("请填写四个非负数");
+      for (const [label, value] of [
+        ["输入单价", "0.2"],
+        ["输出单价", "0.8"],
+        ["缓存读取单价", "0.01"],
+        ["缓存写入单价", "0"],
+      ]) {
+        await page.getByLabel(label!, { exact: true }).fill(value!);
+      }
+      await page.getByRole("button", { name: "保存计价", exact: true }).click();
+      await expect(page.getByRole("status")).toContainText("计价已保存");
+      await page.reload();
       await expect(
-        page.getByRole("link", { name: "跳到翻译操作" }),
-      ).toBeFocused();
+        page.getByRole("heading", { name: "用量与费用", exact: true }),
+      ).toBeVisible();
+      await page.getByText("直连模型的自定义计价", { exact: true }).click();
+      await expect(page.getByLabel("输入单价", { exact: true })).toHaveValue(
+        "0.2",
+      );
+      await expect(
+        page.getByLabel("缓存写入单价", { exact: true }),
+      ).toHaveValue("0");
+      const nav = page.getByRole("navigation", { name: "设置导航" });
+      await nav.getByRole("button", { name: "术语表", exact: true }).focus();
       await page.keyboard.press("Enter");
-      await page.keyboard.press("Tab");
       await expect(
-        page.getByRole("button", { name: "在页面中打开控制", exact: true }),
-      ).toBeFocused();
-      await page.keyboard.press("Tab");
+        page.getByRole("heading", { name: "术语表", exact: true }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "＋ 添加术语" }).click();
+      await page.getByLabel("原词 1", { exact: true }).fill("kernel");
+      await page.getByLabel("译词 1", { exact: true }).fill("内核");
+      await page.getByRole("button", { name: "保存术语表" }).click();
+      await expect(page.getByRole("status")).toContainText("术语表已保存");
+      await nav.getByRole("button", { name: "请求历史", exact: true }).click();
       await expect(
-        page.getByRole("button", { name: "翻译页面", exact: true }),
-      ).toBeFocused();
-      await page.getByRole("link", { name: "设置", exact: true }).click();
-      await expect(page.getByLabel("目标语言", { exact: true })).toBeVisible();
-      await page.getByLabel("目标语言", { exact: true }).fill("English");
-      await expect(page.getByLabel("目标语言", { exact: true })).toHaveValue(
-        "English",
-      );
-      const price = page.getByLabel(
-        "单价（每百万 tokens，USD；留空使用官方或目录价格）",
-        { exact: true },
-      );
-      await price.fill("0.2,");
-      await expect(price).toHaveValue("0.2,");
-      await page
-        .getByRole("button", { name: "授权并保存设置", exact: true })
-        .click();
-      await expect(page.getByRole("alert")).toContainText(
-        "单价请填写四个非负数",
-      );
-      await price.fill("0.2,0.8,0.01,0");
-      await expect(price).toHaveValue("0.2,0.8,0.01,0");
-      await page.getByRole("link", { name: "用量", exact: true }).click();
-      await expect(page.getByLabel("用量摘要", { exact: true })).toBeVisible();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
-      await page.getByRole("link", { name: "翻译与问答", exact: true }).click();
-      await page.waitForFunction(
-        () =>
-          (globalThis as typeof globalThis & { uiFeedback: number[] })
-            .uiFeedback.length === 3,
-      );
-      const samples = await page.evaluate(
-        () =>
-          (globalThis as typeof globalThis & { uiFeedback: number[] })
-            .uiFeedback,
-      );
+        page.getByRole("heading", { name: "还没有请求记录" }),
+      ).toBeVisible();
       await mkdir(".cache/ui", { recursive: true });
-      await writeFile(
-        `.cache/ui/feedback-${colorScheme}.json`,
-        JSON.stringify(
-          {
-            samplesMs: samples,
-            method:
-              "Native navigation click capture to second requestAnimationFrame, includes settings expansion/anchor layout; approximates local paint readiness and excludes model/network",
-          },
-          null,
-          2,
-        ),
-      );
-      await page.evaluate(() => scrollTo(0, 0));
-      await page.screenshot({ path: `.cache/ui/options-${colorScheme}.png` });
+      for (const width of [1200, 760, 392]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const section of [
+          "用量与费用",
+          "请求历史",
+          "术语表",
+          "隐私与数据",
+        ]) {
+          await nav.getByRole("button", { name: section, exact: true }).click();
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          ).toBe(true);
+          await page.screenshot({
+            path: `.cache/ui/settings-${section}-${colorScheme}-${width}.png`,
+          });
+        }
+      }
       await page.goto(`chrome-extension://${id}/popup.html`);
       await page.setViewportSize({ width: 392, height: 700 });
       expect(

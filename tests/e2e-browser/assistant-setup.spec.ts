@@ -186,6 +186,23 @@ test("guides browser installation with its own extension ID and hides the guide 
     await expect(page.getByRole("link", { name: /下载本地助手/ })).toHaveCount(
       0,
     );
+    await page.evaluate(() => {
+      const state = globalThis as typeof globalThis & {
+        assistantFixture: {
+          connected: boolean;
+          installed: boolean;
+          version: string;
+        };
+      };
+      state.assistantFixture = {
+        connected: true,
+        installed: true,
+        version: "0.2.3",
+      };
+    });
+    await expect(
+      page.getByRole("region", { name: "本地助手状态" }),
+    ).toContainText("本地助手已连接", { timeout: 6_000 });
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

@@ -2,9 +2,16 @@ import { themeStyles, themeAliases } from "@lingo-sofa/ui-shared";
 import { bindAppearance } from "./appearance.js";
 import { browser } from "wxt/browser";
 import { BLOCKS, extract, type PageProgress } from "@lingo-sofa/web-extraction";
+import { createPageUsage, pageUsageStyles } from "./page-usage.js";
+import type { PageUsageSnapshot } from "./page-usage-data.js";
+import { createFloatingDock, floatingDockStyles } from "./floating-dock.js";
 export interface PageControlActions {
   translateSelection: () => Promise<unknown>;
-  translatePage: () => void;
+  translatePage: () => Promise<unknown>;
+  stop: () => void;
+  pause: () => void;
+  usage: () => Promise<PageUsageSnapshot>;
+  usageSettings: () => Promise<unknown>;
   ask: () => void;
   settings: () => Promise<unknown>;
   enabled: (enabled: boolean) => Promise<void>;
@@ -43,6 +50,12 @@ ${themeStyles(":host")}
   menu.setAttribute("aria-label", "LingoSofa 快捷菜单");
   const menuStyle = document.createElement("style");
   menuStyle.textContent = `.command-menu{width:240px;padding:8px}.menu-brand{display:flex;align-items:center;gap:10px;padding:6px;font-size:13px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:6px}.menu-brand img,.command-menu button img{filter:grayscale(1);display:block;flex-shrink:0}.command-menu .command{display:flex;align-items:flex-start;gap:12px;width:100%;padding:10px;border:0;background:transparent;text-align:left;min-height:60px}.command strong{display:block;font-size:14px;font-weight:500;line-height:21px}.command small{display:block;font-size:12px;line-height:18px;color:var(--ls-muted);margin-top:3px}.command-menu .reading-preferences{width:100%;font-size:11px;border:0;border-top:1px solid var(--line);border-radius:0;margin-top:6px;background:transparent;color:var(--ls-muted)}`;
+  menuStyle.textContent +=
+    pageUsageStyles +
+    floatingDockStyles +
+    `
+.translation-task{margin:8px 2px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}.translation-task strong{display:block;font-size:12px;font-weight:600}.translation-task p{margin:6px 0 0;font-size:11px;color:var(--ls-muted);overflow-wrap:anywhere}.translation-task progress{display:block;width:100%;height:4px;margin:10px 0;accent-color:var(--accent)}.translation-task button{font-size:11px;min-height:28px;margin-top:10px;background:transparent}.translation-task[data-state=failed] strong{color:var(--ls-error)}.launcher[data-translation]::after{content:"";position:absolute;right:1px;top:1px;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}.launcher[data-translation=running]::after{animation:task-pulse 1s ease-in-out infinite}.launcher[data-translation=failed]::after{background:var(--ls-error)}@keyframes task-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.launcher[data-translation=running]::after{animation:none}}
+`;
   const brand = document.createElement("div");
   brand.className = "menu-brand";
   const mark = document.createElement("img");
@@ -58,6 +71,7 @@ ${themeStyles(":host")}
     ["翻译选中内容", "先选中文字", "globe", actions.translateSelection],
     ["翻译整页", "保留原文 · 译文在下", "globe", actions.translatePage],
     ["Ask", "带着所选内容开始对话", "menu-chat", actions.ask],
+    ["用量与费用", "全部客户端 · 按模型查看", "usage", () => openUsage()],
     ["设置", "模型、语言与快捷键", "settings", actions.settings],
   ] as const;
   for (const [title, hint, icon, action] of items) {
@@ -77,23 +91,65 @@ ${themeStyles(":host")}
     button.append(img, text);
     button.onpointerdown = (event) => event.preventDefault();
     button.onclick = () => {
-      toggle(false);
+      if (title === "用量与费用") {
+        openUsage();
+        return;
+      }
+      if (title === "翻译整页") {
+        pageBusy = true;
+        floating.setBusy(true);
+        menuNotice.textContent = "";
+        task.hidden = false;
+        taskTitle.textContent = "正在准备翻译…";
+        taskDetail.textContent = "识别当前页面的可翻译正文，原文会保留。";
+        taskProgress.removeAttribute("value");
+        taskProgress.hidden = false;
+        restore.hidden = false;
+        launcher.dataset.translation = task.dataset.state = "running";
+        launcher.title = "正在准备翻译 · Alt L 打开菜单";
+        button.disabled = true;
+      } else toggle(false);
       void Promise.resolve()
         .then(action)
-        .catch(() => {
+        .catch((reason: unknown) => {
           toggle(true);
-          menuNotice.textContent = "操作失败，请重试。";
+          const message =
+            reason instanceof Error ? reason.message : "操作失败，请重试。";
+          if (title === "翻译整页") {
+            taskTitle.textContent = "未能开始翻译";
+            taskDetail.textContent = message;
+            taskProgress.hidden = true;
+            launcher.dataset.translation = task.dataset.state = "failed";
+            launcher.title = "未能开始翻译 · Alt L 查看详情";
+            pageBusy = false;
+            floating.setBusy(false);
+            button.disabled = !readingEnabled;
+          } else menuNotice.textContent = message;
         });
     };
     menu.append(button);
     menuButtons.push(button);
   }
+  const task = document.createElement("section");
+  task.className = "translation-task";
+  task.hidden = true;
+  task.setAttribute("aria-label", "整页翻译进度");
+  task.innerHTML = `<div role="status" aria-live="polite"><strong></strong><p></p></div><progress aria-label="已翻译段落"></progress><div class="task-actions"><button type="button" class="task-pause">停止翻译</button><button type="button" class="task-restore">恢复原文</button></div>`;
+  const taskTitle = task.querySelector<HTMLElement>("strong")!;
+  const taskDetail = task.querySelector<HTMLElement>("p")!;
+  const taskProgress = task.querySelector<HTMLProgressElement>("progress")!;
+  const pause = task.querySelector<HTMLButtonElement>(".task-pause")!;
+  pause.onclick = actions.pause;
+  const restore = task.querySelector<HTMLButtonElement>(".task-restore")!;
+  restore.onclick = actions.stop;
+  menu.insertBefore(task, menuButtons[0]!);
+  let pageBusy = false;
   const preferences = document.createElement("button");
   preferences.type = "button";
   preferences.className = "reading-preferences";
   preferences.textContent = "阅读偏好";
   preferences.onclick = () => {
-    panel.hidden = true;
+    toggle(false);
     panel = readingPanel;
     toggle(true);
   };
@@ -121,6 +177,27 @@ ${themeStyles(":host")}
   const dock = shadow.querySelector<HTMLElement>(".dock")!;
   const readingPanel = shadow.querySelector<HTMLElement>(".pane")!;
   let panel: HTMLElement = menu;
+  const usage = createPageUsage(document, {
+    load: actions.usage,
+    settings: actions.usageSettings,
+    back: () => {
+      toggle(false);
+      panel = menu;
+      toggle(true);
+      menuButtons[3]!.focus();
+    },
+    close: () => {
+      toggle(false);
+      launcher.focus();
+    },
+  });
+  dock.append(usage.panel);
+  function openUsage() {
+    toggle(false);
+    panel = usage.panel;
+    toggle(true);
+    usage.panel.querySelector<HTMLButtonElement>(".back")!.focus();
+  }
   const launcher = shadow.querySelector<HTMLButtonElement>(".launcher")!;
   const model = shadow.querySelector<HTMLSelectElement>(".model")!;
   const reading = shadow.querySelector<HTMLInputElement>(".reading")!;
@@ -137,7 +214,8 @@ ${themeStyles(":host")}
       : "已关闭 · 仅显示原文";
     menuButtons[0]!.disabled =
       !value || !document.getSelection()?.toString().trim();
-    menuButtons[1]!.disabled = menuButtons[2]!.disabled = !value;
+    menuButtons[1]!.disabled = !value || pageBusy;
+    menuButtons[2]!.disabled = !value;
     if (!value) paragraph.hidden = true;
   }
   const language = shadow.querySelector<HTMLSelectElement>(".language")!;
@@ -168,9 +246,54 @@ ${themeStyles(":host")}
   const paragraph = shadow.querySelector<HTMLButtonElement>(".paragraph")!;
   const notice = shadow.querySelector<HTMLElement>(".notice")!;
   let hovered: HTMLElement | undefined;
-  let dragged = false;
-  let origin: { x: number; y: number; top: number } | undefined;
   const view = document.defaultView!;
+  const dockPreferences = document.createElement("section");
+  dockPreferences.className = "dock-preferences";
+  dockPreferences.setAttribute("aria-label", "悬浮入口偏好");
+  dockPreferences.innerHTML = `<h3>悬浮入口</h3><label class="auto-row"><span><strong>空闲自动收起</strong><span class="hint">贴边留出小入口，靠近时展开</span></span><input class="automatic dock-auto-hide" type="checkbox" role="switch" aria-label="空闲自动收起" checked></label><button type="button" class="dock-hide">隐藏本页悬浮球</button><p class="dock-shortcut">Alt L 或扩展弹窗可随时找回，刷新页面后恢复。</p>`;
+  readingPanel.append(dockPreferences);
+  const autoHide =
+    dockPreferences.querySelector<HTMLInputElement>(".dock-auto-hide")!;
+  const floating = createFloatingDock(document, dock, launcher, {
+    load: async () => {
+      const reply = await browser.runtime.sendMessage({
+        action: "floating-preferences",
+      });
+      if (!reply.ok) throw new Error(reply.error);
+      return reply.preferences;
+    },
+    save: async (preferences) => {
+      const reply = await browser.runtime.sendMessage({
+        action: "floating-preferences-update",
+        preferences,
+      });
+      if (!reply.ok) throw new Error(reply.error);
+    },
+    close: () => toggle(false),
+    moved: positionPanel,
+    changed: (preferences) => {
+      autoHide.checked = preferences.autoHide;
+    },
+    error: () => {
+      notice.textContent = "悬浮球位置未能保存，刷新后可能恢复。";
+    },
+  });
+  autoHide.onchange = () => {
+    autoHide.disabled = true;
+    void floating
+      .setAutoHide(autoHide.checked)
+      .then(() => {
+        notice.textContent = "悬浮入口偏好已保存";
+      })
+      .catch(() => {
+        notice.textContent = "悬浮入口偏好保存失败，请重试。";
+      })
+      .finally(() => {
+        autoHide.disabled = false;
+      });
+  };
+  dockPreferences.querySelector<HTMLButtonElement>(".dock-hide")!.onclick =
+    () => floating.hide();
   function positionPanel() {
     panel.style.left = dock.style.left ? "0" : "auto";
     panel.style.right = dock.style.left ? "auto" : "0";
@@ -183,14 +306,18 @@ ${themeStyles(":host")}
   function toggle(open: boolean) {
     panel.hidden = !open;
     launcher.setAttribute("aria-expanded", String(open));
+    floating.setOpen(open);
+    usage.setVisible(open && panel === usage.panel);
     if (open) {
       const selected = Boolean(document.getSelection()?.toString().trim());
       menuButtons[0]!.disabled = !readingEnabled || !selected;
-      menuButtons[1]!.disabled = menuButtons[2]!.disabled = !readingEnabled;
+      menuButtons[1]!.disabled = !readingEnabled || pageBusy;
+      menuButtons[2]!.disabled = !readingEnabled;
       menuButtons[0]!.querySelector("small")!.textContent = selected
         ? "仅翻译所选文字"
         : "先选中文字";
       positionPanel();
+      if (panel === usage.panel) return;
       model.disabled = true;
       void actions
         .configuration()
@@ -215,14 +342,13 @@ ${themeStyles(":host")}
         });
     }
   }
-  launcher.onclick = () => {
-    if (!dragged) {
-      const opening = panel.hidden;
-      panel.hidden = true;
-      panel = menu;
-      toggle(opening);
-    }
-    dragged = false;
+  launcher.onclick = (event) => {
+    if (floating.consumeClick(event)) return;
+    floating.reveal();
+    const opening = panel.hidden;
+    toggle(false);
+    panel = menu;
+    toggle(opening);
   };
   shadow.querySelector<HTMLButtonElement>(".close")!.onclick = () => {
     toggle(false);
@@ -333,8 +459,9 @@ ${themeStyles(":host")}
   const key = (event: KeyboardEvent) => {
     if (event.altKey && event.code === "KeyL") {
       event.preventDefault();
+      floating.reveal();
       const opening = panel.hidden;
-      panel.hidden = true;
+      toggle(false);
       panel = menu;
       toggle(opening);
       if (opening)
@@ -348,51 +475,70 @@ ${themeStyles(":host")}
   };
   document.addEventListener("pointerover", hover);
   view.addEventListener("scroll", hideHover, true);
+  view.addEventListener("resize", positionPanel);
   document.addEventListener("keydown", key);
-  launcher.onpointerdown = (event) => {
-    origin = {
-      x: event.clientX,
-      y: event.clientY,
-      top: dock.getBoundingClientRect().top,
-    };
-    dragged = false;
-    launcher.setPointerCapture(event.pointerId);
-  };
-  launcher.onpointermove = (event) => {
+  const outside = (event: PointerEvent) => {
     if (
-      !origin ||
-      Math.abs(event.clientX - origin.x) + Math.abs(event.clientY - origin.y) <
-        6
+      event.isTrusted &&
+      !panel.hidden &&
+      !event.composedPath().includes(host)
     )
-      return;
-    dragged = true;
-    toggle(false);
-    dock.style.top = `${Math.max(16, Math.min(origin.top + event.clientY - origin.y, view.innerHeight - 60))}px`;
-    dock.style.left = event.clientX < view.innerWidth / 2 ? "16px" : "";
-    dock.style.right = dock.style.left ? "auto" : "16px";
+      toggle(false);
   };
-  launcher.onpointerup = () => {
-    origin = undefined;
-  };
-  launcher.onpointercancel = () => {
-    origin = undefined;
-  };
-  launcher.onkeydown = (event) => {
-    if (["ArrowUp", "ArrowDown"].includes(event.key)) {
-      event.preventDefault();
-      dock.style.top = `${Math.max(16, Math.min(dock.getBoundingClientRect().top + (event.key === "ArrowUp" ? -24 : 24), view.innerHeight - 60))}px`;
-      positionPanel();
-    }
-  };
+  document.addEventListener("pointerdown", outside, true);
   return {
     open() {
-      panel.hidden = true;
+      floating.reveal();
+      toggle(false);
       panel = readingPanel;
       toggle(true);
     },
     update(next: PageProgress) {
-      if (next.failed)
-        notice.textContent = `${next.failed} 段未能翻译${next.error ? `：${next.error}` : ""}。可悬停段落重试。`;
+      pageBusy = next.active && !next.paused && next.pending > 0;
+      floating.setBusy(pageBusy);
+      menuButtons[1]!.disabled = !readingEnabled || pageBusy;
+      if (!next.active && task.hidden) return;
+      task.hidden = false;
+      taskProgress.hidden = !next.active || !next.total;
+      restore.hidden = !next.active;
+      pause.hidden =
+        !next.active || next.paused || next.completed === next.total;
+      menuButtons[1]!.querySelector("strong")!.textContent = next.paused
+        ? "继续翻译"
+        : "翻译整页";
+      menuButtons[1]!.setAttribute(
+        "aria-label",
+        next.paused ? "继续翻译" : "翻译整页",
+      );
+      taskProgress.max = Math.max(1, next.total);
+      taskProgress.value = next.completed;
+      const state = pageBusy ? "running" : next.failed ? "failed" : "complete";
+      task.dataset.state = state;
+      if (next.active) launcher.dataset.translation = state;
+      else delete launcher.dataset.translation;
+      taskTitle.textContent = !next.active
+        ? "已恢复原文"
+        : next.paused
+          ? "翻译已停止"
+          : pageBusy
+            ? "正在翻译…"
+            : next.failed
+              ? "部分段落翻译失败"
+              : !next.total
+                ? "未找到可翻译正文"
+                : next.completed === next.total
+                  ? "翻译完成"
+                  : next.completed
+                    ? "可见内容已翻译"
+                    : "等待可见正文";
+      taskDetail.textContent = !next.active
+        ? "翻译已停止，页面恢复为原文。"
+        : next.paused
+          ? `已有 ${next.completed} 段译文保留。点击“继续翻译”处理剩余内容。`
+          : !next.total
+            ? "此页面可能没有支持的正文段落。"
+            : `已完成 ${next.completed} / ${next.total} 段${next.pending ? ` · 处理中 ${next.pending} 段` : ""}${next.failed ? ` · 失败 ${next.failed} 段${next.error ? `：${next.error}` : ""}。可悬停段落重试。` : next.completed < next.total && !pageBusy && !next.paused ? " · 滚动页面后继续翻译" : ""}`;
+      launcher.title = `${taskTitle.textContent} · Alt L 查看详情`;
     },
     setEnabled,
     setLanguage(value: string) {
@@ -408,12 +554,17 @@ ${themeStyles(":host")}
     },
     setNotice(value: string) {
       notice.textContent = value;
+      menuNotice.textContent = value;
     },
     destroy() {
       document.removeEventListener("pointerover", hover);
       view.removeEventListener("scroll", hideHover, true);
+      view.removeEventListener("resize", positionPanel);
       document.removeEventListener("keydown", key);
+      document.removeEventListener("pointerdown", outside, true);
       unbindAppearance();
+      usage.destroy();
+      floating.destroy();
       host.remove();
     },
   };

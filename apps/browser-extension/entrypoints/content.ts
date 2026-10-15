@@ -100,7 +100,18 @@ export default defineContentScript({
         };
     }
     document.addEventListener("selectionchange", captureSelection);
+    let pageCommandRevision = 0;
     function stop() {
+      pageCommandRevision++;
+      if (!translator)
+        controls.update({
+          active: false,
+          paused: false,
+          total: 0,
+          completed: 0,
+          pending: 0,
+          failed: 0,
+        });
       translator?.stop();
       translator = undefined;
       selectionController?.abort();
@@ -268,7 +279,42 @@ export default defineContentScript({
           );
         return reply;
       },
-      translatePage: () => start(targetLanguage),
+      translatePage: async () => {
+        const revision = pageCommandRevision;
+        await readingReady;
+        await configurationReady;
+        if (revision !== pageCommandRevision) return;
+        if (!readingEnabled)
+          throw new Error("双语阅读已关闭，请先在阅读偏好中开启。");
+        if (translator?.progress.paused) translator.resume();
+        else start(targetLanguage);
+      },
+      stop,
+      pause: () => {
+        pageCommandRevision++;
+        if (translator) translator.pause();
+        else
+          controls.update({
+            active: true,
+            paused: true,
+            total: 0,
+            completed: 0,
+            pending: 0,
+            failed: 0,
+          });
+      },
+      usage: async () => {
+        const reply = await browser.runtime.sendMessage({
+          action: "usage-summary",
+        });
+        if (!reply.ok) throw new Error(reply.error);
+        return reply;
+      },
+      usageSettings: () =>
+        browser.runtime.sendMessage({
+          action: "open-options",
+          section: "usage",
+        }),
       ask: () => {
         askSelection();
       },

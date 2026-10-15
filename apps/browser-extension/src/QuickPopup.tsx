@@ -17,7 +17,7 @@ export function QuickPopup() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => {
-    void request({ action: "state" })
+    void request({ action: "state", localOnly: true })
       .then(async (state: { settings: Settings }) => {
         setSettings(state.settings);
         const catalog = providerCatalogSchema.parse(
@@ -68,7 +68,10 @@ export function QuickPopup() {
           onChange={(event) => {
             const targetLanguage = event.target.value;
             void act(async () => {
-              const current = await request({ action: "state" });
+              const current = await request({
+                action: "state",
+                localOnly: true,
+              });
               const next = { ...current.settings, targetLanguage };
               await request({ action: "save", settings: next });
               setSettings(next);
@@ -140,7 +143,7 @@ export function QuickPopup() {
         </button>
         <span>v{browser.runtime.getManifest().version}</span>
         <a
-          href={browser.runtime.getURL("/options.html?view=activity")}
+          href={browser.runtime.getURL("/options.html#usage")}
           target="_blank"
           rel="noreferrer"
         >

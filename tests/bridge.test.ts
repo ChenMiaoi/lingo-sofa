@@ -223,6 +223,33 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
         }),
       ],
     });
+    config.allowedExtensions.push("a".repeat(32));
+    const allClients = await post(
+      {
+        version: 1,
+        sourceKind: "web",
+        scope: "browser:summary",
+        request: { kind: "usage" },
+      },
+      token,
+      `chrome-extension://${"a".repeat(32)}`,
+    );
+    const aggregate = replySchema.parse(await allClients.json());
+    expect(aggregate).toMatchObject({
+      ok: true,
+      usageSummary: {
+        totals: { requests: 2, tokens: 88, cost: null, unpriced: 2 },
+        models: [
+          expect.objectContaining({
+            model: "fixture",
+            requests: 2,
+            tokens: 88,
+          }),
+        ],
+      },
+    });
+    expect(aggregate).not.toHaveProperty("usage");
+    expect(JSON.stringify(aggregate)).not.toContain("account:two");
     await post({
       version: 1,
       sourceKind: "discord",

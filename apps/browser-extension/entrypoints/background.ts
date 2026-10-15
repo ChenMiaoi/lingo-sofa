@@ -30,14 +30,30 @@ import {
 import { TranslationService } from "@lingo-sofa/translation-core";
 import { readSettings, records } from "../src/storage.js";
 
-import { pageScope } from "../src/page-scope.js";
+import { pageScope, pageDocumentPrefix } from "../src/page-scope.js";
+import { summarizeAvailableUsage } from "../src/page-usage-data.js";
+import {
+  parseFloatingPatch,
+  readFloatingPreferences,
+} from "../src/floating-preferences.js";
 import { capabilities } from "@lingo-sofa/provider-pi";
 import { syncReadingAccess, automaticPermission } from "../src/site-access.js";
 
 import { NativeConnection } from "../src/native-connection.js";
+import {
+  LocalTranslationCache,
+  cachePreferences,
+} from "../src/translation-cache.js";
 
 export default defineBackground(() => {
   const native = new NativeConnection();
+  const translationCache = new LocalTranslationCache({
+    read: async () =>
+      (await browser.storage.local.get("translationCache")).translationCache,
+    write: async (entries) => {
+      await browser.storage.local.set({ translationCache: entries });
+    },
+  });
   browser.runtime.onInstalled.addListener((details) => {
     void syncReadingAccess().catch(() => undefined);
     if (details.reason === "install")
@@ -172,18 +188,45 @@ export default defineBackground(() => {
   const trustedUI = (sender: Browser.runtime.MessageSender) =>
     sender.id === browser.runtime.id &&
     sender.url?.startsWith(browser.runtime.getURL(""));
-  async function bridge(request: Request, scope: string): Promise<Reply> {
-    const response: unknown = await native.request({
-      version: 1,
-      scope,
-      sourceKind: "web",
-      request,
-    });
+  async function bridge(
+    request: Request,
+    scope: string,
+    signal?: AbortSignal,
+  ): Promise<Reply> {
+    const response: unknown = await native.request(
+      {
+        version: 1,
+        scope,
+        sourceKind: "web",
+        request,
+      },
+      signal,
+    );
     return replySchema.parse(response);
+  }
+  async function allUsage(settings: Settings) {
+    try {
+      const result = await bridge({ kind: "usage" }, "browser:summary");
+      if (!result.ok || !result.usageSummary)
+        throw new Error("请更新本地助手，以读取全部客户端的用量汇总。");
+      return summarizeAvailableUsage(
+        service.ledger.list(),
+        settings.mode,
+        result.usageSummary,
+      );
+    } catch (error) {
+      if (settings.mode === "bridge") throw error;
+      return summarizeAvailableUsage(service.ledger.list(), "direct");
+    }
   }
   const transports = new Map<
     string,
-    { scope: string; mode: Settings["mode"]; origin: string }
+    {
+      scope: string;
+      mode: Settings["mode"];
+      origin: string;
+      controller: AbortController;
+    }
   >();
   async function dispatch(
     request: Request,
@@ -195,6 +238,7 @@ export default defineBackground(() => {
       const transport = transports.get(request.requestId);
       if (transport && transport.scope !== scope)
         throw new Error("Request belongs to a different page");
+      transport?.controller.abort();
       return (transport?.mode ?? settings.mode) === "bridge"
         ? bridge(request, scope)
         : service.handle(request, scope, settings, "web");
@@ -214,11 +258,78 @@ export default defineBackground(() => {
       throw new Error("双语阅读已关闭，请先在悬浮面板中开启");
     if (transports.has(request.requestId))
       throw new Error("Duplicate request ID");
-    transports.set(request.requestId, { scope, mode: settings.mode, origin });
+    const controller = new AbortController();
+    transports.set(request.requestId, {
+      scope,
+      mode: settings.mode,
+      origin,
+      controller,
+    });
     try {
-      return await (settings.mode === "bridge"
-        ? bridge(request, scope)
-        : service.handle(request, scope, settings, "web"));
+      if (request.kind === "ask")
+        return await (settings.mode === "bridge"
+          ? bridge(request, scope)
+          : service.handle(request, scope, settings, "web"));
+      const cacheVersion = translationCache.version;
+      const preferences = cachePreferences(
+        (await browser.storage.local.get("translationCachePreferences"))
+          .translationCachePreferences,
+      );
+      let executionSettings = settings;
+      if (settings.mode === "bridge" && preferences.enabled) {
+        const state = await bridge({ kind: "usage" }, "browser:summary");
+        if (!state.ok || !state.settings)
+          throw new Error("无法读取本地助手模型配置");
+        executionSettings = state.settings;
+      }
+      const lookup = await translationCache.lookup(
+        request.units,
+        `${settings.mode}|${origin}`,
+        executionSettings,
+        preferences,
+        cacheVersion,
+      );
+      controller.signal.throwIfAborted();
+      const missing = request.units.filter(
+        (_unit, index) => lookup.texts[index] === undefined,
+      );
+      const result = missing.length
+        ? await (settings.mode === "bridge"
+            ? bridge({ ...request, units: missing }, scope, controller.signal)
+            : service.handle(
+                { ...request, units: missing },
+                scope,
+                settings,
+                "web",
+              ))
+        : { ok: true as const, results: [] };
+      if (!result.ok) return result;
+      controller.signal.throwIfAborted();
+      // Storage failures never discard a successful translation or replay a paid call.
+      await translationCache
+        .store(lookup, request.units, result.results ?? [], preferences)
+        .catch(() => undefined);
+      return {
+        ...result,
+        results: request.units.map((unit, index) =>
+          lookup.texts[index] !== undefined
+            ? {
+                id: unit.id,
+                revision: unit.revision,
+                text: lookup.texts[index]!,
+                billing: {
+                  source: "cache" as const,
+                  batchSize: 1,
+                  tokens: 0,
+                  cost: 0,
+                },
+              }
+            : result.results!.find(
+                (item) =>
+                  item.id === unit.id && item.revision === unit.revision,
+              )!,
+        ),
+      };
     } finally {
       transports.delete(request.requestId);
     }
@@ -230,6 +341,7 @@ export default defineBackground(() => {
       [...transports].map(async ([requestId, transport]) => {
         if (stillAuthorized && (await stillAuthorized(transport.origin)))
           return;
+        transport.controller.abort();
         if (transport.mode === "bridge")
           await bridge({ kind: "cancel", requestId }, transport.scope).catch(
             () => undefined,
@@ -251,10 +363,23 @@ export default defineBackground(() => {
           throw new Error(
             "Requests must originate from an authorized top-level page",
           );
-        const url = new URL(sender.url);
+        const url = new URL(
+          (await browser.tabs.get(sender.tab.id!)).url ?? sender.url,
+        );
         if (!["http:", "https:"].includes(url.protocol))
           throw new Error("Unsupported page");
-        const scope = await pageScope(sender.tab.id!, url, sender.documentId);
+        let scope = await pageScope(sender.tab.id!, url, sender.documentId);
+        if (request.kind === "cancel") {
+          const transport = transports.get(request.requestId);
+          // SPA navigation changes accounting scope, but cancellation still belongs
+          // to the original request within this trusted tab and document.
+          if (
+            transport?.scope.startsWith(
+              pageDocumentPrefix(sender.tab.id!, url, sender.documentId),
+            )
+          )
+            scope = transport.scope;
+        }
         if (
           request.kind === "translate" &&
           request.automatic &&
@@ -274,6 +399,8 @@ export default defineBackground(() => {
       if (!("action" in message)) throw new Error("Invalid action");
       const data = message as {
         action: string;
+        preferences?: unknown;
+        section?: unknown;
         settings?: unknown;
         apiKey?: unknown;
         command?: string;
@@ -348,6 +475,27 @@ export default defineBackground(() => {
       if (data.action === "ask-catalog" && topPage) {
         const info = await catalog();
         return info;
+      }
+      if (data.action === "floating-preferences" && topPage) {
+        const stored = await browser.storage.local.get("floatingDock");
+        return {
+          ok: true,
+          preferences: readFloatingPreferences(stored.floatingDock),
+        };
+      }
+      if (data.action === "floating-preferences-update" && topPage) {
+        const patch = parseFloatingPatch(data.preferences);
+        const stored = await browser.storage.local.get("floatingDock");
+        await browser.storage.local.set({
+          floatingDock: {
+            ...readFloatingPreferences(stored.floatingDock),
+            ...patch,
+          },
+        });
+        return { ok: true };
+      }
+      if (data.action === "usage-summary" && (topPage || trustedUI(sender))) {
+        return { ok: true, ...(await allUsage(settings)) };
       }
       if (data.action === "page-controls" && topPage) {
         const info = await catalog();
@@ -482,9 +630,13 @@ export default defineBackground(() => {
         sender.url &&
         ["http:", "https:"].includes(new URL(sender.url).protocol)
       ) {
-        if (data.action === "open-options")
-          await browser.runtime.openOptionsPage();
-        else {
+        if (data.action === "open-options") {
+          if (data.section === "usage")
+            await browser.tabs.create({
+              url: browser.runtime.getURL("/options.html#usage"),
+            });
+          else await browser.runtime.openOptionsPage();
+        } else {
           const targetLanguage = settingsSchema.shape.targetLanguage.parse(
             data.targetLanguage,
           );
@@ -618,6 +770,8 @@ export default defineBackground(() => {
         let budgets: BudgetSnapshot[] | undefined;
         let shareBudget = false;
         let sharedUsage = false;
+        let usageSummary;
+        let summaryError;
         let executionSettings = settings;
         let cacheStats = service.cacheStats();
         let queue = {
@@ -625,7 +779,10 @@ export default defineBackground(() => {
           pending: service.queue.pendingCount,
         };
         let bridgeError: string | undefined;
-        if (settings.mode === "bridge") {
+        if (
+          settings.mode === "bridge" &&
+          !("localOnly" in data && data.localOnly === true)
+        ) {
           try {
             const result = await bridge({ kind: "usage" }, "browser");
             if (!result.ok) throw new Error(result.error);
@@ -644,8 +801,22 @@ export default defineBackground(() => {
             bridgeError = "Bridge 用量暂不可用；不会显示为零消耗";
           }
         }
+        if (
+          !bridgeError &&
+          "includeUsageSummary" in data &&
+          data.includeUsageSummary === true
+        ) {
+          try {
+            usageSummary = await allUsage(settings);
+          } catch (error) {
+            summaryError =
+              error instanceof Error ? error.message : "无法读取全部用量";
+          }
+        }
         return {
           settings,
+          allUsage: usageSummary,
+          summaryError,
           usage: service.ledger.list(),
           hasKey: Boolean(
             await directKey(settings, settings.model).catch(() => ""),
@@ -655,6 +826,7 @@ export default defineBackground(() => {
           shareBudget,
           executionSettings,
           cacheStats,
+          translationCacheStats: translationCache.stats(),
           sharedUsage,
           bridgeError,
           queue,
@@ -732,6 +904,7 @@ export default defineBackground(() => {
         return { ok: true };
       }
       if (data.action === "clear") {
+        await translationCache.clear();
         if (settings.mode === "bridge") {
           const result = await bridge({ kind: "clear-data" }, "browser");
           if (!result.ok) throw new Error(result.error);
@@ -741,6 +914,46 @@ export default defineBackground(() => {
         service.ledger.clear();
         await browser.storage.local.remove("usage");
         await browser.storage.session.remove(["usage", "inFlight"]);
+        return { ok: true };
+      }
+      if (data.action === "translation-cache-state") {
+        const stored = await browser.storage.local.get(
+          "translationCachePreferences",
+        );
+        return {
+          ok: true,
+          preferences: cachePreferences(stored.translationCachePreferences),
+          ...translationCache.stats(),
+        };
+      }
+      if (data.action === "translation-cache-update") {
+        const patch = data.preferences as {
+          enabled?: unknown;
+          days?: unknown;
+        } | null;
+        if (
+          !patch ||
+          typeof patch.enabled !== "boolean" ||
+          typeof patch.days !== "number" ||
+          ![1, 7, 30].includes(patch.days)
+        )
+          throw new Error("Invalid translation cache preferences");
+        const previous = cachePreferences(
+          (await browser.storage.local.get("translationCachePreferences"))
+            .translationCachePreferences,
+        );
+        await translationCache.prune(previous.days);
+        await translationCache.clear();
+        await browser.storage.local.set({
+          translationCachePreferences: {
+            enabled: patch.enabled,
+            days: patch.days,
+          },
+        });
+        return { ok: true };
+      }
+      if (data.action === "translation-cache-clear") {
+        await translationCache.clear();
         return { ok: true };
       }
       if (data.action === "forget-key") {

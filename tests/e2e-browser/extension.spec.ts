@@ -54,8 +54,34 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html?view=activity`);
     await expect(
-      options.getByRole("heading", { name: "LingoSofa", exact: true }),
+      options.getByRole("heading", { name: "用量与费用", exact: true }),
     ).toBeVisible();
+    const icons = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const manifest = api.runtime.getManifest();
+      return Promise.all(
+        Object.entries(manifest.icons ?? {}).map(async ([size, path]) => {
+          const image = new Image();
+          image.src = new URL(path, location.href).href;
+          await image.decode();
+          return {
+            size: Number(size),
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+            toolbar: manifest.action?.default_icon?.[Number(size)] === path,
+          };
+        }),
+      );
+    });
+    expect(icons).toEqual(
+      [16, 32, 48, 128].map((size) => ({
+        size,
+        width: size,
+        height: size,
+        toolbar: true,
+      })),
+    );
     await options.evaluate(async (endpoint) => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
@@ -258,12 +284,15 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
       2,
     );
-    expect(model.requests).toHaveLength(beforeReload + 1);
+    expect(model.requests).toHaveLength(beforeReload);
     await page.reload();
     await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
       2,
     );
-    expect(model.requests).toHaveLength(beforeReload + 2);
+    expect(model.requests).toHaveLength(beforeReload);
+    await expect(
+      page.locator(".lingo-sofa-inline-usage").first(),
+    ).toContainText("缓存命中");
 
     const changed = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
@@ -295,7 +324,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
         "[data-lingo-sofa=translation],[data-lingo-sofa=error],[data-lingo-sofa=selection]",
       ),
     ).toHaveCount(0);
-    expect(changed.usage).toHaveLength(6);
+    expect(changed.usage).toHaveLength(4);
     expect(
       await options.evaluate(
         () =>

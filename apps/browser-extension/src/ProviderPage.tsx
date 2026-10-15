@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { browser } from "wxt/browser";
 import { providerCatalogSchema, type Settings } from "@lingo-sofa/protocol";
 import {
@@ -10,6 +10,10 @@ import {
 import { colorTheme } from "./appearance.js";
 import { AssistantSetup } from "./AssistantSetup.js";
 import { ReadingAccess } from "./ReadingAccess.js";
+import { ActivityPage } from "./ActivityPage.js";
+import { GlossaryPage } from "./GlossaryPage.js";
+import { TranslationCachePreferences } from "./TranslationCachePreferences.js";
+import "./activity.css";
 const AISettings = createAISettings(() => React);
 const ProviderEditor = createProviderEditor(() => React);
 async function send(message: unknown) {
@@ -22,7 +26,7 @@ export function ProviderPage() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    void send({ action: "state" })
+    void send({ action: "state", localOnly: true })
       .then((state: { settings: Settings }) => {
         setMode(state.settings.mode);
         setReady(true);
@@ -75,6 +79,9 @@ const sections = [
   ["translation", "翻译偏好"],
   ["intelligence", "AI 与 Pi"],
   ["accounts", "供应商"],
+  ["usage", "用量与费用"],
+  ["glossary", "术语表"],
+  ["history", "请求历史"],
   ["shortcuts", "快捷键"],
   ["appearance", "外观"],
   ["privacy", "隐私与数据"],
@@ -96,10 +103,16 @@ function ProductSettings({
     const value = location.hash.slice(1);
     return sections.some(([id]) => id === value) ? value : "intelligence";
   });
+  const content = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    content.current?.scrollTo(0, 0);
+  }, [section]);
   useEffect(() => {
     const changed = () => {
       const value = location.hash.slice(1);
-      if (sections.some(([id]) => id === value)) setSection(value);
+      setSection(
+        sections.some(([id]) => id === value) ? value : "intelligence",
+      );
     };
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
@@ -115,6 +128,7 @@ function ProductSettings({
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     void browser.storage.local
       .get("uiTheme")
@@ -127,7 +141,7 @@ function ProductSettings({
         setTheme(colorTheme(changes.uiTheme.newValue));
     };
     browser.storage.onChanged.addListener(changed);
-    void send({ action: "state" })
+    void send({ action: "state", localOnly: true })
       .then((state) => setSettings(state.settings))
       .catch(() => setFailure("无法读取设置，请重新打开设置页。"));
     return () => browser.storage.onChanged.removeListener(changed);
@@ -139,7 +153,7 @@ function ProductSettings({
     setNotice("");
     try {
       // Read current settings so a model saved in another panel is retained.
-      const current = await send({ action: "state" });
+      const current = await send({ action: "state", localOnly: true });
       const next = { ...current.settings, ...patch };
       await send({ action: "save", settings: next });
       setSettings(next);
@@ -170,7 +184,7 @@ function ProductSettings({
         <a href="options.html" className="ls-settings-wordmark">
           LingoSofa <span>设置 · v{browser.runtime.getManifest().version}</span>
         </a>
-        <a href="options.html?view=activity">用量与记录 ↗</a>
+        <span className="ls-muted">阅读与理解，都在此处。</span>
       </header>
       <aside className="ls-product-sidebar">
         <input
@@ -192,7 +206,7 @@ function ProductSettings({
                 aria-current={section === id ? "page" : undefined}
                 onClick={() => {
                   setSection(id);
-                  history.replaceState(null, "", `#${id}`);
+                  location.hash = id;
                   setNotice("");
                 }}
               >
@@ -207,10 +221,9 @@ function ProductSettings({
         <footer>
           <span>浏览器扩展 / v{browser.runtime.getManifest().version}</span>
           <span>Read together.</span>
-          <a href="options.html?view=activity">阅读与用量 ↗</a>
         </footer>
       </aside>
-      <div className="ls-product-content">
+      <div className="ls-product-content" ref={content}>
         <ReadingAccess />
         {ready && mode === "bridge" && (
           <AssistantSetup onConnected={connected} />
@@ -280,7 +293,9 @@ function ProductSettings({
               </p>
             </details>
           </>
-        ) : (
+        ) : section === "usage" || section === "history" ? (
+          <ActivityPage key={section} section={section} />
+        ) : section === "glossary" ? null : (
           <>
             <header className="ls-design-heading">
               <h1>{sections.find(([id]) => id === section)?.[1]}</h1>
@@ -421,6 +436,12 @@ function ProductSettings({
             )}
             {section === "privacy" && (
               <>
+                <TranslationCachePreferences />
+                {settings?.mode === "bridge" && (
+                  <p className="ls-info-note">
+                    下方保存偏好用于此浏览器的模型直连记录。本地助手的记录保留策略由助手独立管理，可在用量页查看当前保留范围。
+                  </p>
+                )}
                 <div className="ls-design-card">
                   {row(
                     "上下文范围",
@@ -444,8 +465,100 @@ function ProductSettings({
                       <option value="true">开启</option>
                     </select>,
                   )}
+                  {row(
+                    "历史保留天数",
+                    "仅在开启持久保存时生效，到期记录自动清理。",
+                    <select
+                      aria-label="历史保留天数"
+                      value={settings?.retentionDays ?? 30}
+                      disabled={busy || !settings || !settings.persistUsage}
+                      onChange={(event) =>
+                        void update({
+                          retentionDays: Number(event.target.value),
+                        })
+                      }
+                    >
+                      {[...new Set([7, 30, 90, settings?.retentionDays ?? 30])]
+                        .sort((a, b) => a - b)
+                        .map((days) => (
+                          <option key={days} value={days}>
+                            {days} 天
+                          </option>
+                        ))}
+                    </select>,
+                  )}
+                  {row(
+                    "统计时区",
+                    "用于划分每日与每月的用量记录。",
+                    <select
+                      aria-label="统计时区"
+                      value={settings?.timeZone ?? "Asia/Shanghai"}
+                      disabled={busy || !settings}
+                      onChange={(event) =>
+                        void update({ timeZone: event.target.value })
+                      }
+                    >
+                      {[
+                        ...new Set([
+                          settings?.timeZone ?? "Asia/Shanghai",
+                          Intl.DateTimeFormat().resolvedOptions().timeZone,
+                          "Asia/Shanghai",
+                          "UTC",
+                          "America/Los_Angeles",
+                          "Europe/London",
+                        ]),
+                      ].map((zone) => (
+                        <option key={zone}>{zone}</option>
+                      ))}
+                    </select>,
+                  )}
                 </div>
-                <a href="options.html?view=activity">管理用量、术语与历史 ↗</a>
+                <section
+                  className="ls-design-card ls-data-clear"
+                  aria-label="清理本地数据"
+                >
+                  <h2>清理数据</h2>
+                  <p>
+                    清除当前执行模式下的译文缓存、问答会话与用量记录，正在执行的请求也会停止。此操作无法撤销。
+                  </p>
+                  {confirmClear ? (
+                    <div className="ls-actions">
+                      <button
+                        disabled={busy}
+                        className="ls-danger-button"
+                        onClick={() => {
+                          setBusy(true);
+                          setFailure("");
+                          setNotice("");
+                          void send({ action: "clear" })
+                            .then(() => {
+                              setConfirmClear(false);
+                              setNotice("缓存、会话与用量已清除");
+                            })
+                            .catch((reason: Error) =>
+                              setFailure(reason.message),
+                            )
+                            .finally(() => setBusy(false));
+                        }}
+                      >
+                        确认清除
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() => setConfirmClear(false)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="ls-danger-button"
+                      onClick={() => setConfirmClear(true)}
+                    >
+                      清除缓存、会话与用量
+                    </button>
+                  )}
+                </section>
               </>
             )}
             <p className="ls-design-footer" role="status">
@@ -453,20 +566,23 @@ function ProductSettings({
             </p>
           </>
         )}
+        <div hidden={section !== "glossary"}>
+          <GlossaryPage />
+        </div>
       </div>
     </main>
   );
 }
 
 const productSettingsStyles = `
-main.ls-product-settings{display:grid;grid-template-columns:224px minmax(0,1fr);grid-template-rows:64px 1fr;max-width:none;min-height:100dvh;margin:0;padding:0;background:var(--ls-canvas);color:var(--ls-text);border-radius:0;overflow:clip}
+main.ls-product-settings{display:grid;grid-template-columns:224px minmax(0,1fr);grid-template-rows:64px minmax(0,1fr);max-width:none;min-height:0;height:100dvh;margin:0;padding:0;background:var(--ls-canvas);color:var(--ls-text);border-radius:0;overflow:clip}
 .ls-settings-topbar{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 32px;border-bottom:1px solid var(--ls-border);background:var(--ls-surface);font-size:12px}.ls-settings-topbar a{color:var(--ls-muted);text-decoration:none}.ls-settings-topbar .ls-settings-wordmark{font-weight:650;font-size:17px;color:var(--ls-text)}.ls-settings-wordmark span{font-size:12px;font-weight:400;margin-left:12px;color:var(--ls-muted)}
 .ls-product-sidebar{display:flex;flex-direction:column;gap:8px;padding:28px 20px;background:transparent;border-right:1px solid var(--ls-border)}
 .ls-product-settings .ls-settings-search{display:block;width:100%;height:40px;border:1px solid var(--ls-border);border-radius:8px;background:var(--ls-surface);color:var(--ls-text);margin:0 0 20px;padding:10px 12px;font:inherit;font-size:13px;line-height:20px}
 .ls-product-sidebar nav{display:flex;flex-direction:column;gap:8px}.ls-product-sidebar nav button{min-height:44px;background:transparent;border:0;border-radius:8px;text-align:left;padding:12px;color:var(--ls-muted);font-size:13px}.ls-product-sidebar nav button[aria-current=page]{background:var(--ls-tint);color:var(--ls-accent);font-weight:500}
 .ls-product-sidebar footer{display:flex;flex-direction:column;gap:8px;margin-top:auto;padding-top:60px;color:var(--ls-muted);font-size:11px}.ls-product-sidebar footer a{color:var(--ls-muted);text-decoration:none}.ls-search-empty{color:var(--ls-muted);font-size:12px}
-.ls-product-content{padding:36px 48px;max-width:1120px;width:100%;min-width:0;display:flex;flex-direction:column;gap:18px}.ls-product-content .ls-design-heading{margin-bottom:0}.ls-product-content .ls-connection-details{font-size:11px;color:var(--ls-muted);padding-top:12px;border-top:1px solid var(--ls-border);margin-top:6px}.ls-connection-details summary{cursor:pointer}.ls-connection-details .connection-modes{display:inline-flex;margin-top:16px}
+.ls-product-content{padding:36px 48px;max-width:none;overflow-y:auto;width:100%;min-width:0;display:flex;flex-direction:column;gap:18px}.ls-product-content .ls-design-heading{margin-bottom:0}.ls-product-content .ls-connection-details{font-size:11px;color:var(--ls-muted);padding-top:12px;border-top:1px solid var(--ls-border);margin-top:6px}.ls-connection-details summary{cursor:pointer}.ls-connection-details .connection-modes{display:inline-flex;margin-top:16px}
 .ls-product-content .ls-design-card p{font-size:12px;color:var(--ls-muted)}.ls-bilingual-preview{background:var(--ls-tint);border:1px solid var(--ls-border);border-radius:14px;padding:24px}.ls-bilingual-preview>p{font-size:18px;margin:14px 0;line-height:27px}.ls-bilingual-preview>p+p{font-size:16px;color:var(--ls-accent);line-height:24px}.ls-bilingual-preview small{font-size:11px;color:var(--ls-muted)}.ls-info-note{padding:16px;background:var(--ls-subtle);border-radius:10px;font-size:12px;color:var(--ls-muted);margin:0}.ls-muted{color:var(--ls-muted)}.ls-product-settings .ls-setting-row select{appearance:none;background-image:url('/brand/figma/chevron.svg');background-repeat:no-repeat;background-position:right 12px center;padding-right:36px;font-family:inherit;font-size:13px}.ls-product-settings kbd{padding:8px 12px;border:1px solid var(--ls-border);border-radius:8px;background:var(--ls-subtle);font-size:12px}
 @media(min-width:1120px){body.options-page:has(.ls-product-settings){padding:0;background:var(--ls-canvas)}}
-@media(max-width:700px){main.ls-product-settings{grid-template-columns:minmax(0,1fr);border-radius:0;min-height:100dvh}.ls-product-sidebar{padding:20px;gap:14px;border-right:0;border-bottom:1px solid var(--ls-border)}.ls-product-settings .ls-settings-search{margin:0}.ls-product-sidebar nav{flex-direction:row;flex-wrap:wrap;gap:4px}.ls-product-sidebar nav button{padding:8px 10px;min-height:36px}.ls-product-sidebar footer{display:none}.ls-product-content{padding:24px 20px}.ls-product-brand{font-size:17px}}
+@media(max-width:700px){main.ls-product-settings{grid-template-columns:minmax(0,1fr);grid-template-rows:64px auto 1fr;height:auto;border-radius:0;min-height:100dvh}.ls-product-sidebar{padding:20px;gap:14px;border-right:0;border-bottom:1px solid var(--ls-border)}.ls-product-settings .ls-settings-search{margin:0}.ls-product-sidebar nav{flex-direction:row;flex-wrap:wrap;gap:4px}.ls-product-sidebar nav button{padding:8px 10px;min-height:36px}.ls-product-sidebar footer{display:none}.ls-product-content{padding:24px 20px}.ls-product-brand{font-size:17px}}
 `;

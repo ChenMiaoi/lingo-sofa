@@ -1,3 +1,11 @@
+export function pageDocumentPrefix(
+  tabId: number,
+  url: URL,
+  documentId: string | undefined,
+): string {
+  return `web:${tabId}:${url.origin}:${documentId ?? "document"}:`;
+}
+
 /** Distinguish SPA URLs without recording query strings or fragments in usage metadata. */
 export async function pageScope(
   tabId: number,
@@ -11,5 +19,5 @@ export async function pageScope(
   const identity = [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-  return `web:${tabId}:${url.origin}:${documentId ?? "document"}:${identity}`;
+  return `${pageDocumentPrefix(tabId, url, documentId)}${identity}`;
 }

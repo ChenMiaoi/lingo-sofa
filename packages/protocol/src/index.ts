@@ -287,6 +287,7 @@ export type Reply =
       text?: string | undefined;
       metrics?: Metrics | undefined;
       usage?: UsageRecord[] | undefined;
+      usageSummary?: UsageSummary | undefined;
       sharedUsage?: boolean | undefined;
       shareBudget?: boolean | undefined;
       budgets?: BudgetSnapshot[] | undefined;
@@ -309,6 +310,23 @@ export interface ModelClient {
 
 const count = z.number().int().nonnegative();
 const money = z.number().nonnegative();
+export const usageTotalsSchema = z.strictObject({
+  requests: count,
+  input: count,
+  output: count,
+  tokens: count,
+  cost: money.nullable(),
+  knownCost: money,
+  unknown: count,
+  unpriced: count,
+});
+export const usageSummarySchema = z.strictObject({
+  totals: usageTotalsSchema,
+  models: z.array(
+    usageTotalsSchema.extend({ provider: z.string(), model: z.string() }),
+  ),
+});
+export type UsageSummary = z.infer<typeof usageSummarySchema>;
 export const usageSchema = z.strictObject({
   input: count,
   output: count,
@@ -379,6 +397,7 @@ export const replySchema = z.discriminatedUnion("ok", [
     text: z.string().max(64_000).optional(),
     metrics: metricsSchema.optional(),
     usage: z.array(usageRecordSchema).max(10_000).optional(),
+    usageSummary: usageSummarySchema.optional(),
     sharedUsage: z.boolean().optional(),
     shareBudget: z.boolean().optional(),
     budgets: z

@@ -15,24 +15,34 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
   const [notice, setNotice] = React.useState("");
   const [platform, setPlatform] = React.useState<AssistantPlatform>("win");
   const wasConnected = React.useRef(false);
-  const check = React.useCallback(async () => {
-    setConnection("checking");
-    setNotice("");
-    try {
-      const reply = assistantConnectionSchema.parse(
-        await browser.runtime.sendMessage({ action: "assistant-status" }),
-      );
-      if (reply.installed !== null) setInstalled(reply.installed);
-      setVersion(reply.version);
-      setConnection(reply.connected ? "connected" : "offline");
-      if (reply.connected && !wasConnected.current) onConnected?.();
-      wasConnected.current = reply.connected;
-    } catch {
-      wasConnected.current = false;
-      setConnection("offline");
-      setNotice("检测暂不可用，可按下方指引连接后重试。");
-    }
-  }, [onConnected]);
+  const checking = React.useRef(false);
+  const check = React.useCallback(
+    async (quiet = false) => {
+      if (checking.current) return;
+      checking.current = true;
+      if (!quiet) {
+        setConnection("checking");
+        setNotice("");
+      }
+      try {
+        const reply = assistantConnectionSchema.parse(
+          await browser.runtime.sendMessage({ action: "assistant-status" }),
+        );
+        if (reply.installed !== null) setInstalled(reply.installed);
+        setVersion(reply.version);
+        setConnection(reply.connected ? "connected" : "offline");
+        if (reply.connected && !wasConnected.current) onConnected?.();
+        wasConnected.current = reply.connected;
+      } catch {
+        wasConnected.current = false;
+        setConnection("offline");
+        setNotice("检测暂不可用，可按下方指引连接后重试。");
+      } finally {
+        checking.current = false;
+      }
+    },
+    [onConnected],
+  );
   React.useEffect(() => {
     void Promise.all([
       browser.runtime.getPlatformInfo(),
@@ -51,6 +61,11 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
     window.addEventListener("focus", focus);
     return () => window.removeEventListener("focus", focus);
   }, [check]);
+  React.useEffect(() => {
+    if (connection !== "offline" || installed !== true) return;
+    const timer = setInterval(() => void check(true), 3_000);
+    return () => clearInterval(timer);
+  }, [connection, installed, check]);
   function choose(value: boolean) {
     setInstalled(value);
     setNotice("");
@@ -77,6 +92,9 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
           <strong>
             {connection === "checking" ? "正在检测本地助手…" : "本地助手已连接"}
           </strong>
+          {connection === "checking" && (
+            <small>正在自动启动并连接，首次启动可能需要一些时间。</small>
+          )}
           {connection === "connected" && (
             <small>{version ? `助手 v${version}` : "助手版本未提供"}</small>
           )}

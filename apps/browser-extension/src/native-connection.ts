@@ -1,4 +1,5 @@
 import { browser, type Browser } from "wxt/browser";
+import { runtimeStatusSchema } from "@lingo-sofa/protocol";
 
 /** One native port keeps the registered local client alive and multiplexes replies. */
 export class NativeConnection {
@@ -7,6 +8,7 @@ export class NativeConnection {
   private retry: ReturnType<typeof setTimeout> | undefined;
   private retryDelay = 1_000;
   private hostSeen = false;
+  private ready: Promise<void> | undefined;
   get installed(): true | null {
     return this.hostSeen ? true : null;
   }
@@ -28,6 +30,7 @@ export class NativeConnection {
     try {
       const port = (this.port = this.connect());
       port.onMessage.addListener((raw: unknown) => {
+        if (this.port !== port) return;
         this.hostSeen = true;
         const message = raw as {
           transportId?: unknown;
@@ -47,9 +50,37 @@ export class NativeConnection {
         const error = browser.runtime.lastError?.message ?? "";
         if (/forbidden|exited|not allowed/i.test(error)) this.hostSeen = true;
         this.port = undefined;
+        this.ready = undefined;
         this.rejectPending("本地助手连接中断；请求未自动重发");
         this.schedule();
       });
+      // Bootstrap may take 60 seconds. Do not send paid requests until it is ready.
+      const ready = this.send(
+        port,
+        {
+          version: 1,
+          sourceKind: "web",
+          scope: "browser",
+          operation: "runtime-status",
+        },
+        75_000,
+      )
+        .then((reply) => {
+          if (!runtimeStatusSchema.safeParse(reply).success)
+            throw new Error("本地助手状态无效，请更新助手后重试");
+        })
+        .catch((error: unknown) => {
+          if (this.port === port) {
+            this.port = undefined;
+            this.ready = undefined;
+            port.disconnect();
+            this.rejectPending("本地助手尚未就绪；未发送模型请求");
+            this.schedule();
+          }
+          throw error;
+        });
+      this.ready = ready;
+      void ready.catch(() => undefined);
     } catch {
       this.schedule();
     }
@@ -75,10 +106,12 @@ export class NativeConnection {
     this.retry = undefined;
     const port = this.port;
     this.port = undefined;
+    this.ready = undefined;
     port?.disconnect();
     this.rejectPending("本地助手连接已关闭");
   }
-  request(payload: unknown): Promise<unknown> {
+  async request(payload: unknown, signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
     if (!this.port) {
       // A new request (including connection checks after authorization) can retry now.
       clearTimeout(this.retry);
@@ -86,13 +119,25 @@ export class NativeConnection {
     }
     this.start();
     const port = this.port;
-    if (!port) return Promise.reject(new Error("请先安装 LingoSofa 本地助手"));
+    const ready = this.ready;
+    if (!port || !ready) throw new Error("请先安装 LingoSofa 本地助手");
+    await ready;
+    signal?.throwIfAborted();
+    if (this.port !== port)
+      throw new Error("本地助手连接已中断；请求未自动重发");
+    return this.send(port, payload, 50_000);
+  }
+  private send(
+    port: Browser.runtime.Port,
+    payload: unknown,
+    timeoutMs: number,
+  ): Promise<unknown> {
     const transportId = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(transportId);
         reject(new Error("本地助手请求超时；请求未自动重发"));
-      }, 50_000);
+      }, timeoutMs);
       this.pending.set(transportId, { resolve, reject, timer });
       try {
         port.postMessage({ transportId, payload });

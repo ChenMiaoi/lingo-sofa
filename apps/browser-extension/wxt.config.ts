@@ -1,4 +1,12 @@
 import { defineConfig } from "wxt";
+
+const icons = {
+  16: "brand/icon-16.png",
+  32: "brand/icon-32.png",
+  48: "brand/icon-48.png",
+  128: "brand/icon-128.png",
+};
+
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   vite: () => ({
@@ -43,6 +51,8 @@ export default defineConfig({
   manifest: {
     name: "LingoSofa",
     description: "就地双语翻译与 Pi 助手",
+    icons,
+    action: { default_icon: icons },
     permissions: ["storage", "activeTab", "scripting", "nativeMessaging"],
     web_accessible_resources: [
       {
