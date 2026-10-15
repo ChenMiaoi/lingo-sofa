@@ -1,3 +1,4 @@
+import { capabilities, outputAllocation } from "./capabilities.js";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type {
   Model,
@@ -36,6 +37,8 @@ export function resolveModel(
   return {
     model: {
       ...known,
+      contextWindow: capabilities(config, known)!.contextWindow,
+      maxTokens: capabilities(config, known)!.maxOutputTokens,
       baseUrl: config.endpoint,
       cost: pricing.prices ?? {
         input: 0,
@@ -71,6 +74,14 @@ export function createPiClient(
   return {
     async complete(system, prompt, signal, onText) {
       const { model, costKnown, pricing } = resolveModel(config);
+      const limits = capabilities(config, model);
+      if (!limits) throw new Error("Model capacity is unknown");
+      const maxTokens = outputAllocation(
+        config,
+        limits,
+        new TextEncoder().encode(prompt).length,
+        new TextEncoder().encode(system + prompt).length,
+      );
       const started = performance.now();
       let first: number | null = null,
         firstText: number | null = null,
@@ -89,7 +100,7 @@ export function createPiClient(
             signal,
             AbortSignal.timeout(config.timeoutMs),
           ]),
-          maxTokens: config.maxOutputTokens,
+          maxTokens,
           maxRetries: 0,
           timeoutMs: config.timeoutMs,
           toolChoice: "none",

@@ -1,6 +1,7 @@
 interface Job<T> {
   id: string;
   priority: number;
+  scope?: string | undefined;
   controller: AbortController;
   run: (signal: AbortSignal) => Promise<T>;
   resolve: (value: T) => void;
@@ -25,7 +26,12 @@ export class TaskQueue<T> {
   get size(): number {
     return this.pending.length + this.active.size;
   }
-  submit(id: string, run: Job<T>["run"], priority = 0): Promise<T> {
+  submit(
+    id: string,
+    run: Job<T>["run"],
+    priority = 0,
+    scope?: string,
+  ): Promise<T> {
     if (this.size >= this.capacity)
       return Promise.reject(new Error("Queue is full"));
     if (this.active.has(id) || this.pending.some((job) => job.id === id))
@@ -35,6 +41,7 @@ export class TaskQueue<T> {
         id,
         run,
         priority,
+        scope,
         resolve,
         reject,
         controller: new AbortController(),
@@ -61,7 +68,15 @@ export class TaskQueue<T> {
   }
   private drain(): void {
     while (this.active.size < this.concurrency && this.pending.length) {
-      const job = this.pending.shift()!;
+      const index = this.pending.findIndex(
+        (job) =>
+          !job.scope ||
+          ![...this.active.values()].some(
+            (active) => active.scope === job.scope,
+          ),
+      );
+      if (index < 0) break;
+      const job = this.pending.splice(index, 1)[0]!;
       this.active.set(job.id, job);
       void Promise.resolve()
         .then(() => {

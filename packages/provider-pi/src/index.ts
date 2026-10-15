@@ -43,3 +43,10 @@ export function failureMessage(message: AssistantMessage): string {
     ? "Request cancelled or timed out"
     : "Model request failed; check credentials, endpoint and provider availability";
 }
+
+export {
+  capabilities,
+  discoverCapabilities,
+  outputAllocation,
+  type ModelCapabilities,
+} from "./capabilities.js";

@@ -1,3 +1,8 @@
+import {
+  capabilities,
+  discoverCapabilities,
+  outputAllocation,
+} from "./capabilities.js";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
@@ -59,10 +64,16 @@ export function resolveModel(
       provider: "openai-compatible",
       reasoning: false,
       input: ["text"],
-      contextWindow: 32_768,
-      maxTokens: 8_192,
+      contextWindow: capabilities(config)?.contextWindow ?? 0,
+      maxTokens: capabilities(config)?.maxOutputTokens ?? 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     }),
+    ...(capabilities(config, catalog)
+      ? {
+          contextWindow: capabilities(config, catalog)!.contextWindow,
+          maxTokens: capabilities(config, catalog)!.maxOutputTokens,
+        }
+      : {}),
     baseUrl: config.endpoint,
     id: config.model,
     cost: pricing.prices ?? {
@@ -87,7 +98,20 @@ export function createPiClient(
   resolveModel(config);
   return {
     async complete(system, prompt, signal, onText) {
-      const { model, costKnown, pricing } = resolveModel(config);
+      const limits =
+        capabilities(config, resolveModel(config).model) ??
+        (await discoverCapabilities(config, apiKey, fetcher ?? fetch));
+      const { model, costKnown, pricing } = resolveModel({
+        ...config,
+        capabilities: limits,
+      });
+      const inputTokens = new TextEncoder().encode(system + prompt).length;
+      const maxTokens = outputAllocation(
+        config,
+        limits,
+        new TextEncoder().encode(prompt).length,
+        inputTokens,
+      );
       const started = performance.now();
       let first: number | null = null,
         firstText: number | null = null,
@@ -106,7 +130,7 @@ export function createPiClient(
             signal,
             AbortSignal.timeout(config.timeoutMs),
           ]),
-          maxTokens: config.maxOutputTokens,
+          maxTokens,
           maxRetries: 0,
           timeoutMs: config.timeoutMs,
           ...(fetcher ? { fetch: fetcher } : {}),

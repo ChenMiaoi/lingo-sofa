@@ -115,6 +115,11 @@ export function ProviderPage() {
             本地助手
           </button>
         </div>
+        <p className="muted">
+          {mode === "bridge"
+            ? "翻译按页面保留上下文，自动压缩历史；Ask Pi 使用独立会话。"
+            : "模型直连使用独立请求；选择本地助手可连续保留翻译上下文并自动压缩。"}
+        </p>
         {error && (
           <p role="alert" className="error">
             {error}

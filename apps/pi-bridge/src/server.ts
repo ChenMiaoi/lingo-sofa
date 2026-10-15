@@ -1,11 +1,8 @@
 import { homedir } from "node:os";
 import { createServer, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import {
-  createPiClient,
-  resolveModel,
-  listModels,
-} from "@lingo-sofa/provider-pi/node";
+import { resolveModel, listModels } from "@lingo-sofa/provider-pi/node";
+import { capabilities } from "@lingo-sofa/provider-pi";
 import { TranslationService, budgetStatus } from "@lingo-sofa/translation-core";
 import { providerUpdateSchema, type UsageRecord } from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
@@ -51,6 +48,7 @@ export function createBridge(
       ).values(),
     ]);
   const service = new TranslationService({
+    sessionCalls: true,
     budgetScope: (scope) =>
       config.shareBudget ? undefined : `${scope.split("|")[0]}|`,
     onBegin: async (record) => {
@@ -69,10 +67,19 @@ export function createBridge(
       const resolved = resolveModel(settings.model, Date.now(), true);
       return resolved.costKnown ? resolved.model.cost : null;
     },
-    client: async (settings, onMetrics) =>
-      createPiClient(settings.model, await sessions.runtime(), onMetrics),
-    ask: (key, question, context, signal, onMetrics) =>
-      sessions.ask(key, question, context, signal, onMetrics),
+    client: async (settings, onMetrics, call) =>
+      sessions.translationClient(
+        call!.scope,
+        JSON.stringify(call!.translationLanguages ?? [settings.targetLanguage]),
+        settings.glossary,
+        onMetrics,
+        call,
+      ),
+    ask: (key, question, context, signal, onMetrics, call) =>
+      sessions.ask(key, question, context, signal, onMetrics, call),
+    clearTranslationScope: (scope, prefix) =>
+      sessions.clearTranslations(scope, prefix),
+    clearAllSessions: () => sessions.dispose(),
     clearSession: (key) => sessions.clear(key),
   });
   service.ledger.restore(history.read());
@@ -188,7 +195,12 @@ export function createBridge(
         return;
       }
       if (request.url === "/v1/provider") {
+        await sessions.runtime();
         reply(200, {
+          capabilities: capabilities(
+            config.settings.model,
+            resolveModel(config.settings.model).model,
+          ),
           model: config.settings.model,
           keyConfigured: Boolean(currentKey),
           piAuth: config.usePiAuth,

@@ -184,7 +184,7 @@ describe("translation protection and alignment", () => {
       { targetLanguage: 123 },
       { targetLanguage: "x".repeat(65) },
       { context: 123 },
-      { context: "x".repeat(16_001) },
+      { context: [] },
     ]) {
       await expect(
         translate(
@@ -200,6 +200,29 @@ describe("translation protection and alignment", () => {
       ).rejects.toThrow();
     }
   });
+});
+it("does not mistake transport string lengths for a model context/output ceiling", async () => {
+  const longContext = "reference ".repeat(2000);
+  const result = await translate(
+    client(
+      JSON.stringify([
+        { id: "large", text: "译".repeat(33000), context: longContext },
+      ]),
+    ),
+    [
+      {
+        ...unit,
+        id: "large",
+        text: "Hello",
+        context: longContext,
+        protectedParts: [],
+      },
+    ],
+    [],
+    new AbortController().signal,
+  );
+  expect(result.results[0]!.text.length).toBe(33000);
+  expect(result.results[0]).not.toHaveProperty("context");
 });
 describe("bounded cancellable queue", () => {
   it("prioritizes pending manual work and limits concurrency", async () => {
@@ -372,4 +395,56 @@ it("isolates frontend budget reservations unless a global budget is explicitly s
     ledger.reserve("discord-next", 1, null, settings, now, "discord|"),
   ).toThrow("unknown");
   ledger.reserve("web-small", 1, null, settings, now, "extension|");
+});
+
+it("serializes one scope without blocking other scopes or running cancelled waiting jobs", async () => {
+  const queue = new TaskQueue<string>(2, 5);
+  let release!: () => void;
+  const order: string[] = [];
+  const first = queue.submit(
+    "a1",
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve("first");
+      }),
+    0,
+    "page-a",
+  );
+  const cancelled = queue.submit(
+    "a2",
+    async () => {
+      order.push("cancelled");
+      return "cancelled";
+    },
+    0,
+    "page-a",
+  );
+  const cancelledCheck = expect(cancelled).rejects.toThrow("cancelled");
+  const other = queue.submit(
+    "b",
+    async () => {
+      order.push("other");
+      return "other";
+    },
+    0,
+    "page-b",
+  );
+  const last = queue.submit(
+    "a3",
+    async () => {
+      order.push("last");
+      return "last";
+    },
+    0,
+    "page-a",
+  );
+  await Promise.resolve();
+  queue.cancel("a2");
+  expect(await other).toBe("other");
+  expect(order).toEqual(["other"]);
+  release();
+  await first;
+  await cancelledCheck;
+  expect(await last).toBe("last");
+  expect(order).toEqual(["other", "last"]);
 });

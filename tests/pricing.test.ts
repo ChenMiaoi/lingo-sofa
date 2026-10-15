@@ -175,8 +175,13 @@ it("recalculates Node and Pi SDK session totals across peak/off-peak turns", asy
   const server = await modelServer();
   const directory = await mkdtemp(join(tmpdir(), "lingo-pricing-"));
   const originalFetch = globalThis.fetch;
-  vi.spyOn(globalThis, "fetch").mockImplementation((_url, options) =>
-    originalFetch(server.endpoint, options),
+  vi.spyOn(globalThis, "fetch").mockImplementation((url, options) =>
+    originalFetch(
+      String(url).endsWith("/models")
+        ? `${server.endpoint}/models`
+        : server.endpoint,
+      options,
+    ),
   );
   const now = vi
     .spyOn(Date, "now")

@@ -7,13 +7,38 @@ export async function modelServer(
     delay?: number;
     echoMetadata?: boolean;
     markdown?: boolean;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+    inputTokens?: number | ((call: number) => number);
   } = {},
 ) {
   const requests: unknown[] = [];
   const server = createServer(async (request, response) => {
+    if (request.method === "GET" && request.url === "/models") {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          data: [
+            ...["fixture", "fixture-next"].map((id) => ({
+              id,
+              context_window: options.contextWindow ?? 32768,
+              max_output_tokens: options.maxOutputTokens ?? 8192,
+            })),
+          ],
+        }),
+      );
+      return;
+    }
     let raw = "";
     for await (const chunk of request) raw += String(chunk);
-    const body = JSON.parse(raw) as { messages: { content: string }[] };
+    if (!raw) {
+      response.writeHead(400);
+      response.end("Missing fixture request");
+      return;
+    }
+    const body = JSON.parse(raw) as {
+      messages: { content: string | { type: string; text?: string }[] }[];
+    };
     requests.push(body);
     if (options.status) {
       response.writeHead(options.status);
@@ -22,7 +47,14 @@ export async function modelServer(
     }
     let answer = options.reply;
     if (answer === undefined) {
-      const prompt = body.messages.at(-1)!.content;
+      const content = body.messages.at(-1)!.content;
+      const prompt =
+        typeof content === "string"
+          ? content
+          : content
+              .filter((item) => item.type === "text")
+              .map((item) => item.text ?? "")
+              .join("");
       try {
         const units = JSON.parse(prompt) as {
           id: string;
@@ -56,10 +88,14 @@ export async function modelServer(
     await new Promise((resolve) => setTimeout(resolve, options.delay ?? 20));
     if (response.destroyed) return;
     chunk({ content: answer.slice(2) });
+    const inputTokens =
+      typeof options.inputTokens === "function"
+        ? options.inputTokens(requests.length)
+        : (options.inputTokens ?? 32);
     chunk({}, "stop", {
-      prompt_tokens: 32,
+      prompt_tokens: inputTokens,
       completion_tokens: 12,
-      total_tokens: 44,
+      total_tokens: inputTokens + 12,
       prompt_tokens_details: { cached_tokens: 20 },
     });
     response.end("data: [DONE]\n\n");

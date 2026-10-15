@@ -21,6 +21,8 @@ import {
 import { TranslationService } from "@lingo-sofa/translation-core";
 import { readSettings, apiKey, records } from "../src/storage.js";
 
+import { pageScope } from "../src/page-scope.js";
+import { capabilities } from "@lingo-sofa/provider-pi";
 import { syncReadingAccess, automaticPermission } from "../src/site-access.js";
 
 import { NativeConnection } from "../src/native-connection.js";
@@ -221,7 +223,7 @@ export default defineBackground(() => {
         const url = new URL(sender.url);
         if (!["http:", "https:"].includes(url.protocol))
           throw new Error("Unsupported page");
-        const scope = `web:${sender.tab.id}:${url.origin}:${sender.documentId ?? url.pathname}`;
+        const scope = await pageScope(sender.tab.id!, url, sender.documentId);
         if (
           request.kind === "translate" &&
           request.automatic &&
@@ -267,6 +269,7 @@ export default defineBackground(() => {
           settings.model.provider,
         );
         return {
+          capabilities: capabilities(settings.model),
           model: supported ? settings.model : settingsSchema.parse({}).model,
           keyConfigured: supported && Boolean(await apiKey()),
           piAuth: false,
@@ -293,7 +296,14 @@ export default defineBackground(() => {
         const info = await catalog();
         return {
           ok: true,
-          maxOutputTokens: info.model.maxOutputTokens,
+          maxOutputTokens:
+            info.model.maxOutputTokens > 0
+              ? Math.min(
+                  info.model.maxOutputTokens,
+                  info.capabilities?.maxOutputTokens ??
+                    info.model.maxOutputTokens,
+                )
+              : info.capabilities?.maxOutputTokens,
           model: info.model.model,
           providerName:
             info.providers.find(

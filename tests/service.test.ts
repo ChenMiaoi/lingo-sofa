@@ -206,3 +206,57 @@ it("sends only cache misses in a mixed batch and binds cached text to new revisi
   expect(sent).toHaveLength(3);
   expect(service.cacheStats("scope").lookups).toBe(0);
 });
+
+it("retains the in-flight checkpoint if session usage cannot be persisted", async () => {
+  let finished = false;
+  let began = false;
+  const service = new TranslationService({
+    sessionCalls: true,
+    onBegin: async () => {
+      began = true;
+    },
+    onRecords: async () => {
+      throw new Error("disk full");
+    },
+    onFinish: async () => {
+      finished = true;
+    },
+    client: async (_settings, _onMetrics, call) => ({
+      complete: async () => {
+        expect(call!.translationLanguages).toEqual(["中文"]);
+        const finish = await call!.begin({
+          id: call!.requestId,
+          inputTokens: 1,
+          outputTokens: 1,
+          purpose: "translation",
+        });
+        await finish(metrics, "failed");
+        return { text: "[]", metrics };
+      },
+    }),
+  });
+  const result = await service.handle(
+    {
+      kind: "translate",
+      automatic: false,
+      requestId: crypto.randomUUID(),
+      units: [
+        {
+          id: "one",
+          revision: "1",
+          sourceKind: "web",
+          text: "Hello",
+          targetLanguage: "中文",
+          protectedParts: [],
+        },
+      ],
+    },
+    "scope",
+    settingsSchema.parse({}),
+    "web",
+  );
+  expect(result).toMatchObject({ ok: false, error: "disk full" });
+  expect(began).toBe(true);
+  expect(finished).toBe(false);
+  expect(service.ledger.list()).toHaveLength(1);
+});

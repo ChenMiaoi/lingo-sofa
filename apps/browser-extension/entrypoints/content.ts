@@ -14,7 +14,10 @@ import {
   selectedContent,
 } from "@lingo-sofa/web-extraction";
 import { TranslationBatcher } from "@lingo-sofa/translation-core/batch";
-import { createPageControls } from "../src/page-controls.js";
+import {
+  createPageControls,
+  type PageControlActions,
+} from "../src/page-controls.js";
 import { showSelectionAsk } from "../src/selection-ask.js";
 import type {
   Reply,
@@ -51,7 +54,18 @@ export default defineContentScript({
     });
     const askCleanups = new Set<() => void>();
     let targetLanguage = "简体中文";
-    let maxOutputTokens = 4_096;
+    let maxOutputTokens = Number.MAX_SAFE_INTEGER;
+    async function readConfiguration() {
+      const reply = await browser.runtime.sendMessage({
+        action: "page-controls",
+      });
+      if (!reply.ok) throw new Error(reply.error);
+      maxOutputTokens = reply.maxOutputTokens || Number.MAX_SAFE_INTEGER;
+      return reply as Awaited<ReturnType<PageControlActions["configuration"]>>;
+    }
+    let configurationReady = readConfiguration()
+      .then(() => undefined)
+      .catch(() => undefined);
     let mode: "page" | "manual" = "manual";
     let selectedPreview:
       | { text: string; root: HTMLElement; original: string; url: string }
@@ -222,14 +236,7 @@ export default defineContentScript({
         targetLanguage = language;
         if (active && !manual) start(language, automaticMode);
       },
-      configuration: async () => {
-        const reply = await browser.runtime.sendMessage({
-          action: "page-controls",
-        });
-        if (!reply.ok) throw new Error(reply.error);
-        maxOutputTokens = reply.maxOutputTokens ?? 4_096;
-        return reply;
-      },
+      configuration: readConfiguration,
       model: async (model) => {
         const reply = await browser.runtime.sendMessage({
           action: "page-model",
@@ -249,11 +256,12 @@ export default defineContentScript({
     const readingReady = browser.runtime
       .sendMessage({ action: "auto-state" })
       .then(
-        (response: {
+        async (response: {
           enabled: boolean;
           readingEnabled: boolean;
           targetLanguage: string;
         }) => {
+          await configurationReady;
           if (ctx.isInvalid) return;
           readingEnabled = response.readingEnabled !== false;
           controls.setEnabled(readingEnabled);
@@ -317,6 +325,10 @@ export default defineContentScript({
         return Promise.resolve({ ok: true });
       }
       if (data.action === "settings-changed") {
+        configurationReady = readConfiguration()
+          .then(() => undefined)
+          .catch(() => undefined);
+        await configurationReady;
         targetLanguage = data.targetLanguage ?? "简体中文";
         controls.setLanguage(targetLanguage);
         stop();

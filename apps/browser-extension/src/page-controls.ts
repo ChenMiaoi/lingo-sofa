@@ -6,6 +6,7 @@ export interface PageControlActions {
   model: (model: string) => Promise<void>;
   automatic: (enabled: boolean) => Promise<unknown>;
   configuration: () => Promise<{
+    maxOutputTokens?: number;
     readingEnabled: boolean;
     model: string;
     providerName: string;

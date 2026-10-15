@@ -1,15 +1,15 @@
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
-const text = z.string().trim().min(1).max(32_000);
+const text = z.string().trim().min(1);
 export const translationUnitSchema = z.strictObject({
   id: z.string().min(1).max(128),
   revision: z.string().min(1).max(128),
   sourceKind: z.enum(["web", "discord"]),
   text,
   targetLanguage: z.string().min(1).max(64),
-  context: z.string().max(16_000).optional(),
-  protectedParts: z.array(z.string().min(1).max(4_000)).max(100).default([]),
+  context: z.string().optional(),
+  protectedParts: z.array(z.string().min(1)).max(100).default([]),
 });
 export type TranslationUnit = z.infer<typeof translationUnitSchema>;
 export const translationOutputSchema = z
@@ -19,7 +19,7 @@ export const translationOutputSchema = z
       text,
       // Some models echo this input metadata; it is never part of the result.
       targetLanguage: z.string().min(1).max(64).optional(),
-      context: z.string().max(16_000).optional(),
+      context: z.string().optional(),
     }),
   )
   .min(1)
@@ -59,7 +59,24 @@ export const modelConfigSchema = z.strictObject({
           ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)))
     );
   }, "Use HTTPS, or HTTP on loopback, without credentials or query parameters"),
-  maxOutputTokens: z.number().int().min(128).max(8_192).default(4_096),
+  // Zero selects automatic allocation within the provider's published limits.
+  maxOutputTokens: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(0),
+  capabilities: z
+    .strictObject({
+      modelId: z.string().min(1),
+      contextWindow: z.number().int().positive(),
+      maxOutputTokens: z.number().int().positive(),
+      maxInputTokens: z.number().int().positive().optional(),
+      source: z.enum(["official", "provider", "catalog"]),
+      sourceUrl: z.url().optional(),
+      updatedAt: z.iso.date().optional(),
+    })
+    .optional(),
   timeoutMs: z.number().int().min(1_000).max(45_000).default(30_000),
   prices: pricesSchema.nullable().default(null),
 });
@@ -71,7 +88,7 @@ export const settingsSchema = z.strictObject({
     provider: "deepseek",
     model: "deepseek-flash",
     endpoint: "https://api.deepseek.com",
-    maxOutputTokens: 4_096,
+    maxOutputTokens: 0,
     timeoutMs: 30_000,
     prices: null,
   }),
@@ -182,6 +199,7 @@ export interface UsageRecord extends Metrics {
   status: "success" | "failed" | "cancelled" | "unknown";
   timestamp: number;
   sessionId?: string | undefined;
+  purpose?: "translation" | "ask" | "compaction" | undefined;
 }
 export interface TranslationBilling {
   source: "request" | "cache";
@@ -269,6 +287,7 @@ export const translationBillingSchema = z
     "Cache hits cannot carry new charges",
   );
 export const usageRecordSchema = metricsSchema.extend({
+  purpose: z.enum(["translation", "ask", "compaction"]).optional(),
   requestId: z.uuid(),
   scope: z.string().max(1024),
   model: z.string().max(200),
@@ -333,6 +352,7 @@ export const providerUpdateSchema = z.strictObject({
 });
 export type ProviderUpdate = z.infer<typeof providerUpdateSchema>;
 export const providerCatalogSchema = z.strictObject({
+  capabilities: modelConfigSchema.shape.capabilities,
   model: modelConfigSchema,
   keyConfigured: z.boolean(),
   piAuth: z.boolean(),
