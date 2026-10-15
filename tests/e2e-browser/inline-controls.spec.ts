@@ -284,9 +284,10 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       toolbarAsk.locator(".ls-ask-composer-area .ls-ask-header"),
     ).toHaveCount(0);
 
+    await expect(toolbarAsk.locator(".ls-ask-context")).toHaveCount(0);
     await expect(
-      toolbarAsk.getByLabel("将发送的上下文", { exact: true }),
-    ).toHaveValue("Second");
+      toolbarAsk.getByRole("button", { name: "移除所选上下文", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(toolbarAsk.getByText(/Enter 发送|管理供应商/)).toHaveCount(0);
     expect(model.requests).toHaveLength(beforeToolbarAsk);
     await toolbarAsk.getByRole("button", { name: "关闭并清理会话" }).click();
@@ -306,9 +307,10 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     const dialog = page.locator("dialog[data-lingo-sofa=ask]");
     await expect(dialog).toHaveAttribute("aria-modal", "false");
     expect(model.requests).toHaveLength(beforeQuickOpen);
+    await expect(dialog.locator(".ls-ask-context")).toHaveCount(0);
     await expect(
-      dialog.getByLabel("将发送的上下文", { exact: true }),
-    ).toHaveValue("Second");
+      dialog.getByRole("button", { name: "移除所选上下文", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(
       dialog.getByRole("heading", { name: "坐下来，聊明白。" }),
     ).toHaveCount(0);
@@ -395,8 +397,8 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       .getByRole("button", { name: "移除所选上下文", exact: true })
       .click();
     await expect(
-      dialog.getByLabel("将发送的上下文", { exact: true }),
-    ).toBeHidden();
+      dialog.getByRole("button", { name: "添加所选上下文", exact: true }),
+    ).toHaveAttribute("aria-pressed", "false");
     await dialog.getByLabel("问题", { exact: true }).fill("Say hello");
     await dialog.getByLabel("问题", { exact: true }).press("Shift+Enter");
     await expect(dialog.getByLabel("问题", { exact: true })).toHaveValue(

@@ -248,15 +248,6 @@ function Ask({
         )}
       </header>
       <div className="ls-ask-conversation">
-        {includeContext && (
-          <details className="ls-ask-context">
-            <summary>所选文本 · {message.content.length} 字 · 预览</summary>
-            <label>
-              将发送的上下文
-              <textarea value={message.content} readOnly rows={3} />
-            </label>
-          </details>
-        )}
         {!turns.length && !running && (
           <div className="ls-ask-empty">
             <div className="ls-ask-suggestions">

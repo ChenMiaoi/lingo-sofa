@@ -66,18 +66,6 @@ export function showSelectionAsk(
   const suggestions = document.createElement("div");
   suggestions.className = "ls-ask-suggestions";
   empty.append(suggestions);
-  const contextPanel = document.createElement("details");
-  contextPanel.className = "ls-ask-context";
-  const contextHeading = document.createElement("summary");
-  contextHeading.textContent = `所选文本 · ${context.length} 字 · 预览`;
-  const previewLabel = document.createElement("label");
-  previewLabel.textContent = "将发送的上下文";
-  const preview = document.createElement("textarea");
-  preview.value = context;
-  preview.readOnly = true;
-  preview.rows = 3;
-  previewLabel.append(preview);
-  contextPanel.append(contextHeading, previewLabel);
   const turns = document.createElement("div");
   turns.setAttribute("aria-live", "polite");
   const status = document.createElement("p");
@@ -86,7 +74,7 @@ export function showSelectionAsk(
   const error = document.createElement("p");
   error.className = "ls-ask-error";
   error.setAttribute("role", "alert");
-  conversation.append(contextPanel, empty, turns, status, error);
+  conversation.append(empty, turns, status, error);
   dialog.dataset.askState = "empty";
   const composerArea = document.createElement("div");
   composerArea.className = "ls-ask-composer-area";
@@ -101,7 +89,7 @@ export function showSelectionAsk(
   contextChip.setAttribute("aria-label", "移除所选上下文");
   contextChip.setAttribute("aria-pressed", "true");
   let includeContext = Boolean(context);
-  contextPanel.hidden = contextChip.hidden = !includeContext;
+  contextChip.hidden = !includeContext;
   chips.append(contextChip);
   const questionLabel = document.createElement("label");
   questionLabel.textContent = "问题";
@@ -199,7 +187,6 @@ export function showSelectionAsk(
   };
   contextChip.onclick = () => {
     includeContext = !includeContext;
-    contextPanel.hidden = !includeContext;
     contextChip.textContent = includeContext ? "所选文本 ×" : "+ 添加所选文本";
     contextChip.setAttribute(
       "aria-label",
