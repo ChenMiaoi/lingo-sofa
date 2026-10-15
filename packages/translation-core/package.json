@@ -12,5 +12,6 @@
     "@lingo-sofa/glossary": "0.1.0",
     "@lingo-sofa/protocol": "0.1.0",
     "marked": "18.0.11"
-  }
+  },
+  "license": "GPL-3.0-or-later"
 }

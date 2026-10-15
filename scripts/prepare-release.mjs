@@ -193,7 +193,7 @@ try {
       "Windows/Edge and additional real-client coverage",
       "Screen-reader verification",
       "Resolve license inventory issues and inspect embedded vendor notices",
-      "Legal decision for proprietary plugin plus GPL host before any combined distribution",
+      "Corresponding source and license/notice delivery for the GPL plugin and Vencord host",
       "Store review and platform signing/notarization",
     ],
     packages: inventory,

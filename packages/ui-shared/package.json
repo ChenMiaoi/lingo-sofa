@@ -12,5 +12,6 @@
     "marked": "18.0.11",
     "@lingo-sofa/translation-core": "0.1.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "GPL-3.0-or-later"
 }

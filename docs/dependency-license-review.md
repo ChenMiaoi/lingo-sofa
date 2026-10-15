@@ -16,4 +16,4 @@
 
 AWS 父仓库 [LICENSE 快照](https://raw.githubusercontent.com/aws/aws-sdk-js-v3/d6adfcb7baa396dd42060a74382b6aa2a1cbf0b5/LICENSE) 可取得，但本次未确认该源码 revision 与上述三包的对应关系。Proxy 的 [指定发布 tag](https://github.com/TooTallNate/proxy-agents/tree/proxy-agent-negotiate%401.1.0/packages/negotiate) 保留为核对入口。Standard Webhooks 的 [JS 元数据](https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/b4d2c14fc5b4ccff3ff271e3b087dff812254c59/libraries/javascript/package.json) 与 [根 LICENSE](https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/b4d2c14fc5b4ccff3ff271e3b087dff812254c59/LICENSE) 来自同一固定 commit。
 
-这 5 项仍进入 `release-review.json.licenseIssues`。之后需根据实际 bundle/Bridge 依赖闭包和供应商内嵌 notices 逐项核对；明确不进入某个发行物的包可以从该发行物的清单排除，但不能为了通过审查直接从锁文件总清单删掉。商业原创 LICENSE 和 Vencord GPL 组合分发的条件仍是独立发布门槛。
+这 5 项仍进入 `release-review.json.licenseIssues`。之后需根据实际 bundle/Bridge 依赖闭包和供应商内嵌 notices 逐项核对；明确不进入某个发行物的包可以从该发行物的清单排除，但不能为了通过审查直接从锁文件总清单删掉。原创材料现采用 GPL-3.0-or-later；Vencord 组合分发所需的对应源码和第三方声明仍须独立交付。

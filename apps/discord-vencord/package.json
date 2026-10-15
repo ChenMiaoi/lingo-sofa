@@ -12,5 +12,6 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "node ../../scripts/verify-vencord.mjs"
-  }
+  },
+  "license": "GPL-3.0-or-later"
 }

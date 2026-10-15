@@ -303,7 +303,7 @@ docs/
 
 浏览器功能和共享核心可以自主设计；若复制 Vencord Translate 的代码，必须遵守其 GPL-3.0-or-later 条件和版权声明。不能因为放进 monorepo 就消除许可证义务，也不能因此直接断言所有独立组件都必须同一许可证。发布前按实际复用与链接关系核对。
 
-Pi 和 WXT 的许可分别以固定版本 LICENSE 为准。用户现已选择 LingoSofa 原创材料暂采用 [商业专有 LICENSE](../LICENSE)，第三方许可清单见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)。Vencord 集成分发的 GPL 条件仍须单独核对；GitSofa 的许可证决定不自动套用到 LingoSofa。
+Pi 和 WXT 的许可分别以固定版本 LICENSE 为准。LingoSofa 原创材料自 2026-10-15 起采用 [GPL-3.0-or-later](../LICENSE)，第三方许可清单见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍须保留适用的版权、许可与对应源码，其他依赖保留各自授权。
 
 本机 macOS 已按用户授权完成原 Discord、MV3 与真实 DeepSeek 验收，下一步发布条件以 [验收记录](acceptance.md) 为准。安装或测试消息权限不扩展为读取 Discord token、注册账号或公开发布的授权。
 

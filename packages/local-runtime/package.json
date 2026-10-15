@@ -8,5 +8,6 @@
     "./leases": "./src/leases.ts",
     "./installer": "./src/installer.ts",
     "./release": "./src/release.ts"
-  }
+  },
+  "license": "GPL-3.0-or-later"
 }
