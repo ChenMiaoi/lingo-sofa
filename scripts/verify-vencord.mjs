@@ -61,6 +61,10 @@ paths["@vencord/discord-types"] = [
 const local = JSON.parse(
   await readFile(join(project, "tsconfig.json"), "utf8"),
 );
+local.extends = relative(project, join(checkout, "tsconfig.json")).replaceAll(
+  "\\",
+  "/",
+);
 local.compilerOptions.paths = paths;
 const configPath = join(project, "tsconfig.host.generated.json");
 try {
