@@ -1,5 +1,9 @@
 import { definePluginSettings } from "@api/Settings";
 import { findGroupChildrenByChildId } from "@api/ContextMenu";
+import {
+  addMessagePopoverButton,
+  removeMessagePopoverButton,
+} from "@api/MessagePopover";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import {
   React,
@@ -112,6 +116,25 @@ function Icon() {
     </svg>
   );
 }
+function AskIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H8l-5 3V7.5A4.5 4.5 0 0 1 7.5 3h8A4.5 4.5 0 0 1 20 7.5z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7 8h9M7 12h6"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+const askPopoverId = "LingoSofaAsk";
 const AskModelSelector = createAskModelSelector(() => React);
 function Ask({
   message,
@@ -393,7 +416,7 @@ function messageElement(id: string, channel: string) {
     document.getElementById(`chat-messages-${channel}-${id}`)
   );
 }
-function showAsk(message: MessageRef) {
+function showAsk(message: MessageRef, useSelection = false) {
   if (!settings.store.readingEnabled) return;
   const source = messageElement(message.id, message.channel);
   const selection = document.getSelection();
@@ -401,6 +424,7 @@ function showAsk(message: MessageRef) {
     ? selection.getRangeAt(0).cloneRange()
     : undefined;
   const selected = Boolean(
+    useSelection &&
     source &&
     range &&
     source.contains(range.commonAncestorContainer) &&
@@ -476,7 +500,7 @@ function openAskShortcut() {
     : element.id.slice(`chat-messages-${channel}-`.length);
   const message = MessageStore.getMessage(channel, id);
   if (!message?.content) return false;
-  showAsk(reference(message));
+  showAsk(reference(message), true);
   return true;
 }
 
@@ -928,10 +952,28 @@ export default definePlugin({
     style.id = "lingo-sofa-styles";
     style.textContent = pluginStyles;
     document.head.append(style);
+    addMessagePopoverButton(
+      askPopoverId,
+      (message) => {
+        if (!settings.store.readingEnabled || !message.content?.trim())
+          return null;
+        const channel = ChannelStore.getChannel(message.channel_id);
+        if (!channel) return null;
+        return {
+          label: "LingoSofa Ask",
+          icon: AskIcon,
+          message,
+          channel,
+          onClick: () => showAsk(reference(message)),
+        };
+      },
+      AskIcon,
+    );
     document.addEventListener("pointerover", trackAskMessage);
     removeAskShortcut = registerAskShortcut(document, openAskShortcut);
   },
   stop: () => {
+    removeMessagePopoverButton(askPopoverId);
     closeAsk?.();
     removeAskShortcut?.();
     document.removeEventListener("pointerover", trackAskMessage);
