@@ -1,4 +1,4 @@
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
@@ -59,7 +59,11 @@ it("keeps one remaining client alive and expires crashed clients before the idle
 });
 it("shares the service and provider, rejects outsiders, and drains paid work before preserving history and exiting", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-managed-"));
-  const model = await modelServer({ delay: 1_500 });
+  let finishResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    finishResponse = resolve;
+  });
+  const model = await modelServer({ responseGate });
   await config(directory, model.endpoint);
   await writeFile(
     join(directory, "provider.json"),
@@ -76,13 +80,16 @@ it("shares the service and provider, rejects outsiders, and drains paid work bef
       apiKey: "fixture-key",
     }),
   );
-  let daemon = await startDaemon(directory, {
-    leases: new ClientLeases(2000, 80),
-    pollMs: 10,
-  });
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
   const browser = new RuntimeClient(directory, web);
   const desktop = new RuntimeClient(directory, discord);
+  // Only the lease clock is advanced; real I/O and polling timers keep running.
+  vi.useFakeTimers({ toFake: ["Date"] });
   try {
+    daemon = await startDaemon(directory, {
+      leases: new ClientLeases(2000, 80),
+      pollMs: 10,
+    });
     const [one, two] = await Promise.all([browser.start(), desktop.start()]);
     expect(one.instanceId).toBe(two.instanceId);
     expect(daemon.leases.count).toBe(2);
@@ -130,15 +137,16 @@ it("shares the service and provider, rejects outsiders, and drains paid work bef
     expect(daemon.leases.count).toBe(1);
     await desktop.stop();
     expect(daemon.leases.count).toBe(0);
-    await delay(150);
+    vi.setSystemTime(Date.now() + 81);
+    await delay(30);
     expect(daemon.busy).toBe(true);
     expect(daemon.server.listening).toBe(true);
+    finishResponse();
     expect(await (await pending).json()).toMatchObject({
       ok: true,
       results: [{ text: "译文 Hello" }],
     });
-    await delay(150);
-    expect(daemon.server.listening).toBe(false);
+    await expect.poll(() => daemon?.server.listening).toBe(false);
     await daemon.stop();
     const history = JSON.parse(
       await readFile(join(directory, "usage.json"), "utf8"),
@@ -153,8 +161,10 @@ it("shares the service and provider, rejects outsiders, and drains paid work bef
         (await stat(join(directory, "runtime-connection.json"))).mode & 0o777,
       ).toBe(0o600);
   } finally {
+    finishResponse();
+    vi.useRealTimers();
     await Promise.all([browser.stop(), desktop.stop()]);
-    await daemon.stop();
+    await daemon?.stop();
     await model.close();
     await rm(directory, { recursive: true, force: true });
   }

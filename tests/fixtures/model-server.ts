@@ -5,6 +5,7 @@ export async function modelServer(
     reply?: string;
     status?: number;
     delay?: number;
+    responseGate?: Promise<void>;
     echoMetadata?: boolean;
     markdown?: boolean;
     contextWindow?: number;
@@ -87,6 +88,7 @@ export async function modelServer(
         `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}) })}\n\n`,
       );
     chunk({ role: "assistant", content: answer.slice(0, 2) });
+    await options.responseGate;
     await new Promise((resolve) => setTimeout(resolve, options.delay ?? 20));
     if (response.destroyed) return;
     chunk({ content: answer.slice(2) });
