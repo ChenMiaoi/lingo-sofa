@@ -1,6 +1,6 @@
 {
   "name": "@lingo-sofa/browser-extension",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,12 +12,12 @@
   "dependencies": {
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "@lingo-sofa/protocol": "0.1.6",
-    "@lingo-sofa/provider-pi": "0.1.6",
-    "@lingo-sofa/translation-core": "0.1.6",
-    "@lingo-sofa/web-extraction": "0.1.6",
-    "@lingo-sofa/ui-shared": "0.1.6",
-    "@lingo-sofa/local-runtime": "0.1.6"
+    "@lingo-sofa/protocol": "0.1.7",
+    "@lingo-sofa/provider-pi": "0.1.7",
+    "@lingo-sofa/translation-core": "0.1.7",
+    "@lingo-sofa/web-extraction": "0.1.7",
+    "@lingo-sofa/ui-shared": "0.1.7",
+    "@lingo-sofa/local-runtime": "0.1.7"
   },
   "devDependencies": {
     "@wxt-dev/module-react": "1.2.2",

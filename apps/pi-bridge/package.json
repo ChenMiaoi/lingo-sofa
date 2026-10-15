@@ -1,15 +1,15 @@
 {
   "name": "@lingo-sofa/pi-bridge",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.2.0",
-    "@lingo-sofa/protocol": "0.1.6",
-    "@lingo-sofa/provider-pi": "0.1.6",
-    "@lingo-sofa/translation-core": "0.1.6",
+    "@lingo-sofa/protocol": "0.1.7",
+    "@lingo-sofa/provider-pi": "0.1.7",
+    "@lingo-sofa/translation-core": "0.1.7",
     "zod": "4.6.7",
-    "@lingo-sofa/local-runtime": "0.1.6"
+    "@lingo-sofa/local-runtime": "0.1.7"
   },
   "scripts": {
     "build": "node build.mjs",
