@@ -70,4 +70,9 @@ LINGO_SOFA_RELEASE_MANIFEST=/absolute/assistant-release.json npm run build --wor
 
 本安装器是自带运行环境的归档与双击入口，尚不是已签名/公证的 `.pkg`/`.exe` 图形安装包。macOS 系统可能阻止未签名文件运行；不提供绕过系统保护的自动操作。Windows/macOS/Linux 需要各自真机验收。Node 完整许可随包提供，第三方依赖许可交付与 Vencord 组合分发条件仍须解决，见 [发布准备](release-readiness.md) 和 [许可审查](dependency-license-review.md)。本命令不上传、签名、公证、提交商店或修改已安装 Discord。
 
-卸载与服务生命周期见 [README](../README.md#本地-pi-bridge) 和 [后台生命周期](service-lifecycle.md)。删除助手目录前关闭所有客户端并移除 Native Host 注册；各平台入口不会自动删除其他端仍需使用的共享助手。
+## 卸载
+
+1. 关闭浏览器和 Discord，等待本地助手完成任务并退出，规则见 [后台生命周期](service-lifecycle.md)。
+2. 移除不再使用的浏览器扩展或禁用 LingoSofa Vencord 插件。移除单个入口不会自动删除其他客户端仍需使用的共享助手。
+3. 若所有客户端都不再需要助手，移除自己安装的 `com.lingosofa.bridge.json` Native Messaging 注册。macOS 位于用户的 `~/Library/Application Support/<浏览器>/NativeMessagingHosts/`，Linux 位于用户的 `~/.config/<浏览器>/NativeMessagingHosts/`；浏览器目录分别对应 Chrome、Chrome for Testing、Chromium 或 Edge。Windows 还需移除 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.lingosofa.bridge` 与 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.lingosofa.bridge` 中由本项目创建的注册项。
+4. 删除 `~/.config/lingo-sofa`，或 `LINGO_SOFA_HOME` 指定的助手目录。这会同时删除助手、已保存账户与用量；需要保留的数据应先备份。通过环境变量单独设置的密钥也需在对应环境中自行移除。
