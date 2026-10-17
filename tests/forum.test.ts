@@ -94,7 +94,7 @@ it("renders forum prefixes as text, keeps compact usage in tooltips and restores
     expect(
       document.querySelector<HTMLElement>("th [data-lingo-sofa]")!.style
         .display,
-    ).toBe("inline");
+    ).toBe("block");
   } finally {
     page.stop();
   }

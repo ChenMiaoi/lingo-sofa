@@ -52,7 +52,7 @@ describe("translation Markdown", () => {
       expect(element.textContent).toContain("label");
     },
   );
-  it("renders Markdown below the original with a theme-inherited separator", async () => {
+  it("renders whole-page Markdown below the original without repeated separators", async () => {
     document.body.innerHTML =
       "<article><p>Original <code>fetch()</code></p><p><code>const x = 1</code></p><pre>private code</pre></article>";
     expect(extract(document.body)).toHaveLength(1);
@@ -69,6 +69,7 @@ describe("translation Markdown", () => {
     expect(translation.querySelector("strong")?.textContent).toBe("译文");
     expect(translation.querySelector("code")?.textContent).toBe("fetch()");
     expect(inlineTranslationStyle).toContain("border-block-start");
+    expect(translation.style.border).toBe("0px");
     expect(translation.style.color).toBe("inherit");
     translator.stop();
     expect(

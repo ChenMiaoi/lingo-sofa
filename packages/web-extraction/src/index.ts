@@ -173,12 +173,28 @@ export function selectedContent(document: Document): {
 export function selectedText(document: Document): string {
   return selectedContent(document).text;
 }
+function applyPageLayout(node: HTMLElement, presentation: Presentation): void {
+  const heading = presentation === "heading";
+  node.style.cssText =
+    `display:block;margin-block:${heading ? "0.3em" : "0.35em"} 0;margin-inline:0;padding:0;border:0;color:inherit;font:inherit;` +
+    (heading
+      ? "font-size:min(1em,max(0.82em,1rem));font-weight:500;line-height:1.4;"
+      : "line-height:1.6;") +
+    "box-sizing:border-box;min-inline-size:0;max-inline-size:100%;white-space:normal;word-break:normal;overflow-wrap:anywhere;text-indent:0;letter-spacing:normal;text-transform:none";
+  node.dir = "auto";
+  node.querySelector(":scope > .lingo-sofa-inline-usage")?.remove();
+  // Markdown's outer paragraph margins otherwise add a second layer of gaps.
+  if (node.firstElementChild instanceof HTMLElement)
+    node.firstElementChild.style.marginBlockStart = "0";
+  if (node.lastElementChild instanceof HTMLElement)
+    node.lastElementChild.style.marginBlockEnd = "0";
+}
 export function renderBlockTranslation(
   block: Block,
   translation:
     string | { text: string; billing?: TranslationBilling | undefined },
   targetLanguage: string,
-  billingDisplay: "inline" | "tooltip" = "inline",
+  mode: "manual" | "page" = "manual",
 ): HTMLElement {
   const node = block.element.ownerDocument.createElement("span");
   node.setAttribute(TRANSLATION_ATTRIBUTE, "translation");
@@ -198,9 +214,10 @@ export function renderBlockTranslation(
   if (typeof translation !== "string") {
     const billing = formatTranslationBilling(translation.billing);
     node.title = `${billing.text}\n${billing.title}`;
-    if (!compact && billingDisplay === "inline")
+    if (!compact && mode === "manual")
       appendTranslationBilling(node, translation.billing);
   }
+  if (mode === "page") applyPageLayout(node, block.presentation);
   return node;
 }
 function fingerprint(block: Block | undefined): string | undefined {
@@ -216,6 +233,7 @@ function fingerprint(block: Block | undefined): string | undefined {
 }
 interface State {
   fingerprint: string | undefined;
+  presentation: Presentation;
   id: string;
   revision: number;
   result?: HTMLElement;
@@ -341,9 +359,8 @@ export class PageTranslator {
     this.manual = false;
     // Keep completed manual translations when promoting to whole-page reading.
     for (const state of this.states.values())
-      state.result
-        ?.querySelector(":scope > .lingo-sofa-inline-usage")
-        ?.remove();
+      if (state.result?.getAttribute(TRANSLATION_ATTRIBUTE) === "translation")
+        applyPageLayout(state.result, state.presentation);
     if (this.stopped) this.start();
     else {
       this.scan(this.document);
@@ -422,6 +439,7 @@ export class PageTranslator {
       previous?.result?.remove();
       const state: State = {
         fingerprint: fingerprint(block),
+        presentation: block.presentation,
         id: previous?.id ?? `block-${++this.sequence}`,
         revision: (previous?.revision ?? 0) + 1,
       };
@@ -471,7 +489,7 @@ export class PageTranslator {
           block,
           text,
           this.options.targetLanguage,
-          this.manual ? "inline" : "tooltip",
+          this.manual ? "manual" : "page",
         );
         element.append(node);
         state.result = node;

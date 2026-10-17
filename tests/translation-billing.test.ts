@@ -224,6 +224,11 @@ it.each([false, true])(
         expect(
           document.querySelector(".lingo-sofa-inline-usage")?.textContent,
         ).toContain("100 Tokens");
+        expect(
+          document.querySelector<HTMLElement>(
+            "#a [data-lingo-sofa=translation]",
+          )!.style.borderBlockStart,
+        ).toContain("1px solid");
       }
       page.translatePage();
       release();
@@ -235,6 +240,7 @@ it.each([false, true])(
       )!;
       expect(translation.textContent).toBe("译 A");
       expect(translation.title).toContain("100 Tokens");
+      expect(translation.style.border).toBe("0px");
       expect(page.progress.completed).toBe(1);
     } finally {
       page.stop();
