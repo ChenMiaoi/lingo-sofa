@@ -9,7 +9,7 @@ const examples: Record<string, string> = {
 };
 export function BilingualPreview({ language }: { language: string }) {
   const english = "A little context goes a long way.";
-  const supported = language === "English" || Boolean(examples[language]);
+  const supported = language === "English" || Object.hasOwn(examples, language);
   return (
     <div className="ls-bilingual-preview" aria-label="双语效果预览">
       <span className="ls-status-chip">
@@ -19,7 +19,9 @@ export function BilingualPreview({ language }: { language: string }) {
       <p>
         {language === "English"
           ? english
-          : (examples[language] ?? examples["简体中文"])}
+          : supported
+            ? examples[language]
+            : examples["简体中文"]}
       </p>
       <small>
         {supported
