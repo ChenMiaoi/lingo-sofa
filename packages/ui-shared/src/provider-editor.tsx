@@ -26,11 +26,15 @@ export function createProviderEditor(getReact: () => HostReact) {
     onSaved,
     initialSection = "account",
     onManageAccount,
+    onClose,
+    onDirtyChange,
   }: {
     client: AISettingsClient;
     onSaved?: (target?: ProviderUpdate["target"]) => void;
     initialSection?: "translation" | "ask-default" | "account";
     onManageAccount?: () => void;
+    onClose?: () => void;
+    onDirtyChange?: (dirty: boolean) => void;
   }) {
     const React = getReact();
     const [catalog, setCatalog] = React.useState<ProviderCatalog | null>(null);
@@ -38,12 +42,53 @@ export function createProviderEditor(getReact: () => HostReact) {
       "translation" | "ask-default" | "account"
     >(initialSection);
     const [model, setModel] = React.useState<ModelConfig | null>(null);
+    const selectedModel = React.useRef<ModelConfig | null>(null);
+    selectedModel.current = model;
     const [key, setKey] = React.useState("");
+    const [accountName, setAccountName] = React.useState("");
+    const [savedDraft, setSavedDraft] = React.useState("");
+    const [catalogStale, setCatalogStale] = React.useState(false);
+    const [leave, setLeave] = React.useState<(() => void) | null>(null);
+    const guard = React.useRef<HTMLDivElement | null>(null);
+    const leaveTrigger = React.useRef<HTMLElement | null>(null);
+    React.useEffect(() => {
+      if (leave) guard.current?.querySelector("button")?.focus();
+      else if (leaveTrigger.current?.isConnected) leaveTrigger.current.focus();
+    }, [leave]);
     const [newAccount, setNewAccount] = React.useState(false);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState("");
     const [notice, setNotice] = React.useState("");
     const [oauthConnected, setOAuthConnected] = React.useState(false);
+    const signature = (value: ModelConfig | null, name: string) =>
+      JSON.stringify({ model: value, name: name.trim() });
+    const dirty = Boolean(
+      model &&
+      savedDraft &&
+      (newAccount ||
+        key.trim() ||
+        signature(model, accountName) !== savedDraft),
+    );
+    React.useEffect(() => {
+      onDirtyChange?.(dirty);
+    }, [dirty, onDirtyChange]);
+    React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+    function select(value: ModelConfig, next: ProviderCatalog) {
+      const name =
+        next.accounts?.find((item) => item.id === value.accountId)?.name ?? "";
+      setModel(value);
+      setAccountName(name);
+      setSavedDraft(signature(value, name));
+      setKey("");
+      setNewAccount(false);
+      setCatalogStale(false);
+    }
+    function leaving(action: () => void) {
+      if (dirty) {
+        leaveTrigger.current = document.activeElement as HTMLElement | null;
+        setLeave(() => action);
+      } else action();
+    }
     const onOAuthStatus = React.useCallback(
       (status: OAuthStatus) => setOAuthConnected(status.connected),
       [],
@@ -59,10 +104,17 @@ export function createProviderEditor(getReact: () => HostReact) {
       try {
         const next = await client.providers();
         setCatalog(next);
-        setModel(
+        select(
           initialSection === "ask-default"
             ? (next.askModel ?? next.model)
-            : next.model,
+            : initialSection === "account" && selectedModel.current
+              ? selectedModel.current.accountId
+                ? (next.accounts?.find(
+                    (item) => item.id === selectedModel.current?.accountId,
+                  )?.model ?? next.model)
+                : (next.accounts?.at(-1)?.model ?? next.model)
+              : next.model,
+          next,
         );
       } catch {
         setError("连接不可用，请检查本地助手或选择模型直连。");
@@ -83,7 +135,7 @@ export function createProviderEditor(getReact: () => HostReact) {
         target === "ask-default"
           ? (catalog?.askModel ?? catalog?.model)
           : catalog?.model;
-      setModel(selected ?? null);
+      if (selected && catalog) select(selected, catalog);
     }
     const account = catalog?.accounts?.find((item) =>
       model?.accountId
@@ -105,7 +157,7 @@ export function createProviderEditor(getReact: () => HostReact) {
           ? "Ask 默认模型"
           : "供应商";
     async function save(remove = false) {
-      if (!model) return;
+      if (!model || catalogStale) return false;
       setBusy(true);
       setError("");
       setNotice("");
@@ -115,23 +167,14 @@ export function createProviderEditor(getReact: () => HostReact) {
           target: remove ? "remove-account" : section,
           ...(key.trim() ? { apiKey: key.trim() } : {}),
           ...(newAccount ? { newAccount: true } : {}),
+          ...(section === "account"
+            ? { accountName: accountName.trim() || model.provider }
+            : {}),
         });
         if (!reply.ok) throw new Error(reply.error);
         setKey("");
         setNewAccount(false);
-        onSaved?.(remove ? "remove-account" : section);
-        const next = await client.providers();
-        setCatalog(next);
-        setModel(
-          section === "ask-default"
-            ? (next.askModel ?? next.model)
-            : section === "translation" || remove
-              ? next.model
-              : (next.accounts.find((item) => item.id === model.accountId)
-                  ?.model ??
-                next.accounts.at(-1)?.model ??
-                model),
-        );
+        setSavedDraft(signature(model, accountName));
         setNotice(
           remove
             ? "供应商已移除"
@@ -141,12 +184,33 @@ export function createProviderEditor(getReact: () => HostReact) {
                 ? "翻译配置已保存，不影响 Ask 会话"
                 : "Ask 默认模型已保存，已有会话保持原配置",
         );
+        onSaved?.(remove ? "remove-account" : section);
+        try {
+          const next = await client.providers();
+          setCatalog(next);
+          select(
+            section === "ask-default"
+              ? (next.askModel ?? next.model)
+              : section === "translation" || remove
+                ? next.model
+                : (next.accounts?.find((item) => item.id === model.accountId)
+                    ?.model ??
+                  next.accounts?.at(-1)?.model ??
+                  model),
+            next,
+          );
+        } catch {
+          setCatalogStale(true);
+          setError("配置已保存，但列表刷新失败。请刷新列表，无需再次保存。");
+        }
+        return true;
       } catch (reason) {
         setError(
           reason instanceof Error
             ? `保存失败：${reason.message}`
             : "保存失败，请重试",
         );
+        return false;
       } finally {
         setBusy(false);
       }
@@ -176,7 +240,42 @@ export function createProviderEditor(getReact: () => HostReact) {
           {error && (
             <p className="ls-notification error" role="alert">
               {error}
+              {catalogStale && (
+                <button disabled={busy} onClick={() => void load()}>
+                  刷新列表
+                </button>
+              )}
             </p>
+          )}
+          {leave && (
+            <div
+              className="ls-unsaved-changes"
+              ref={guard}
+              role="alertdialog"
+              aria-label="未保存的更改"
+            >
+              <p>有未保存的配置，离开前需要如何处理？</p>
+              <button disabled={busy} onClick={() => setLeave(null)}>
+                继续编辑
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  const original = JSON.parse(savedDraft) as {
+                    model: ModelConfig;
+                    name: string;
+                  };
+                  setModel(original.model);
+                  setAccountName(original.name);
+                  setKey("");
+                  setNewAccount(false);
+                  setLeave(null);
+                  leave();
+                }}
+              >
+                放弃更改并继续
+              </button>
+            </div>
           )}
           {!catalog || !model ? (
             <button disabled={busy} onClick={() => void load()}>
@@ -191,12 +290,15 @@ export function createProviderEditor(getReact: () => HostReact) {
                       key={item.id}
                       className="ls-account"
                       aria-pressed={!newAccount && account?.id === item.id}
-                      disabled={busy}
+                      disabled={busy || catalogStale}
                       onClick={() => {
-                        setModel({ ...item.model, accountId: item.id });
-                        setKey("");
-                        setNewAccount(false);
-                        setNotice("");
+                        leaving(() => {
+                          select(
+                            { ...item.model, accountId: item.id },
+                            catalog,
+                          );
+                          setNotice("");
+                        });
                       }}
                     >
                       <span className="ls-account-icon">
@@ -209,7 +311,7 @@ export function createProviderEditor(getReact: () => HostReact) {
                           {providerConnectionLabel(item, catalog)}
                         </strong>
                         <small>
-                          {item.model.provider} ·{" "}
+                          {item.model.endpoint} ·{" "}
                           {item.model.authMode === "subscription"
                             ? "订阅"
                             : "API Key 已保存"}
@@ -220,22 +322,41 @@ export function createProviderEditor(getReact: () => HostReact) {
                   ))}
                   <button
                     className="ls-add-account"
-                    disabled={busy}
+                    disabled={busy || catalogStale}
                     onClick={() => {
-                      setModel({
-                        ...model,
-                        accountId: undefined,
-                        authMode: "api_key",
+                      leaving(() => {
+                        setModel({
+                          ...model,
+                          accountId: undefined,
+                          authMode: "api_key",
+                        });
+                        setKey("");
+                        setAccountName("");
+                        setNewAccount(true);
                       });
-                      setKey("");
-                      setNewAccount(true);
                     }}
                   >
                     ＋ 添加供应商
                   </button>
                 </div>
               )}
-              <div className="ls-preferences-card">
+              <fieldset
+                className="ls-preferences-card"
+                disabled={busy || catalogStale}
+              >
+                {section === "account" && (
+                  <label data-setting="account-name">
+                    连接名称
+                    <input
+                      aria-label="连接名称"
+                      maxLength={100}
+                      disabled={busy || catalogStale}
+                      value={accountName}
+                      placeholder="例如：工作账户、个人账户"
+                      onChange={(event) => setAccountName(event.target.value)}
+                    />
+                  </label>
+                )}
                 {section === "account" ? (
                   <label>
                     供应商
@@ -360,26 +481,38 @@ export function createProviderEditor(getReact: () => HostReact) {
                     <button
                       type="button"
                       onClick={() =>
-                        onManageAccount
-                          ? onManageAccount()
-                          : navigate("account")
+                        leaving(() =>
+                          onManageAccount
+                            ? onManageAccount()
+                            : navigate("account"),
+                        )
                       }
                     >
                       管理供应商 ↗
                     </button>
                   </div>
                 )}
-              </div>
+              </fieldset>
               <footer className="ls-settings-footer">
                 <span role="status">
                   {notice ||
-                    (section === "account"
-                      ? "Key 不会返回给页面或写入同步存储"
-                      : "仅更改此任务的默认模型")}
+                    (dirty
+                      ? "有未保存更改 · 点击保存配置后生效"
+                      : section === "account"
+                        ? "Key 不会返回给页面或写入同步存储"
+                        : "仅更改此任务的默认模型")}
                 </span>
                 <div>
+                  {onClose && (
+                    <button disabled={busy} onClick={() => leaving(onClose)}>
+                      返回
+                    </button>
+                  )}
                   {section === "account" && account && !newAccount && (
-                    <button disabled={busy} onClick={() => void save(true)}>
+                    <button
+                      disabled={busy || catalogStale}
+                      onClick={() => void save(true)}
+                    >
                       移除供应商
                     </button>
                   )}
@@ -387,6 +520,7 @@ export function createProviderEditor(getReact: () => HostReact) {
                     className="primary lingo-sofa-primary"
                     disabled={
                       busy ||
+                      catalogStale ||
                       !model.model.trim() ||
                       (model.authMode === "subscription"
                         ? !oauthConnected

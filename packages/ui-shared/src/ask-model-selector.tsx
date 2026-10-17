@@ -3,18 +3,10 @@ import { aiWorkspaceStyles } from "./ai-workspace-styles.js";
 import type { ModelConfig, ProviderCatalog } from "@lingo-sofa/protocol";
 import { createModelPreferences } from "./model-preferences.js";
 import type { HostReact } from "./provider-auth.js";
+import { thinkingNames } from "./preference-labels.js";
 
 export function createAskModelSelector(getReact: () => HostReact) {
   const ModelPreferences = createModelPreferences(getReact);
-  const effortNames: Record<string, string> = {
-    off: "关闭",
-    minimal: "最低",
-    low: "低",
-    medium: "中",
-    high: "高",
-    xhigh: "更高",
-    max: "最高",
-  };
   return function AskModelSelector({
     load,
     model,
@@ -53,7 +45,9 @@ export function createAskModelSelector(getReact: () => HostReact) {
         <details>
           <summary aria-label="选择本次对话模型">
             <strong title={model?.model}>{model?.model ?? "加载模型…"}</strong>
-            <span>{effortNames[model?.thinkingLevel ?? ""] ?? "默认"} · ⌄</span>
+            <span>
+              {thinkingNames[model?.thinkingLevel ?? ""] ?? "默认"} · ⌄
+            </span>
           </summary>
           <button
             type="button"

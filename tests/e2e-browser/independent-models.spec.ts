@@ -47,9 +47,9 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
       .getByRole("button", { name: "供应商", exact: true })
       .click();
     const connection = page.getByRole("region", { name: "连接服务商" });
-    for (const [endpoint, key] of [
-      [first.endpoint, "work-fixture-key"],
-      [second.endpoint, "personal-fixture-key"],
+    for (const [endpoint, key, name] of [
+      [first.endpoint, "work-fixture-key", "工作账户"],
+      [second.endpoint, "personal-fixture-key", "个人账户"],
     ]) {
       await connection.getByRole("button", { name: "添加供应商" }).click();
       await expect(
@@ -60,6 +60,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
         .selectOption("openai-compatible");
       await connection.getByLabel("API 地址", { exact: true }).fill(endpoint!);
       await connection.getByLabel("API Key", { exact: true }).fill(key!);
+      await connection.getByLabel("连接名称", { exact: true }).fill(name!);
       await connection.getByRole("button", { name: "保存配置" }).click();
       await expect(connection.getByRole("status")).toContainText(
         "供应商已保存",
@@ -77,6 +78,10 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     });
     expect(catalog.accounts).toHaveLength(2);
     expect(JSON.stringify(catalog)).not.toContain("fixture-key");
+    expect(catalog.accounts.map((item) => item.name)).toEqual([
+      "工作账户",
+      "个人账户",
+    ]);
     const work = catalog.accounts.find(
       (item) => item.model.endpoint === first.endpoint,
     )!;
@@ -92,7 +97,25 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     await expect(
       connection.getByRole("navigation", { name: "AI 配置导航" }),
     ).toHaveCount(0);
-    await connection.getByRole("button", { name: "完成", exact: true }).click();
+    await connection
+      .getByLabel("连接名称", { exact: true })
+      .fill("尚未保存的名称");
+    await page
+      .getByRole("navigation", { name: "设置导航" })
+      .getByRole("button", { name: "问答设置", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "供应商有未保存更改 · 返回保存" })
+      .click();
+    await expect(connection.getByLabel("连接名称")).toHaveValue(
+      "尚未保存的名称",
+    );
+    await connection.getByRole("button", { name: "返回", exact: true }).click();
+    const guard = connection.getByRole("alertdialog", { name: "未保存的更改" });
+    await expect(guard).toBeVisible();
+    await guard.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await connection.getByLabel("连接名称").fill("个人账户");
+    await connection.getByRole("button", { name: "返回", exact: true }).click();
     await page.getByRole("button", { name: "翻译偏好", exact: true }).click();
     await page
       .getByRole("button", { name: "配置大模型翻译", exact: true })
@@ -106,7 +129,16 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     ).toBeEnabled();
     await connection.getByRole("button", { name: "保存配置" }).click();
     await expect(connection.getByRole("status")).toContainText("不影响 Ask");
-    await connection.getByRole("button", { name: "完成", exact: true }).click();
+    await connection
+      .getByRole("button", { name: "管理供应商 ↗", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "供应商", exact: true }),
+    ).toBeVisible();
+    await connection.getByRole("button", { name: "返回", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "翻译偏好", exact: true }),
+    ).toBeVisible();
     await page
       .getByRole("navigation", { name: "设置导航" })
       .getByRole("button", { name: "问答设置", exact: true })
@@ -131,7 +163,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     });
     expect(configured.model.accountId).toBe(work.id);
     expect(configured.askModel?.accountId).toBe(personal.id);
-    await connection.getByRole("button", { name: "完成", exact: true }).click();
+    await connection.getByRole("button", { name: "返回", exact: true }).click();
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
       await expect(page.locator(".ls-settings-topbar")).toHaveCount(1);
@@ -177,7 +209,9 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     const searchResults = page.getByRole("navigation", {
       name: "设置搜索结果",
     });
-    await expect(searchResults.getByRole("button")).toHaveCount(4);
+    await expect(searchResults.getByRole("button")).toHaveCount(6);
+    await expect(searchResults).toContainText("持久保存用量");
+    await expect(searchResults).toContainText("上下文范围");
     await expect(searchResults).toContainText("本地译文缓存");
     await expect(searchResults).toContainText("清理数据");
     await page.getByLabel("搜索设置").fill("");

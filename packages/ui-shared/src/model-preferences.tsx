@@ -1,4 +1,5 @@
 import { providerConnectionLabel } from "./provider-label.js";
+import { thinkingNames } from "./preference-labels.js";
 import {
   accountMatches,
   type ModelConfig,
@@ -8,15 +9,6 @@ import {
 type HostReact = {
   createElement: (...args: never[]) => unknown;
   useState<T>(initial: T): [T, (value: T) => void];
-};
-const thinkingNames: Record<string, string> = {
-  off: "关闭",
-  minimal: "最低",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "更高",
-  max: "最高",
 };
 
 /** Share the controls while letting each host own saving and credentials. */

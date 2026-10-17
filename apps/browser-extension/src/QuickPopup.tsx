@@ -8,12 +8,8 @@ import {
 import { webTranslationOrigins } from "@lingo-sofa/provider-web";
 import { pageStatusLabel, type PageStatus } from "./page-status.js";
 import { ReadingAccess } from "./ReadingAccess.js";
-
-async function request(message: unknown) {
-  const reply = await browser.runtime.sendMessage(message);
-  if (reply?.ok === false) throw new Error(reply.error ?? "操作失败，请重试");
-  return reply;
-}
+import { sendSettingsMessage as request } from "./settings-message.js";
+import { translationLanguages } from "@lingo-sofa/ui-shared";
 
 /** The toolbar popup is a launcher; configuration lives in the options tab. */
 export function QuickPopup() {
@@ -118,19 +114,7 @@ export function QuickPopup() {
             });
           }}
         >
-          {[
-            ...new Set([
-              settings?.targetLanguage ?? "简体中文",
-              "简体中文",
-              "繁體中文",
-              "English",
-              "日本語",
-              "한국어",
-              "Français",
-              "Deutsch",
-              "Español",
-            ]),
-          ].map((language) => (
+          {translationLanguages(settings?.targetLanguage).map((language) => (
             <option key={language}>{language}</option>
           ))}
         </select>

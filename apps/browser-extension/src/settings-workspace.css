@@ -405,9 +405,6 @@ main.ls-product-settings {
   .ls-product-content {
     padding: 20px;
   }
-  .ls-product-brand {
-    font-size: 17px;
-  }
 }
 @media (max-width: 1050px) {
   .ls-reading-settings {
@@ -422,6 +419,28 @@ main.ls-product-settings {
   border: 1px solid var(--line);
   border-radius: 8px;
   flex-shrink: 0;
+}
+.ls-cleanup-results {
+  padding: 0;
+  list-style: none;
+}
+.ls-cleanup-results li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ls-border);
+}
+.ls-cleanup-results small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ls-muted);
+  overflow-wrap: anywhere;
+}
+.ls-cleanup-results [data-result="failed"] strong {
+  color: var(--ls-error);
+}
+.ls-data-clear .ls-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .connection-modes button {
   border: 0;

@@ -1,4 +1,3 @@
-import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { browser } from "wxt/browser";
 import { importGlossary, exportGlossary } from "./glossary-files.js";

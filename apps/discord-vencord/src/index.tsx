@@ -156,6 +156,7 @@ function Ask({
     { question: string; answer: string }[]
   >([]);
   const [running, setRunning] = React.useState<string | null>(null);
+  const [pendingQuestion, setPendingQuestion] = React.useState("");
   const [error, setError] = React.useState("");
   const [sessionStats, setSessionStats] = React.useState<{
     tokens: number;
@@ -222,7 +223,10 @@ function Ask({
       return;
     }
     const requestId = crypto.randomUUID();
+    const prompt = question.trim();
     setRunning(requestId);
+    setPendingQuestion(prompt);
+    setQuestion("");
     setSessionStats(undefined);
     setError("");
     try {
@@ -232,7 +236,7 @@ function Ask({
         requestId,
         sessionId: sessionId.current,
         context: includeContext ? message.content : "",
-        question,
+        question: prompt,
       });
       if (!contextIsCurrent())
         throw new Error("消息、账号或频道已变化，请重新选择并预览上下文");
@@ -240,13 +244,15 @@ function Ask({
       setSessionStats(reply.sessionStats);
       setTurns((current) => [
         ...current,
-        { question, answer: reply.text ?? "" },
+        { question: prompt, answer: reply.text ?? "" },
       ]);
       setQuestion("");
     } catch (reason) {
+      setQuestion(prompt);
       setError(reason instanceof Error ? reason.message : "问答失败");
     } finally {
       setRunning(null);
+      setPendingQuestion("");
     }
   }
   return (
@@ -311,16 +317,20 @@ function Ask({
               </div>
             </div>
           ))}
+          {running && (
+            <div className="ls-ask-turn">
+              <p className="ls-ask-user">{pendingQuestion}</p>
+              <span className="ls-ask-badge">生成中</span>
+              <div className="ls-ask-answer" role="status">
+                正在生成回答…
+              </div>
+            </div>
+          )}
         </div>
         {sessionStats && (
           <p className="ls-ask-status">
             {formatTokens(sessionStats.tokens)} tokens · API 等值{" "}
             {formatCost(sessionStats.cost)} · {sessionStats.messages} 条消息
-          </p>
-        )}
-        {running && (
-          <p className="ls-ask-status" role="status">
-            正在生成回答…
           </p>
         )}
         {error && (
@@ -352,6 +362,7 @@ function Ask({
           <textarea
             aria-label="问题"
             className="ls-ask-question"
+            disabled={Boolean(running)}
             value={question}
             placeholder="针对这条消息，问点什么…"
             maxLength={16000}

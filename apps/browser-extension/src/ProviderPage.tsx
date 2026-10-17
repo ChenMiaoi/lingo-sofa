@@ -16,10 +16,8 @@ import { GlossaryPage } from "./GlossaryPage.js";
 
 import "./settings-workspace.css";
 import "./activity.css";
-import {
-  sendSettingsMessage as send,
-  useSettingsPreferences,
-} from "./useSettingsPreferences.js";
+import { useSettingsPreferences } from "./useSettingsPreferences.js";
+import { sendSettingsMessage as send } from "./settings-message.js";
 import { TranslationPreferences } from "./TranslationPreferences.js";
 import { AppearancePreferences } from "./AppearancePreferences.js";
 import { PrivacyPreferences } from "./PrivacyPreferences.js";
@@ -126,6 +124,21 @@ function ProductSettings({
   const preferences = useSettingsPreferences();
   const { notice, failure, busy, setNotice } = preferences;
   const [glossaryDirty, setGlossaryDirty] = useState(false);
+  const [providerDirty, setProviderDirty] = useState(false);
+  const [navigationError, setNavigationError] = useState("");
+  const [accountReturn, setAccountReturn] = useState("translation");
+  const openAccounts = () => {
+    setAccountReturn(section === "accounts" ? "translation" : section);
+    setNavigationError("");
+    setSection("accounts");
+    location.hash = "accounts";
+  };
+  useEffect(() => {
+    if (!providerDirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [providerDirty]);
   return (
     <main className="ls-product-settings">
       <style>{designStyles}</style>
@@ -140,6 +153,10 @@ function ProductSettings({
           section={section}
           content={content}
           onSelect={(id) => {
+            if (id === "accounts") {
+              openAccounts();
+              return;
+            }
             setSection(id);
             location.hash = id;
             setNotice("");
@@ -194,56 +211,72 @@ function ProductSettings({
             术语表有未保存更改 · 返回保存
           </button>
         )}
-        {(error || failure) && <p role="alert">{error || failure}</p>}
-        {section === "accounts" ? (
-          <>
-            <header className="ls-design-heading">
-              <h1>供应商</h1>
-              <p>配置服务商、登录方式与 API 连接。</p>
-            </header>
-            {ready && (
-              <section className="ls-provider-page" aria-label="连接服务商">
-                <ProviderEditor
-                  key={`${mode}:${connectionRevision}`}
-                  client={client}
-                  initialSection="account"
-                />
-                <button
-                  className="ls-dialog-done"
-                  onClick={() => {
-                    setSection("intelligence");
-                    history.replaceState(null, "", "#intelligence");
-                  }}
-                >
-                  完成
-                </button>
-              </section>
-            )}
-          </>
-        ) : section === "intelligence" ? (
+        {(error || failure || navigationError) && (
+          <p role="alert">{error || failure || navigationError}</p>
+        )}
+        {providerDirty && section !== "accounts" && (
+          <button className="ls-draft-reminder" onClick={openAccounts}>
+            供应商有未保存更改 · 返回保存
+          </button>
+        )}
+        {(providerDirty || section === "accounts") && (
+          <div hidden={section !== "accounts"} data-setting="providers">
+            <>
+              <header className="ls-design-heading">
+                <h1>供应商</h1>
+                <p>配置服务商、登录方式与 API 连接。</p>
+              </header>
+              {ready && (
+                <section className="ls-provider-page" aria-label="连接服务商">
+                  <ProviderEditor
+                    key={`${mode}:${connectionRevision}`}
+                    client={client}
+                    initialSection="account"
+                    onDirtyChange={setProviderDirty}
+                    onClose={() => {
+                      setSection(accountReturn);
+                      location.hash = accountReturn;
+                    }}
+                  />
+                </section>
+              )}
+            </>
+          </div>
+        )}
+        {section === "accounts" ? null : section === "intelligence" ? (
           <>
             {ready && (
               <AISettings
                 key={`${mode}:${connectionRevision}`}
                 client={client}
                 section="ask"
-                onManage={() => {
-                  setSection("accounts");
-                  history.replaceState(null, "", "#accounts");
-                }}
+                onManage={openAccounts}
               />
             )}
           </>
         ) : section === "connection" ? (
-          <ConnectionPreferences
-            mode={mode}
-            activeMode={preferences.settings?.mode}
-            setMode={setMode}
-            onConnected={connected}
-            client={client}
-          />
+          <div data-setting="connection">
+            <ConnectionPreferences
+              mode={mode}
+              activeMode={preferences.settings?.mode}
+              setMode={(value) => {
+                if (providerDirty && value !== mode) {
+                  setNavigationError(
+                    "供应商有未保存更改，请先返回保存或放弃更改后切换连接。",
+                  );
+                  return;
+                }
+                setNavigationError("");
+                setMode(value);
+              }}
+              onConnected={connected}
+              client={client}
+            />
+          </div>
         ) : section === "usage" || section === "history" ? (
-          <ActivityPage key={section} section={section} />
+          <div data-setting={section === "usage" ? "usage" : "request-history"}>
+            <ActivityPage key={section} section={section} />
+          </div>
         ) : section === "glossary" ? null : (
           <>
             <header className="ls-design-heading">
@@ -264,6 +297,7 @@ function ProductSettings({
                 preferences={preferences}
                 ready={ready}
                 client={client}
+                onManage={openAccounts}
               />
             )}
             {section === "appearance" && (
@@ -278,7 +312,7 @@ function ProductSettings({
             </p>
           </>
         )}
-        <div hidden={section !== "glossary"}>
+        <div hidden={section !== "glossary"} data-setting="glossary">
           <GlossaryPage onDirtyChange={setGlossaryDirty} />
         </div>
       </div>

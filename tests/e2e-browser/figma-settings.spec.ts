@@ -13,8 +13,8 @@ import {createAISettings} from "./packages/ui-shared/src/index.ts";
 const Settings=createAISettings(()=>React);
 const base={provider:"deepseek",authMode:"api_key",model:"flash",endpoint:"https://api.deepseek.com",maxOutputTokens:0,timeoutMs:30000,prices:null};
 let catalog={model:{...base,accountId:"work"},askModel:{...base,accountId:"personal"},accounts:[{id:"work",name:"Work",model:base,keyConfigured:true},{id:"personal",name:"Personal",model:base,keyConfigured:true}],keyConfigured:true,piAuth:false,providers:[{id:"deepseek",name:"DeepSeek",models:[{id:"flash",endpoint:base.endpoint,api:"openai-completions",thinkingLevels:["low","high"]},{id:"pro",endpoint:base.endpoint,api:"openai-completions",thinkingLevels:["high"]}]}]};
-window.saved=[];window.fail=false;
-createRoot(document.getElementById("root")).render(<Settings client={{providers:async()=>catalog,configureProvider:async(update)=>{if(window.fail)throw Error("fixture failure");window.saved.push(update);catalog={...catalog,[update.target==="translation"?"model":"askModel"]:update.model};return {ok:true};}}}/>);
+window.saved=[];window.fail=false;window.failRefresh=false;
+createRoot(document.getElementById("root")).render(<Settings client={{providers:async()=>{if(window.failRefresh)throw Error("refresh failure");return catalog;},configureProvider:async(update)=>{if(window.fail)throw Error("fixture failure");window.saved.push(update);catalog={...catalog,[update.target==="translation"?"model":"askModel"]:update.model};return {ok:true};}}}/>);
 `,
       resolveDir: process.cwd(),
       loader: "tsx",
@@ -66,10 +66,30 @@ createRoot(document.getElementById("root")).render(<Settings client={{providers:
     "ask-default",
   ]);
   expect(changes[1]!.model.thinkingLevel).toBe("high");
+  await page.evaluate(() => {
+    Object.assign(window, { fail: false, failRefresh: true });
+  });
+  await page
+    .getByLabel("翻译模型", { exact: true })
+    .selectOption("personal:flash");
+  await expect(page.getByRole("alert")).toContainText("配置已保存");
+  await expect(page.getByLabel("翻译模型", { exact: true })).toHaveValue(
+    "personal:flash",
+  );
+  await page.evaluate(() => {
+    Object.assign(window, { failRefresh: false });
+  });
+  await page.getByRole("button", { name: "刷新列表", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { saved: unknown[] }).saved.length,
+    ),
+  ).toBe(3);
   await page.getByRole("button", { name: "供应商", exact: true }).click();
   await expect(page.getByRole("region", { name: "连接服务商" })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page.getByRole("button", { name: "返回", exact: true }).click();
   await expect(page.getByRole("region", { name: "连接服务商" })).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "供应商", exact: true }),

@@ -34,6 +34,8 @@ import {
   webTranslationOrigins,
 } from "@lingo-sofa/provider-web";
 import { readSettings, records } from "../src/storage.js";
+import { UsageStorage } from "../src/usage-storage.js";
+import { runDataCleanup } from "../src/data-cleanup.js";
 
 import { pageScope, pageDocumentPrefix } from "../src/page-scope.js";
 import { mergeAvailableUsage } from "../src/page-usage-data.js";
@@ -52,6 +54,7 @@ import {
 
 export default defineBackground(() => {
   const native = new NativeConnection();
+  const usageStorage = new UsageStorage(browser.storage, readSettings);
   const translationCache = new LocalTranslationCache({
     read: async () =>
       (await browser.storage.local.get("translationCache")).translationCache,
@@ -169,9 +172,7 @@ export default defineBackground(() => {
       for (const record of usage) inFlight.delete(record.requestId);
       const settings = await readSettings();
       service.ledger.prune(Date.now(), settings.retentionDays);
-      await (
-        settings.persistUsage ? browser.storage.local : browser.storage.session
-      ).set({ usage: service.ledger.list() });
+      await usageStorage.write(() => service.ledger.list());
       await browser.storage.session.set({ inFlight: [...inFlight.values()] });
     },
   });
@@ -212,9 +213,7 @@ export default defineBackground(() => {
     ]);
     inFlight.clear();
     service.ledger.prune(Date.now(), settings.retentionDays);
-    await (
-      settings.persistUsage ? browser.storage.local : browser.storage.session
-    ).set({ usage: service.ledger.list() });
+    await usageStorage.write(() => service.ledger.list());
     await browser.storage.session.set({ inFlight: [] });
   })();
   const trustedUI = (sender: Browser.runtime.MessageSender) =>
@@ -442,6 +441,7 @@ export default defineBackground(() => {
         action: string;
         preferences?: unknown;
         historyQuery?: unknown;
+        targets?: unknown;
         section?: unknown;
         settings?: unknown;
         apiKey?: unknown;
@@ -489,7 +489,24 @@ export default defineBackground(() => {
           providers: listModels(),
         };
       }
-      async function notify(next: Settings) {
+      async function notify(next: Settings, credentialsChanged = false) {
+        // Page listeners restart translation; storage and reporting preferences must not do so.
+        const readingFields = [
+          "mode",
+          "translationEngine",
+          "model",
+          "targetLanguage",
+          "autoOrigins",
+          "glossary",
+        ] as const;
+        if (
+          !credentialsChanged &&
+          readingFields.every(
+            (key) =>
+              JSON.stringify(settings[key]) === JSON.stringify(next[key]),
+          )
+        )
+          return;
         for (const tab of await browser.tabs.query({}))
           if (tab.id && tab.url && /^https?:/.test(tab.url))
             await browser.tabs
@@ -838,7 +855,10 @@ export default defineBackground(() => {
           )
             await browser.storage.session.remove(["apiKey", "balance"]);
           await browser.storage.local.set({ settings: next });
-          await notify(next);
+          await notify(
+            next,
+            update.target !== "translation-engine" && Boolean(update.apiKey),
+          );
           return { ok: true };
         }
         if (update.target !== "translation-engine") resolveModel(update.model);
@@ -857,7 +877,10 @@ export default defineBackground(() => {
         };
         await browser.storage.local.set({ settings: next });
         await browser.storage.session.remove("balance");
-        await notify(next);
+        await notify(
+          next,
+          update.target !== "translation-engine" && Boolean(update.apiKey),
+        );
         return { ok: true };
       }
 
@@ -967,18 +990,6 @@ export default defineBackground(() => {
             !(await browser.permissions.contains({ origins: [`${origin}/*`] }))
           )
             throw new Error("自动翻译网站尚未授权");
-        if (
-          next.mode !== settings.mode ||
-          next.persistUsage !== settings.persistUsage
-        ) {
-          await cancelTransports();
-          service.reset();
-        }
-        if (next.persistUsage !== settings.persistUsage) {
-          service.ledger.clear();
-          await browser.storage.local.remove("usage");
-          await browser.storage.session.remove("usage");
-        }
         if (next.mode === "direct") {
           if (next.model.authMode === "subscription")
             throw new Error("订阅登录需要本地助手");
@@ -1021,7 +1032,11 @@ export default defineBackground(() => {
             next.askModel = initial.ask;
           } else next.askModel = state.ask;
         }
-        await browser.storage.local.set({ settings: next });
+        if (next.mode !== settings.mode) {
+          await cancelTransports();
+          service.reset();
+        }
+        await usageStorage.saveSettings(next, () => service.ledger.list());
         if (next.mode === "bridge") native.start();
         else native.stop();
         if (
@@ -1034,21 +1049,37 @@ export default defineBackground(() => {
           await browser.storage.session.remove("apiKey");
         }
         await syncReadingAccess();
-        await notify(next);
+        await notify(
+          next,
+          typeof data.apiKey === "string" && Boolean(data.apiKey.trim()),
+        );
         return { ok: true };
       }
       if (data.action === "clear") {
-        await translationCache.clear();
-        if (settings.mode === "bridge") {
-          const result = await bridge({ kind: "clear-data" }, "browser");
-          if (!result.ok) throw new Error(result.error);
-        }
-        await cancelTransports();
-        service.reset();
-        service.ledger.clear();
-        await browser.storage.local.remove("usage");
-        await browser.storage.session.remove(["usage", "inFlight"]);
-        return { ok: true };
+        const results = await runDataCleanup(
+          {
+            "browser-data": async () => {
+              await cancelTransports();
+              service.reset();
+              await usageStorage.clear();
+              service.ledger.clear();
+            },
+            "translation-cache": () => translationCache.clear(),
+            ...(settings.mode === "bridge"
+              ? {
+                  "assistant-data": async () => {
+                    const result = await bridge(
+                      { kind: "clear-data" },
+                      "browser",
+                    );
+                    if (!result.ok) throw new Error(result.error);
+                  },
+                }
+              : {}),
+          },
+          data.targets,
+        );
+        return { ok: true, results };
       }
       if (data.action === "translation-cache-state") {
         const stored = await browser.storage.local.get(

@@ -68,13 +68,10 @@ export function showSelectionAsk(
   empty.append(suggestions);
   const turns = document.createElement("div");
   turns.setAttribute("aria-live", "polite");
-  const status = document.createElement("p");
-  status.className = "ls-ask-status";
-  status.setAttribute("role", "status");
   const error = document.createElement("p");
   error.className = "ls-ask-error";
   error.setAttribute("role", "alert");
-  conversation.append(empty, turns, status, error);
+  conversation.append(empty, turns, error);
   dialog.dataset.askState = "empty";
   const composerArea = document.createElement("div");
   composerArea.className = "ls-ask-composer-area";
@@ -181,7 +178,7 @@ export function showSelectionAsk(
     turns.replaceChildren();
     empty.hidden = false;
     dialog.dataset.askState = "empty";
-    status.textContent = error.textContent = question.value = "";
+    error.textContent = question.value = "";
     contextChip.disabled = false;
     question.focus();
   };
@@ -229,10 +226,26 @@ export function showSelectionAsk(
     ask.disabled = fresh.disabled = contextChip.disabled = true;
     empty.hidden = true;
     dialog.dataset.askState = "conversation";
-    status.textContent = "正在生成回答…";
     renderModel(true);
     cancel.hidden = false;
     error.textContent = "";
+    const user = document.createElement("p");
+    user.textContent = prompt;
+    user.className = "ls-ask-user";
+    const answer = document.createElement("div");
+    answer.className = "ls-ask-answer";
+    answer.textContent = "正在生成回答…";
+    answer.setAttribute("role", "status");
+    const turn = document.createElement("div");
+    turn.className = "ls-ask-turn";
+    const completed = document.createElement("span");
+    completed.className = "ls-ask-badge";
+    completed.textContent = "生成中";
+    turn.append(user, completed, answer);
+    turns.append(turn);
+    turn.scrollIntoView({ block: "nearest" });
+    question.value = "";
+    question.disabled = true;
     void send({
       kind: "ask",
       requestId,
@@ -246,17 +259,10 @@ export function showSelectionAsk(
         if (!validate())
           throw new Error("所选内容或页面已变化，请重新选择并预览");
         if (!reply.ok) throw new Error(reply.error);
-        const user = document.createElement("p");
-        user.textContent = prompt;
-        user.className = "ls-ask-user";
-        const answer = document.createElement("div");
+        answer.removeAttribute("role");
         answer.innerHTML = renderTranslationMarkdown(reply.text ?? "");
-        answer.className = "ls-ask-answer";
-        const turn = document.createElement("div");
-        turn.className = "ls-ask-turn";
-        const completed = document.createElement("span");
-        completed.className = "ls-ask-badge";
         completed.textContent = "✓ 已完成";
+        turn.dataset.completed = "true";
         const actions = document.createElement("div");
         actions.className = "ls-ask-answer-actions";
         const copy = document.createElement("button");
@@ -273,22 +279,27 @@ export function showSelectionAsk(
             });
         };
         actions.append(copy);
-        turn.append(user, completed, answer, actions);
-        turns.append(turn);
+        turn.append(actions);
         turn.scrollIntoView({ block: "nearest" });
-        question.value = "";
       })
       .catch((reason: unknown) => {
-        if (!closed)
+        if (!closed) {
+          completed.textContent = "未完成";
+          answer.removeAttribute("role");
+          answer.textContent = "";
+          question.value = prompt;
           error.textContent =
             reason instanceof Error ? reason.message : "问答失败";
+        }
       })
       .finally(() => {
         running = undefined;
         if (!closed) {
           fresh.disabled = false;
-          contextChip.disabled = turns.childElementCount > 0;
-          status.textContent = "";
+          question.disabled = false;
+          contextChip.disabled = Boolean(
+            turns.querySelector("[data-completed]"),
+          );
           ask.disabled = Boolean(loadModels && !selectedModel);
           renderModel(false);
           cancel.hidden = true;

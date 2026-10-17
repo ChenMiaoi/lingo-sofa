@@ -47,3 +47,4 @@ export {
 } from "./theme.js";
 
 export { createProviderEditor } from "./provider-editor.js";
+export { thinkingNames, translationLanguages } from "./preference-labels.js";

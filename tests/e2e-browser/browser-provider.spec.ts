@@ -86,7 +86,7 @@ test("unifies browser provider settings and the three floating reading controls"
     await expect(
       connection.getByLabel("自动翻译网站", { exact: true }),
     ).toHaveCount(0);
-    await connection.getByRole("button", { name: "完成", exact: true }).click();
+    await connection.getByRole("button", { name: "返回", exact: true }).click();
     const state = await options.evaluate(async () =>
       (
         globalThis as typeof globalThis & { chrome: ExtensionApi }

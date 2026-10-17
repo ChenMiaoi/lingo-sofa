@@ -153,6 +153,38 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     expect(usage.hasKey).toBe(true);
     expect(usage.usage).toHaveLength(2);
     expect(usage.usage[0]!.usage.totalTokens).toBe(44);
+    const migrations = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const results = [];
+      for (const persistUsage of [true, false]) {
+        const current = await api.runtime.sendMessage({
+          action: "state",
+          localOnly: true,
+        });
+        const saved = await api.runtime.sendMessage({
+          action: "save",
+          settings: { ...current.settings, persistUsage },
+        });
+        const state = await api.runtime.sendMessage({
+          action: "state",
+          localOnly: true,
+        });
+        const persistent = (await api.storage.local.get("usage")).usage;
+        const session = (await api.storage.session.get("usage")).usage;
+        results.push({
+          ok: saved.ok,
+          records: state.usage.length,
+          persistent: Array.isArray(persistent) ? persistent.length : 0,
+          session: Array.isArray(session) ? session.length : 0,
+        });
+      }
+      return results;
+    });
+    expect(migrations).toEqual([
+      { ok: true, records: 2, persistent: 2, session: 0 },
+      { ok: true, records: 2, persistent: 0, session: 2 },
+    ]);
     const interruptedId = crypto.randomUUID();
     await options.evaluate(async (requestId) => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })

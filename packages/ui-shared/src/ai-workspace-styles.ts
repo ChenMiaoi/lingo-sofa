@@ -17,7 +17,7 @@ export const aiWorkspaceStyles =
 .ls-section-header h2{font-size:23px!important;letter-spacing:-.6px;margin:6px 0 8px!important;line-height:1.4}
 .ls-section-header p{font-size:13px!important;opacity:.6;margin:0!important}
 .ls-connection{border:1px solid var(--ls-line);border-radius:20px;padding:3px 9px;font-size:10px;white-space:nowrap;opacity:.65;margin-top:3px}
-.ls-preferences-card{max-width:660px}
+.ls-preferences-card{max-width:660px;min-width:0;border:0;padding:0;margin:0}
 .ls-settings .model-preferences,.ls-ask-model .model-preferences{display:grid;grid-template-columns:1fr 1fr;gap:20px 16px;border:0;padding:0;margin:0;min-width:0}
 .ls-settings .model-preferences legend,.ls-ask-model .model-preferences legend{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}
 .ls-settings .model-preferences>label:first-of-type,.ls-settings .model-preferences>label:has(input[type=search]),.ls-ask-model .model-preferences>label:first-of-type,.ls-ask-model .model-preferences>label:has(input[type=search]){grid-column:1/-1}
@@ -35,6 +35,8 @@ export const aiWorkspaceStyles =
 .ls-settings-footer>div{display:flex;gap:8px;flex-shrink:0}
 .ls-settings-footer button{font-family:inherit;font-size:12px;line-height:1.4;padding:8px 14px;min-height:36px;cursor:pointer;border:1px solid var(--ls-line);border-radius:7px;color:inherit;background:transparent;margin:0}
 .ls-settings-footer .primary{background:var(--ls-accent)!important;color:var(--ls-on-accent)!important;border-color:var(--ls-accent)!important}
+.ls-unsaved-changes{padding:16px;border:1px solid var(--ls-line);border-radius:10px;background:var(--ls-soft);margin-bottom:20px;font-size:13px}
+.ls-unsaved-changes button{margin:4px 8px 0 0;padding:8px 12px;border:1px solid var(--ls-line);border-radius:7px;background:var(--ls-surface);color:inherit;cursor:pointer;font:inherit}
 .ls-settings button:disabled,.ls-ask-model :disabled{opacity:.45;cursor:not-allowed}
 .ls-accounts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
 .ls-accounts .ls-account{display:flex;align-items:center;gap:10px;padding:12px!important;border:1px solid var(--ls-line)!important;background:transparent!important;color:inherit;min-width:0;border-radius:9px!important;margin:0!important;cursor:pointer;text-align:left}

@@ -235,6 +235,21 @@ test("keeps the popup compact, saves language and opens full settings in a separ
       .getByRole("button", { name: /颜色主题/ })
       .click();
     await expect(settings.getByLabel("颜色主题")).toBeVisible();
+    for (const [query, title, id] of [
+      ["思考", "思考程度", "thinking-level"],
+      ["持久", "持久保存用量", "persist-usage"],
+      ["上下文与权限", "上下文与权限说明", "context-permissions"],
+      ["连接名称", "连接名称", "account-name"],
+    ]) {
+      await settings.getByLabel("搜索设置").fill(query!);
+      await settings
+        .getByRole("navigation", { name: "设置搜索结果" })
+        .getByRole("button", { name: new RegExp(title!) })
+        .click();
+      const target = settings.locator(`[data-setting="${id}"]:visible`);
+      await expect(target).toHaveClass(/ls-search-highlight/);
+      await expect(target).toBeFocused();
+    }
     await settings.getByLabel("搜索设置").fill("不存在的设置");
     await expect(settings.getByText("没有匹配的设置")).toBeVisible();
     await settings.getByLabel("搜索设置").fill("");

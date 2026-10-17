@@ -23,6 +23,7 @@ export function AppearancePreferences({
           <option value="light">浅色</option>
           <option value="dark">深色</option>
         </select>,
+        "color-theme",
       )}
     </div>
   );

@@ -21,7 +21,6 @@ export function historyPage(
   if (
     !Number.isSafeInteger(query.offset) ||
     query.offset < 0 ||
-    query.offset > 10000 ||
     !["all", "day", "month"].includes(query.range) ||
     [query.source, query.provider, query.model, query.scope, query.status].some(
       (item) => typeof item !== "string" || item.length > 2000,
@@ -31,19 +30,19 @@ export function historyPage(
   const today = period(now, timeZone);
   const matching = records
     .filter((record) => {
-      const date =
-        query.range === "all" ? undefined : period(record.timestamp, timeZone);
-      return (
-        (query.range === "all" ||
-          (query.range === "day"
-            ? date?.day === today.day
-            : date?.month === today.month)) &&
-        (!query.source || record.sourceKind === query.source) &&
-        (!query.provider || record.provider === query.provider) &&
-        (!query.model || record.model === query.model) &&
-        (!query.scope || record.scope === query.scope) &&
-        (!query.status || record.status === query.status)
-      );
+      if (
+        (query.source && record.sourceKind !== query.source) ||
+        (query.provider && record.provider !== query.provider) ||
+        (query.model && record.model !== query.model) ||
+        (query.scope && record.scope !== query.scope) ||
+        (query.status && record.status !== query.status)
+      )
+        return false;
+      if (query.range === "all") return true;
+      const date = period(record.timestamp, timeZone);
+      return query.range === "day"
+        ? date.day === today.day
+        : date.month === today.month;
     })
     .sort(
       (a, b) =>

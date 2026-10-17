@@ -141,7 +141,13 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
                 unpriced: 0,
               },
             };
-            return Promise.resolve({ ok: true });
+            return Promise.resolve({
+              ok: true,
+              results: [
+                { target: "browser-data", ok: true },
+                { target: "translation-cache", ok: true },
+              ],
+            });
           }
           return original(message);
         }) as typeof api.runtime.sendMessage;
@@ -340,7 +346,7 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
       .getByRole("button", { name: "清除缓存、会话与用量", exact: true })
       .click();
     await page.getByRole("button", { name: "确认清除", exact: true }).click();
-    await expect(page.getByRole("status")).toHaveText("缓存、会话与用量已清除");
+    await expect(page.getByRole("status")).toHaveText("所选数据已清除");
     await nav.getByRole("button", { name: "用量与费用", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "还没有请求记录" }),

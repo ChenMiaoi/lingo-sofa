@@ -6,6 +6,7 @@ export function ShortcutPreferences() {
         "快速打开 Ask",
         "选中文字，或将鼠标移到正文段落旁；只打开窗口。",
         <kbd>Alt Shift A</kbd>,
+        "ask-shortcut",
       )}
       {row("打开悬浮菜单", "显示翻译、Ask 与设置入口。", <kbd>Alt L</kbd>)}
       {row("收起面板或对话", "关闭后焦点回到入口。", <kbd>Esc</kbd>)}

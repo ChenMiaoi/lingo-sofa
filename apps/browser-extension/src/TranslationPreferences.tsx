@@ -1,5 +1,9 @@
 import * as React from "react";
-import { createAISettings, type AISettingsClient } from "@lingo-sofa/ui-shared";
+import {
+  createAISettings,
+  translationLanguages,
+  type AISettingsClient,
+} from "@lingo-sofa/ui-shared";
 import { BilingualPreview } from "./BilingualPreview.js";
 import { settingRow as row } from "./SettingRow.js";
 import type { SettingsPreferences } from "./useSettingsPreferences.js";
@@ -8,15 +12,24 @@ export function TranslationPreferences({
   preferences,
   ready,
   client,
+  onManage,
 }: {
   preferences: SettingsPreferences;
   ready: boolean;
   client: AISettingsClient;
+  onManage?: () => void;
 }) {
   const { settings, busy, update } = preferences;
   return (
     <>
-      {ready && <AISettings client={client} section="translation" embedded />}
+      {ready && (
+        <AISettings
+          client={client}
+          section="translation"
+          embedded
+          {...(onManage ? { onManage } : {})}
+        />
+      )}
       <div className="ls-reading-settings">
         <div className="ls-design-card">
           {row(
@@ -30,27 +43,19 @@ export function TranslationPreferences({
                 void update({ targetLanguage: event.target.value })
               }
             >
-              {Array.from(
-                new Set([
-                  settings?.targetLanguage ?? "简体中文",
-                  "简体中文",
-                  "繁體中文",
-                  "English",
-                  "日本語",
-                  "한국어",
-                  "Français",
-                  "Deutsch",
-                  "Español",
-                ]),
-              ).map((language) => (
-                <option key={language}>{language}</option>
-              ))}
+              {translationLanguages(settings?.targetLanguage).map(
+                (language) => (
+                  <option key={language}>{language}</option>
+                ),
+              )}
             </select>,
+            "target-language",
           )}
           {row(
             "显示方式",
             "适用于单行、段落与整页翻译。",
             <span className="ls-readonly-value">双语 · 译文在下</span>,
+            "display-mode",
           )}
         </div>
         <BilingualPreview language={settings?.targetLanguage ?? "简体中文"} />
@@ -64,7 +69,7 @@ export function TranslationPreferences({
           打开示例网页 ↗
         </a>
       </div>
-      <div className="ls-design-card">
+      <div className="ls-design-card" data-setting="website-rules">
         <h2>网站规则</h2>
         <p>在网页的 LingoSofa 面板中，可为当前网站开启自动翻译。</p>
         {settings?.autoOrigins.length ? (

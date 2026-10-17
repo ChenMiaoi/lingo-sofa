@@ -9,7 +9,15 @@ type ExtensionApi = typeof import("wxt/browser").browser;
 
 test("keeps bilingual reading inline with lightweight paragraph/page controls and separate selected-content questions", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-inline-"));
-  const model = await modelServer({ delay: 1500, markdown: true });
+  let releaseResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
+  const model = await modelServer({
+    delay: 1500,
+    markdown: true,
+    responseGate,
+  });
   const site = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });
     response.end(
@@ -83,6 +91,26 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     expect(model.requests).toHaveLength(0);
     await page.locator("#first").hover();
     await page.getByRole("button", { name: "翻译这一段", exact: true }).click();
+    await expect.poll(() => model.requests.length).toBe(1);
+    const activeMigration = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const current = await api.runtime.sendMessage({
+        action: "state",
+        localOnly: true,
+      });
+      const saved = await api.runtime.sendMessage({
+        action: "save",
+        settings: { ...current.settings, persistUsage: true },
+      });
+      const after = await api.runtime.sendMessage({
+        action: "state",
+        localOnly: true,
+      });
+      return { ok: saved.ok, running: after.queue.running };
+    });
+    expect(activeMigration).toEqual({ ok: true, running: 1 });
+    releaseResponse();
     await expect(
       page.locator("#first [data-lingo-sofa=translation]"),
     ).toContainText("fetch()");
@@ -104,6 +132,14 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       page.locator("#first [data-lingo-sofa=translation] math"),
     ).toHaveCount(1);
     expect(model.requests).toHaveLength(1);
+    expect(
+      await options.evaluate(async () => {
+        const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+          .chrome;
+        const stored = (await api.storage.local.get("usage")).usage;
+        return Array.isArray(stored) ? stored.length : 0;
+      }),
+    ).toBe(1);
     await expect(
       page.locator("#first [data-lingo-sofa=translation] em"),
     ).toHaveText("care");
@@ -427,6 +463,10 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       .click();
     await dialog.getByLabel("问题", { exact: true }).fill("Explain");
     await dialog.getByRole("button", { name: "提问", exact: true }).click();
+    await expect(dialog.locator(".ls-ask-user").last()).toHaveText("Explain");
+    await expect(dialog.getByRole("status")).toHaveText("正在生成回答…");
+    await expect(dialog.getByLabel("问题", { exact: true })).toBeDisabled();
+    await page.screenshot({ path: ".cache/ui/ask-pending-dark.png" });
     await expect(dialog).toContainText("这是模拟回答。");
     await page.screenshot({ path: ".cache/ui/figma-ask-answer-dark.png" });
     await dialog.getByLabel("问题", { exact: true }).fill("Explain again");

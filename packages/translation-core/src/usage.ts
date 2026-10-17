@@ -17,16 +17,23 @@ export function apiCost(record: UsageRecord): number | null {
   }
   return record.costKnown ? record.usage.cost.total : null;
 }
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 export function period(
   timestamp: number,
   timeZone: string,
 ): { day: string; month: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(timestamp);
+  let formatter = dateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    if (dateFormatters.size >= 32) dateFormatters.clear();
+    dateFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(timestamp);
   const get = (type: string) => parts.find((part) => part.type === type)!.value;
   const month = `${get("year")}-${get("month")}`;
   return { day: `${month}-${get("day")}`, month };

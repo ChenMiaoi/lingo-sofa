@@ -35,7 +35,11 @@ export function TranslationCachePreferences() {
     }
   }
   return (
-    <section className="ls-design-card" aria-label="本地译文缓存">
+    <section
+      className="ls-design-card"
+      aria-label="本地译文缓存"
+      data-setting="translation-cache"
+    >
       <h2>本地译文缓存</h2>
       <p>
         重复打开网页时直接复用译文，减少 API 请求。仅保存在本浏览器，最多 1,000

@@ -2,11 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { browser } from "wxt/browser";
 import { settingsSchema, type Settings } from "@lingo-sofa/protocol";
 import { colorTheme } from "./appearance.js";
-export async function sendSettingsMessage(message: unknown) {
-  const reply = await browser.runtime.sendMessage(message);
-  if (reply?.ok === false) throw new Error(reply.error ?? "操作失败");
-  return reply;
-}
+import { sendSettingsMessage } from "./settings-message.js";
+import type { CleanupResult, CleanupTarget } from "./data-cleanup.js";
 export function useSettingsPreferences() {
   const [settings, setSettings] = useState<Settings>();
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
@@ -95,14 +92,24 @@ export function useSettingsPreferences() {
       "外观已保存",
       "外观保存失败，请重试",
     );
-  const clearData = () =>
-    save(
+  async function clearData(targets?: CleanupTarget[]) {
+    let results: CleanupResult[] | undefined;
+    const saved = await save(
       async () => {
-        await sendSettingsMessage({ action: "clear" });
+        const reply = await sendSettingsMessage({ action: "clear", targets });
+        results = reply.results;
       },
-      "缓存、会话与用量已清除",
+      "",
       "清理失败，请重试",
     );
+    if (!saved || !results) return;
+    setNotice(
+      results.every((item) => item.ok)
+        ? "所选数据已清除"
+        : "部分项目未清理完成，可单独重试",
+    );
+    return results;
+  }
   return {
     settings,
     theme,

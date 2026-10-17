@@ -63,9 +63,11 @@ export function planAccountUpdate(
           ? { apiKey: account.apiKey }
           : {}),
     };
-    next.accounts = next.accounts
-      .filter((item) => item.id !== id)
-      .concat(saved);
+    if (account)
+      next.accounts = next.accounts.map((item) =>
+        item.id === id ? saved : item,
+      );
+    else next.accounts.push(saved);
     model = saved.model;
   } else if (account) {
     model.accountId = account.id;

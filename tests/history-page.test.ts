@@ -59,7 +59,7 @@ describe("history pagination", () => {
       historyPage(records, { ...query, source: "discord" }, "UTC", now)
         .allCount,
     ).toBe(123);
-    for (const offset of [-1, Infinity, 0.5, 10001])
+    for (const offset of [-1, Infinity, 0.5, Number.MAX_SAFE_INTEGER + 1])
       expect(() =>
         historyPage(records, { ...query, offset }, "UTC", now),
       ).toThrow();
@@ -68,5 +68,36 @@ describe("history pagination", () => {
       total: 0,
       records: [],
     });
+  });
+  it("reaches records beyond ten thousand and filters across local date boundaries", () => {
+    const many = Array.from({ length: 12000 }, (_, index) => ({
+      ...records[0]!,
+      requestId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      timestamp: now - index * 1000,
+    }));
+    const page = historyPage(many, { ...query, offset: 10050 }, "UTC", now);
+    expect(page.total).toBe(12000);
+    expect(page.records[0]?.requestId).toBe(many[10050]!.requestId);
+    expect(
+      historyPage(
+        many,
+        { ...query, offset: Number.MAX_SAFE_INTEGER },
+        "UTC",
+        now,
+      ).offset,
+    ).toBe(11950);
+    const boundary = [
+      { ...records[0]!, timestamp: Date.UTC(2026, 9, 17, 23, 30) },
+    ];
+    expect(
+      historyPage(boundary, { ...query, range: "day" }, "UTC", now).total,
+    ).toBe(0);
+    expect(
+      historyPage(boundary, { ...query, range: "day" }, "Asia/Shanghai", now)
+        .total,
+    ).toBe(1);
+    expect(
+      historyPage(boundary, { ...query, range: "month" }, "UTC", now).total,
+    ).toBe(1);
   });
 });

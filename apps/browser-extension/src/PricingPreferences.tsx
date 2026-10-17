@@ -1,4 +1,3 @@
-import * as React from "react";
 import { useState } from "react";
 import { browser } from "wxt/browser";
 import { settingsSchema, type ModelConfig } from "@lingo-sofa/protocol";

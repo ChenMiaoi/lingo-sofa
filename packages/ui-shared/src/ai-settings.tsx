@@ -1,23 +1,19 @@
 import { providerConnectionLabel } from "./provider-label.js";
 import { aiWorkspaceStyles } from "./ai-workspace-styles.js";
-import { createProviderEditor } from "./provider-editor.js";
+import {
+  createProviderEditor,
+  type AISettingsClient,
+} from "./provider-editor.js";
 import type {
   ModelConfig,
-  OAuthStatus,
   ProviderCatalog,
   ProviderUpdate,
-  Reply,
   TranslationEngine,
 } from "@lingo-sofa/protocol";
 import type { HostReact } from "./provider-auth.js";
+import { thinkingNames } from "./preference-labels.js";
 
-export interface AISettingsClient {
-  providers: () => Promise<ProviderCatalog>;
-  configureProvider: (update: ProviderUpdate) => Promise<Reply>;
-  oauth?: (
-    action: "start" | "status" | "cancel" | "logout",
-  ) => Promise<OAuthStatus>;
-}
+export type { AISettingsClient } from "./provider-editor.js";
 
 export function createAISettings(getReact: () => HostReact) {
   const ProviderEditor = createProviderEditor(getReact);
@@ -39,6 +35,7 @@ export function createAISettings(getReact: () => HostReact) {
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState("");
     const [notice, setNotice] = React.useState("");
+    const [refreshFailed, setRefreshFailed] = React.useState(false);
     const [editor, setEditor] = React.useState<
       "translation" | "ask-default" | "account" | null
     >(null);
@@ -48,8 +45,10 @@ export function createAISettings(getReact: () => HostReact) {
       setError("");
       try {
         setCatalog(await client.providers());
+        setRefreshFailed(false);
       } catch {
-        setError("连接不可用，请检查本地助手或选择模型直连。");
+        setRefreshFailed(true);
+        setError("无法刷新模型列表，请检查连接后重试。");
       }
     }, [client]);
     React.useEffect(() => {
@@ -86,12 +85,22 @@ export function createAISettings(getReact: () => HostReact) {
         const result = await client.configureProvider({ model, target });
         if (!result.ok) throw new Error(result.error);
         onSaved?.(target);
-        setCatalog(await client.providers());
+        setCatalog((current) =>
+          current
+            ? {
+                ...current,
+                ...(target === "translation"
+                  ? { model, translationEngine: "llm" as const }
+                  : { askModel: model }),
+              }
+            : current,
+        );
         setNotice(
           target === "translation"
             ? "翻译模型已保存，不影响 Ask 会话"
             : "Ask 默认模型已保存，已有会话保持原配置",
         );
+        await refresh();
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "保存失败，请重试");
       } finally {
@@ -118,9 +127,12 @@ export function createAISettings(getReact: () => HostReact) {
           engine,
         });
         if (!result.ok) throw new Error(result.error);
-        setCatalog(await client.providers());
+        setCatalog((current) =>
+          current ? { ...current, translationEngine: engine } : current,
+        );
         onSaved?.("translation-engine");
         setNotice("翻译引擎已保存，不影响 Ask 会话");
+        await refresh();
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "保存失败，请重试");
       } finally {
@@ -184,7 +196,7 @@ export function createAISettings(getReact: () => HostReact) {
         <select
           aria-label={label}
           value={value}
-          disabled={busy}
+          disabled={busy || refreshFailed}
           onChange={(event) => {
             if (event.target.value === "connect") {
               openEditor(target);
@@ -238,14 +250,11 @@ export function createAISettings(getReact: () => HostReact) {
               client={client}
               initialSection={editor}
               onManageAccount={() => openEditor("account")}
+              onClose={closeEditor}
               onSaved={(target) => {
                 onSaved?.(target);
-                void refresh();
               }}
             />
-            <button className="ls-dialog-done" onClick={closeEditor}>
-              完成
-            </button>
           </section>
         </section>
       );
@@ -268,11 +277,12 @@ export function createAISettings(getReact: () => HostReact) {
         )}
         {error && (
           <p className="ls-notification error" role="alert">
-            {error} <button onClick={() => void refresh()}>重新连接</button>
+            {notice ? "配置已保存；" : ""}
+            {error} <button onClick={() => void refresh()}>刷新列表</button>
           </p>
         )}
         {section !== "ask" && (
-          <div className="ls-design-card">
+          <div className="ls-design-card" data-setting="translation-engine">
             <div className="ls-engine-heading">
               <h2>翻译引擎</h2>
               <span className="ls-status-chip">独立配置</span>
@@ -294,7 +304,7 @@ export function createAISettings(getReact: () => HostReact) {
               ).map(([engine, icon, label, hint]) => (
                 <button
                   key={engine}
-                  disabled={busy || !catalog}
+                  disabled={busy || !catalog || refreshFailed}
                   aria-pressed={
                     (catalog?.translationEngine ?? "llm") === engine
                   }
@@ -357,7 +367,7 @@ export function createAISettings(getReact: () => HostReact) {
         {section !== "translation" && (
           <div className="ls-design-card">
             <h2>问答模型</h2>
-            <div className="ls-setting-row">
+            <div className="ls-setting-row" data-setting="ask-model">
               <div>
                 <button
                   className="ls-row-title"
@@ -370,7 +380,7 @@ export function createAISettings(getReact: () => HostReact) {
               </div>
               {askModel && modelSelect(askModel, "ask-default", "Ask 默认模型")}
             </div>
-            <div className="ls-setting-row">
+            <div className="ls-setting-row" data-setting="thinking-level">
               <div>
                 <strong>思考程度</strong>
                 <small>
@@ -381,7 +391,7 @@ export function createAISettings(getReact: () => HostReact) {
               </div>
               <select
                 aria-label="思考程度"
-                disabled={busy || !levels.length}
+                disabled={busy || refreshFailed || !levels.length}
                 value={askModel?.thinkingLevel ?? ""}
                 onChange={(event) => {
                   if (askModel)
@@ -398,15 +408,7 @@ export function createAISettings(getReact: () => HostReact) {
                 <option value="">模型默认</option>
                 {levels.map((level) => (
                   <option key={level} value={level}>
-                    {{
-                      off: "关闭",
-                      minimal: "最低",
-                      low: "低",
-                      medium: "中",
-                      high: "高",
-                      xhigh: "更高",
-                      max: "最高",
-                    }[level] ?? level}
+                    {thinkingNames[level] ?? level}
                   </option>
                 ))}
               </select>
@@ -414,7 +416,10 @@ export function createAISettings(getReact: () => HostReact) {
           </div>
         )}
         {section !== "translation" && (
-          <details className="ls-design-card ls-capability-details">
+          <details
+            className="ls-design-card ls-capability-details"
+            data-setting="context-permissions"
+          >
             <summary>上下文与权限说明</summary>
             <div className="ls-setting-row">
               <div>
