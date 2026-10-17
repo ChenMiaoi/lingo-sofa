@@ -1,3 +1,4 @@
+import { historyPage } from "../../apps/browser-extension/src/history-page.js";
 import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import { settingsSchema, type UsageRecord } from "@lingo-sofa/protocol";
 import { summarizeModels } from "@lingo-sofa/translation-core";
 
 test("unifies activity navigation, filters requests, preserves glossary edits and clears totals explicitly", async () => {
+  test.setTimeout(60_000);
   const directory = await mkdtemp(join(tmpdir(), "lingo-activity-"));
   const extension = resolve("apps/browser-extension/.output/chrome-mv3");
   const context = await chromium.launchPersistentContext(directory, {
@@ -67,6 +69,7 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
+    await context.exposeFunction("fixtureHistoryPage", historyPage);
     await context.addInitScript(
       ({ settings, records, summary }) => {
         const api = (
@@ -82,7 +85,18 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
         api.runtime.sendMessage = ((message: {
           action: string;
           settings: typeof settings;
+          historyQuery?: unknown;
         }) => {
+          if (message.action === "state" && message.historyQuery)
+            return Promise.resolve(
+              (
+                window as unknown as { fixtureHistoryPage: typeof historyPage }
+              ).fixtureHistoryPage(usage, message.historyQuery, saved.timeZone),
+            ).then((historyPage) => ({
+              settings: saved,
+              usage: [],
+              historyPage,
+            }));
           if (message.action === "state")
             return Promise.resolve({
               settings: saved,
@@ -97,6 +111,14 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
                 error: "Fixture save failure",
               });
             saved = message.settings;
+            return Promise.resolve({ ok: true });
+          }
+          if (message.action === "fixture-many") {
+            usage = Array.from({ length: 123 }, (_, index) => ({
+              ...records[0]!,
+              requestId: crypto.randomUUID(),
+              timestamp: Date.now() - index * 1000,
+            }));
             return Promise.resolve({ ok: true });
           }
           if (message.action === "fixture-fail") {
@@ -279,6 +301,28 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
     await expect(
       page.getByRole("heading", { name: "用量与费用", exact: true }),
     ).toBeVisible();
+    await page.evaluate(async () => {
+      await (
+        globalThis as typeof globalThis & {
+          chrome: typeof import("wxt/browser").browser;
+        }
+      ).chrome.runtime.sendMessage({ action: "fixture-many" });
+    });
+    await nav.getByRole("button", { name: "请求历史", exact: true }).click();
+    await expect(page.locator("tbody tr")).toHaveCount(50);
+    await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await expect(page.locator(".ls-history-footer")).toContainText(
+      "51–100 / 123",
+    );
+    await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await expect(page.locator("tbody tr")).toHaveCount(23);
+    await expect(
+      page.getByRole("button", { name: "下一页", exact: true }),
+    ).toBeDisabled();
+    await page.getByRole("button", { name: "上一页", exact: true }).click();
+    await expect(page.locator("tbody tr")).toHaveCount(50);
+    await page.getByLabel("来源", { exact: true }).selectOption("discord");
+    await expect(page.locator("tbody tr")).toHaveCount(0);
   } finally {
     await context.close();
     await rm(directory, { recursive: true, force: true });

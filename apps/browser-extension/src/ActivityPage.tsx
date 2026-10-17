@@ -1,3 +1,4 @@
+import { historyPageSize, type HistoryPage } from "./history-page.js";
 import { pollWhileVisible } from "./visible-polling.js";
 import * as React from "react";
 import { useEffect, useState } from "react";
@@ -6,7 +7,7 @@ import type { Settings, UsageRecord } from "@lingo-sofa/protocol";
 import { PricingPreferences } from "./PricingPreferences.js";
 import type { PageUsageSnapshot } from "./page-usage-data.js";
 import { summarizeAvailableUsage } from "./page-usage-data.js";
-import { period, apiCost } from "@lingo-sofa/translation-core";
+import { apiCost } from "@lingo-sofa/translation-core";
 import {
   formatCost,
   formatUsageBilling,
@@ -18,6 +19,7 @@ import {
 
 interface ActivityState {
   settings: Settings;
+  historyPage?: HistoryPage;
   allUsage?: PageUsageSnapshot;
   executionSettings?: Settings;
   usage: UsageRecord[];
@@ -49,7 +51,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
   const [model, setModel] = useState("");
   const [scope, setScope] = useState("");
   const [status, setStatus] = useState("");
-  const [limit, setLimit] = useState(50);
+  const [offset, setOffset] = useState(0);
   const [balance, setBalance] = useState("未查询");
   const [querying, setQuerying] = useState(false);
   useEffect(
@@ -59,6 +61,19 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
           const reply = await browser.runtime.sendMessage({
             action: "state",
             includeUsageSummary: section === "usage",
+            ...(section === "history"
+              ? {
+                  historyQuery: {
+                    offset,
+                    range,
+                    source,
+                    provider,
+                    model,
+                    scope,
+                    status,
+                  },
+                }
+              : {}),
           });
           if (reply?.ok === false) throw new Error(reply.error);
           return reply as ActivityState;
@@ -72,7 +87,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
             "无法更新用量，已读取的数据会保留；页面可见时自动重试。",
           ),
       ),
-    [section],
+    [section, offset, range, source, provider, model, scope, status],
   );
   const settings = state?.executionSettings ?? state?.settings;
   const bridgeError = state?.bridgeError;
@@ -80,27 +95,11 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
     !state ||
     Boolean(bridgeError) ||
     (section === "usage" && Boolean(state.summaryError));
-  const records = bridgeError
-    ? []
-    : state?.settings.mode === "bridge"
-      ? (state.bridgeUsage ?? [])
-      : (state?.usage ?? []);
+  const page = state?.historyPage;
+  const records = bridgeError ? [] : (page?.records ?? []);
+  const total = page?.total ?? 0;
+  const pageOffset = page?.offset ?? 0;
   const timeZone = settings?.timeZone ?? "Asia/Shanghai";
-  const today = period(Date.now(), timeZone);
-  const filtered = records.filter((record) => {
-    const date = period(record.timestamp, timeZone);
-    return (
-      (range === "all" ||
-        (range === "day"
-          ? date.day === today.day
-          : date.month === today.month)) &&
-      (!source || record.sourceKind === source) &&
-      (!provider || record.provider === provider) &&
-      (!model || record.model === model) &&
-      (!scope || record.scope === scope) &&
-      (!status || record.status === status)
-    );
-  });
   const summary =
     state?.allUsage ??
     (state?.settings.mode === "direct"
@@ -121,7 +120,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
         value={value}
         onChange={(event) => {
           change(event.target.value);
-          setLimit(50);
+          setOffset(0);
         }}
       >
         {options}
@@ -183,7 +182,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
             setProvider,
             <>
               <option value="">全部供应商</option>
-              {[...new Set(records.map((r) => r.provider))].map((p) => (
+              {(page?.providers ?? []).map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </>,
@@ -194,7 +193,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
             setModel,
             <>
               <option value="">全部模型</option>
-              {[...new Set(records.map((r) => r.model))].map((m) => (
+              {(page?.models ?? []).map((m) => (
                 <option key={m}>{m}</option>
               ))}
             </>,
@@ -220,7 +219,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
               setScope,
               <>
                 <option value="">全部范围</option>
-                {[...new Set(records.map((r) => r.scope))].map((s) => (
+                {(page?.scopes ?? []).map((s) => (
                   <option key={s}>{s}</option>
                 ))}
               </>,
@@ -230,7 +229,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
       <p className="ls-activity-caption">
         {unavailable
           ? "用量暂不可用"
-          : `${historyPage ? filtered.length : (totals?.requests ?? 0)} 次请求 · ${historyPage ? "请求明细" : summary?.coverage === "all-clients" ? "全部客户端" : "本浏览器直连"}`}{" "}
+          : `${historyPage ? total : (totals?.requests ?? 0)} 次请求 · ${historyPage ? "请求明细" : summary?.coverage === "all-clients" ? "全部客户端" : "本浏览器直连"}`}{" "}
         ·{" "}
         {settings?.persistUsage
           ? `本地保留 ${settings.retentionDays} 天`
@@ -407,11 +406,11 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
         <div className="ls-design-card ls-history-card">
           <div className="ls-card-heading">
             <h2>
-              请求明细 <span className="ls-count">{filtered.length}</span>
+              请求明细 <span className="ls-count">{total}</span>
             </h2>
             <a href="#privacy">保存与清理设置 →</a>
           </div>
-          {filtered.length ? (
+          {total ? (
             <>
               <div className="ls-table-scroll">
                 <table>
@@ -426,97 +425,102 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...filtered]
-                      .sort((a, b) => b.timestamp - a.timestamp)
-                      .slice(0, limit)
-                      .map((record) => (
-                        <tr key={record.requestId}>
-                          <td>
-                            {new Date(record.timestamp).toLocaleString(
-                              "zh-CN",
-                              { timeZone },
-                            )}
+                    {records.map((record) => (
+                      <tr key={record.requestId}>
+                        <td>
+                          {new Date(record.timestamp).toLocaleString("zh-CN", {
+                            timeZone,
+                          })}
+                          <small>
+                            {record.sourceKind === "web" ? "浏览器" : "Discord"}{" "}
+                            · {record.provider}
+                          </small>
+                        </td>
+                        <td>
+                          <strong>{record.model}</strong>
+                          <small>
+                            <span
+                              className={`ls-request-status ls-request-${record.status}`}
+                            >
+                              {statuses[record.status]}
+                            </span>
+                            {record.billingMode === "subscription" &&
+                              " · ChatGPT 订阅"}
+                            {record.billingMode === "free" && " · 免 Key 翻译"}
+                          </small>
+                        </td>
+                        <td>
+                          {record.billingMode === "free"
+                            ? `${record.characters ?? 0} 字符`
+                            : record.usage
+                              ? `${record.usage.input + record.usage.cacheRead + record.usage.cacheWrite} / ${record.usage.output}`
+                              : "未知"}
+                          {record.usage?.reasoning !== undefined && (
                             <small>
-                              {record.sourceKind === "web"
-                                ? "浏览器"
-                                : "Discord"}{" "}
-                              · {record.provider}
+                              思考 {record.usage.reasoning}（Output 子集）
                             </small>
-                          </td>
-                          <td>
-                            <strong>{record.model}</strong>
+                          )}
+                        </td>
+                        <td>
+                          {record.billingMode === "free"
+                            ? "不适用"
+                            : record.usage
+                              ? `${record.usage.cacheRead} / ${record.usage.cacheWrite}`
+                              : "未知"}
+                        </td>
+                        <td>
+                          {record.firstTextMs === null
+                            ? "不可用"
+                            : `${Math.round(record.firstTextMs)}ms`}{" "}
+                          / {Math.round(record.durationMs)}ms
+                        </td>
+                        <td>
+                          {formatSpeed(record.tps)}
+                          <small>{formatCost(apiCost(record))}</small>
+                          {record.billingMode !== "free" && (
                             <small>
-                              <span
-                                className={`ls-request-status ls-request-${record.status}`}
-                              >
-                                {statuses[record.status]}
-                              </span>
-                              {record.billingMode === "subscription" &&
-                                " · ChatGPT 订阅"}
-                              {record.billingMode === "free" &&
-                                " · 免 Key 翻译"}
+                              {formatPricing(record.pricing)}{" "}
+                              {record.pricing?.sourceUrl && (
+                                <a
+                                  href={record.pricing.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  价格来源
+                                </a>
+                              )}
                             </small>
-                          </td>
-                          <td>
-                            {record.billingMode === "free"
-                              ? `${record.characters ?? 0} 字符`
-                              : record.usage
-                                ? `${record.usage.input + record.usage.cacheRead + record.usage.cacheWrite} / ${record.usage.output}`
-                                : "未知"}
-                            {record.usage?.reasoning !== undefined && (
-                              <small>
-                                思考 {record.usage.reasoning}（Output 子集）
-                              </small>
-                            )}
-                          </td>
-                          <td>
-                            {record.billingMode === "free"
-                              ? "不适用"
-                              : record.usage
-                                ? `${record.usage.cacheRead} / ${record.usage.cacheWrite}`
-                                : "未知"}
-                          </td>
-                          <td>
-                            {record.firstTextMs === null
-                              ? "不可用"
-                              : `${Math.round(record.firstTextMs)}ms`}{" "}
-                            / {Math.round(record.durationMs)}ms
-                          </td>
-                          <td>
-                            {formatSpeed(record.tps)}
-                            <small>{formatCost(apiCost(record))}</small>
-                            {record.billingMode !== "free" && (
-                              <small>
-                                {formatPricing(record.pricing)}{" "}
-                                {record.pricing?.sourceUrl && (
-                                  <a
-                                    href={record.pricing.sourceUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    价格来源
-                                  </a>
-                                )}
-                              </small>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
               <div className="ls-history-footer">
                 <span>
-                  显示 {Math.min(limit, filtered.length)} / {filtered.length} 条
+                  显示 {pageOffset + 1}–{pageOffset + records.length} / {total}{" "}
+                  条
                 </span>
-                {filtered.length > limit && (
-                  <button onClick={() => setLimit(limit + 50)}>加载更多</button>
-                )}
+                <button
+                  disabled={pageOffset === 0}
+                  onClick={() =>
+                    setOffset(Math.max(0, pageOffset - historyPageSize))
+                  }
+                >
+                  上一页
+                </button>
+                <button
+                  disabled={pageOffset + records.length >= total}
+                  onClick={() => setOffset(pageOffset + historyPageSize)}
+                >
+                  下一页
+                </button>
               </div>
             </>
           ) : (
             <EmptyState
-              filtered={records.length > 0}
+              filtered={(page?.allCount ?? 0) > 0}
               unavailable={unavailable}
             />
           )}

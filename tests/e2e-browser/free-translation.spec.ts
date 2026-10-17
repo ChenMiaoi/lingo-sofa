@@ -150,6 +150,26 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
         .chrome;
       return api.runtime.sendMessage({ action: "page-status" });
     });
+    const history = await page.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      return api.runtime.sendMessage({
+        action: "state",
+        historyQuery: {
+          offset: 0,
+          range: "all",
+          source: "",
+          provider: "",
+          model: "",
+          scope: "",
+          status: "",
+        },
+      });
+    });
+    expect(history.usage).toEqual([]);
+    expect(history.bridgeUsage).toEqual([]);
+    expect(history.historyPage.total).toBeGreaterThan(0);
+    expect(history.historyPage.records.length).toBeLessThanOrEqual(50);
     expect(availability).toMatchObject({
       supported: true,
       translated: true,

@@ -1,3 +1,4 @@
+import { historyPage } from "../src/history-page.js";
 import {
   directAccounts,
   updateDirectAccounts,
@@ -440,6 +441,7 @@ export default defineBackground(() => {
       const data = message as {
         action: string;
         preferences?: unknown;
+        historyQuery?: unknown;
         section?: unknown;
         settings?: unknown;
         apiKey?: unknown;
@@ -911,15 +913,29 @@ export default defineBackground(() => {
               error instanceof Error ? error.message : "无法读取全部用量";
           }
         }
+        const usage = service.ledger.list();
+        const page =
+          data.historyQuery === undefined
+            ? undefined
+            : historyPage(
+                bridgeError
+                  ? []
+                  : settings.mode === "bridge"
+                    ? bridgeUsage
+                    : usage,
+                data.historyQuery,
+                executionSettings.timeZone,
+              );
         return {
           settings,
+          historyPage: page,
           allUsage: usageSummary,
           summaryError,
-          usage: service.ledger.list(),
+          usage: page ? [] : usage,
           hasKey: Boolean(
             await directKey(settings, settings.model).catch(() => ""),
           ),
-          bridgeUsage,
+          bridgeUsage: page ? [] : bridgeUsage,
           budgets,
           shareBudget,
           executionSettings,
