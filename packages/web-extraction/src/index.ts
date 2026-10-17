@@ -3,18 +3,46 @@ import {
   renderTranslationMarkdown,
   inlineTranslationStyle,
   appendTranslationBilling,
+  formatTranslationBilling,
 } from "@lingo-sofa/ui-shared";
 import { inlineMarkdown } from "./inline-markdown.js";
 export const TRANSLATION_ATTRIBUTE = "data-lingo-sofa";
-export const BLOCKS = "p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote";
-const EXCLUDED =
-  "math,.katex,.MathJax,mjx-container,nav,header,footer,aside,pre,script,style,noscript,form,input,textarea,select,button,[contenteditable]:not([contenteditable='false']),[hidden],[aria-hidden='true'],[data-lingo-sofa]";
+const HEADINGS = 'h1,h2,h3,h4,h5,h6,[role="heading"],#hnmain .titleline';
+export const BLOCKS = `p,li,td,th,blockquote,${HEADINGS}`;
+// Article headers carry reading titles. Site banners and utility metadata do
+// not, even when they share the same heading, list or table tags.
+const EXCLUDED = [
+  "math,.katex,.MathJax,mjx-container,nav,footer,aside,pre,script,style,noscript",
+  "header:not(main header):not(article header):not([role='main'] header)",
+  "form,input,textarea,select,button,summary,time,relative-time,[role='banner'],[role='navigation'],[role='button'],[role='tablist'],[role='toolbar'],[role='complementary']",
+  "[translate='no'],.notranslate,.sr-only,.visually-hidden,.sphinxsidebar,#mdbook-menu-bar,a.headerlink",
+  "#navigation-bar,.topic-list .link-bottom-line,.topic-list .num,.topic-list .posters,.topic-post-badges,.topic-statuses",
+  "#hnmain .subtext,#hnmain .rank,#hnmain .sitebit,#hnmain .pagetop,#hnmain .yclinks,#hnmain .morelink",
+  ".mw-editsection,.mw-parser-output .infobox td,.mw-parser-output a[href*='action=edit']",
+  "table[aria-labelledby='folders-and-files'],.Timeline-Item:has(> .TimelineBody)",
+  "[contenteditable]:not([contenteditable='false']),[hidden],[aria-hidden='true'],[data-lingo-sofa]",
+].join(",");
+type Presentation = "paragraph" | "heading" | "inline";
 export interface Block {
   element: HTMLElement;
   text: string;
+  presentation: Presentation;
   protectedParts: string[];
   markdown: string;
   links: Record<string, string>;
+}
+function presentation(element: HTMLElement, text: string): Presentation {
+  if (element.matches(HEADINGS)) return "heading";
+  if (element.matches("p,blockquote") || text.replace(/\s+/g, " ").length > 160)
+    return "paragraph";
+  return "inline";
+}
+function translatable(text: string): boolean {
+  if (!/\p{L}/u.test(text)) return false;
+  // Counts and relative timestamps are values, even when they have a suffix.
+  return !/^(?:[\d.,]+\s*[kmb%]?|(?:\d+\s*(?:ms|s|m|h|d|w|mo|y)\s*)+(?:ago)?)$/i.test(
+    text.trim(),
+  );
 }
 function visible(
   element: HTMLElement,
@@ -23,9 +51,17 @@ function visible(
   const stored = cache.get(element);
   if (stored !== undefined) return stored;
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const visuallyHidden =
+    style?.clipPath === "inset(50%)" ||
+    ((style?.position === "absolute" || style?.position === "fixed") &&
+      Number.parseFloat(style.width) <= 1 &&
+      Number.parseFloat(style.height) <= 1 &&
+      style.overflow === "hidden");
   const result =
     style?.display !== "none" &&
     style?.visibility !== "hidden" &&
+    style?.contentVisibility !== "hidden" &&
+    !visuallyHidden &&
     (!element.parentElement || visible(element.parentElement, cache));
   cache.set(element, result);
   return result;
@@ -59,7 +95,7 @@ export function extract(root: ParentNode): Block[] {
       if (
         element.closest(`${EXCLUDED},code`) ||
         [...element.querySelectorAll(BLOCKS)].some(
-          (block) => !block.closest("[data-lingo-sofa]"),
+          (block) => !block.closest(`${EXCLUDED},code`),
         )
       )
         return false;
@@ -68,17 +104,22 @@ export function extract(root: ParentNode): Block[] {
         visible(element, visibility)
       );
     })
-    .map((element) => ({
-      element,
-      text: textOf(element, visibility),
-      ...inlineMarkdown(
+    .map((element) => {
+      const text = textOf(element, visibility);
+      return {
         element,
-        (node) => !node.closest(EXCLUDED) && visible(node, visibility),
-      ),
-    }))
+        text,
+        presentation: presentation(element, text),
+        ...inlineMarkdown(
+          element,
+          (node) => !node.closest(EXCLUDED) && visible(node, visibility),
+        ),
+      };
+    })
     .filter(
       (block) =>
         block.text.length > 0 &&
+        translatable(block.text) &&
         block.text.length <= 16_000 &&
         block.markdown.length <= 16_000,
     );
@@ -132,8 +173,45 @@ export function selectedContent(document: Document): {
 export function selectedText(document: Document): string {
   return selectedContent(document).text;
 }
+export function renderBlockTranslation(
+  block: Block,
+  translation:
+    string | { text: string; billing?: TranslationBilling | undefined },
+  targetLanguage: string,
+): HTMLElement {
+  const node = block.element.ownerDocument.createElement("span");
+  node.setAttribute(TRANSLATION_ATTRIBUTE, "translation");
+  node.setAttribute("aria-label", "LingoSofa 译文");
+  node.lang = targetLanguage === "简体中文" ? "zh-CN" : targetLanguage;
+  const compact = block.presentation !== "paragraph";
+  node.style.cssText = compact
+    ? `display:${block.presentation === "heading" ? "block;margin-block:0.2em 0" : "inline;margin-inline-start:0.45em"};padding:0;border:0;color:inherit;font:inherit;font-size:0.92em;line-height:1.4;overflow-wrap:anywhere`
+    : inlineTranslationStyle;
+  node.innerHTML = renderTranslationMarkdown(
+    typeof translation === "string" ? translation : translation.text,
+    [...block.element.querySelectorAll<HTMLElement>("code")]
+      .filter((code) => !code.closest("[data-lingo-sofa]"))
+      .map((code) => textOf(code)),
+    { breaks: false, inline: compact, links: block.links },
+  );
+  if (typeof translation !== "string") {
+    if (compact) {
+      const billing = formatTranslationBilling(translation.billing);
+      node.title = `${billing.text}\n${billing.title}`;
+    } else appendTranslationBilling(node, translation.billing);
+  }
+  return node;
+}
 function fingerprint(block: Block | undefined): string | undefined {
-  return block && JSON.stringify([block.text, block.markdown, block.links]);
+  return (
+    block &&
+    JSON.stringify([
+      block.text,
+      block.markdown,
+      block.links,
+      block.presentation,
+    ])
+  );
 }
 interface State {
   fingerprint: string | undefined;
@@ -246,6 +324,8 @@ export class PageTranslator {
         "href",
         "class",
         "style",
+        "role",
+        "translate",
       ],
     });
     this.notify();
@@ -381,23 +461,11 @@ export class PageTranslator {
           ) !== state.fingerprint
         )
           return;
-        const node = this.document.createElement("span");
-        node.setAttribute(TRANSLATION_ATTRIBUTE, "translation");
-        node.lang =
-          this.options.targetLanguage === "简体中文"
-            ? "zh-CN"
-            : this.options.targetLanguage;
-        node.style.cssText = inlineTranslationStyle;
-        node.innerHTML = renderTranslationMarkdown(
-          typeof text === "string" ? text : text.text,
-          [...element.querySelectorAll<HTMLElement>("code")]
-            .filter((code) => !code.closest("[data-lingo-sofa]"))
-            .map((code) => textOf(code)),
-          { breaks: false, links: block.links },
+        const node = renderBlockTranslation(
+          block,
+          text,
+          this.options.targetLanguage,
         );
-        if (typeof text !== "string")
-          appendTranslationBilling(node, text.billing);
-        node.setAttribute("aria-label", "LingoSofa 译文");
         element.append(node);
         state.result = node;
       })

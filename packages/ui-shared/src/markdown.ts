@@ -74,7 +74,11 @@ const styles: Record<string, string> = {
 export function renderTranslationMarkdown(
   text: string,
   literalCode: readonly string[] = [],
-  options: { breaks?: boolean; links?: Readonly<Record<string, string>> } = {},
+  options: {
+    breaks?: boolean;
+    inline?: boolean;
+    links?: Readonly<Record<string, string>>;
+  } = {},
 ): string {
   let prefix = "⟦LS-CODE:";
   while (text.includes(prefix)) prefix += ":";
@@ -139,7 +143,9 @@ export function renderTranslationMarkdown(
     : options.breaks === false
       ? flowingMarkdown
       : markdown;
-  let html = (parser.parse(text) as string).trim();
+  let html = (
+    (options.inline ? parser.parseInline(text) : parser.parse(text)) as string
+  ).trim();
   for (const [marker, formula] of formulas)
     html = html.split(marker).join(formula);
   for (const [marker, literal] of literals)

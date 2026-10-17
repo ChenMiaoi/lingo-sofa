@@ -46,7 +46,7 @@ Windows x64 组合安装包 0.1.4 的实际安装、助手生命周期、冷启�
 
 实际 MV3 设置页导航反馈（点击至第二次 requestAnimationFrame）浅色 36.2 / 31.3 / 31.7ms，深色 35.2 / 30.5 / 32.4ms；只近似本地绘制就绪，排除模型与网络，不能替代 Discord 或读屏延迟。
 
-真实公开 [LLVM Programmer’s Manual](https://llvm.org/docs/ProgrammersManual.html) 的普通文章布局检查已通过：27 处译文、6 次本地模拟请求，恢复后 99 个代码块、803 个链接和 29 个输入控件的数据完全一致，截图人工检查。复现：`LINGO_SOFA_PUBLIC_ACCEPTANCE=1 npm run test:e2e -- tests/e2e-browser/public-page.spec.ts`；此测试需要网络，默认跳过，不发送 API Key，不证明真实模型质量。更广的网站矩阵仍待验收。
+真实公开 [LLVM Programmer’s Manual](https://llvm.org/docs/ProgrammersManual.html) 的普通文章布局检查已通过：27 处译文、6 次本地模拟请求，恢复后 99 个代码块、803 个链接和 29 个输入控件的数据完全一致，截图人工检查。复现：`LINGO_SOFA_PUBLIC_ACCEPTANCE=1 npm run test:e2e -- tests/e2e-browser/public-page.spec.ts`；此测试需要网络，默认跳过，不发送 API Key，不证明真实模型质量。2026-10-18 扩展的网站、宽窄屏和动态布局检查见 [公开网页排版验收](web-layout-acceptance.md)。
 
 ## 里程碑状态
 

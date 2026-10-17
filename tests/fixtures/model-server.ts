@@ -8,6 +8,7 @@ export async function modelServer(
     responseGate?: Promise<void>;
     echoMetadata?: boolean;
     markdown?: boolean;
+    translate?: (text: string) => string;
     contextWindow?: number;
     maxOutputTokens?: number;
     inputTokens?: number | ((call: number) => number);
@@ -68,7 +69,9 @@ export async function modelServer(
         answer = JSON.stringify(
           units.map((unit) => ({
             id: unit.id,
-            text: `${options.markdown ? "**译文**" : "译文"} ${unit.text}`,
+            text: options.translate
+              ? options.translate(unit.text)
+              : `${options.markdown ? "**译文**" : "译文"} ${unit.text}`,
             ...(options.echoMetadata
               ? { targetLanguage: unit.targetLanguage, context: unit.context }
               : {}),

@@ -1,10 +1,4 @@
-import {
-  renderTranslationMarkdown,
-  inlineTranslationStyle,
-  appendTranslationBilling,
-  textAnchorRect,
-  registerAskShortcut,
-} from "@lingo-sofa/ui-shared";
+import { textAnchorRect, registerAskShortcut } from "@lingo-sofa/ui-shared";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
 import {
@@ -14,6 +8,7 @@ import {
   textOf,
   selectedText,
   selectedContent,
+  renderBlockTranslation,
 } from "@lingo-sofa/web-extraction";
 import { TranslationBatcher } from "@lingo-sofa/translation-core/batch";
 import {
@@ -496,26 +491,24 @@ export default defineContentScript({
           controller.signal,
         )
           .then((translation) => {
+            const block = extract(anchor).find(
+              (block) => block.element === anchor,
+            );
             if (
               controller.signal.aborted ||
               !anchor.isConnected ||
               textOf(anchor) !== original ||
               location.href !== pageUrl ||
-              !extract(anchor).some((block) => block.element === anchor)
+              !block
             )
               return { ok: false, error: "选中内容已变化，请重新选择" };
-            const node = document.createElement("span");
+            const node = renderBlockTranslation(
+              block,
+              translation,
+              data.targetLanguage ?? "简体中文",
+            );
             node.setAttribute("data-lingo-sofa", "selection");
             node.setAttribute("aria-label", "LingoSofa 选区译文");
-            node.style.cssText = inlineTranslationStyle;
-            node.innerHTML = renderTranslationMarkdown(
-              translation.text,
-              [...anchor.querySelectorAll<HTMLElement>("code")]
-                .filter((code) => !code.closest("[data-lingo-sofa]"))
-                .map((code) => textOf(code)),
-              { breaks: false },
-            );
-            appendTranslationBilling(node, translation.billing);
             selectionNodes.get(anchor)?.node.remove();
             anchor.append(node);
             selectionNodes.set(anchor, { node, original });
@@ -530,6 +523,8 @@ export default defineContentScript({
                 "class",
                 "style",
                 "contenteditable",
+                "role",
+                "translate",
               ],
             });
             return { ok: true };

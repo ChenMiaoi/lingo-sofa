@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forum translation layout fixture</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        background: light-dark(#fff, #202124);
+        color: light-dark(#303030, #eee);
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1060px;
+        margin: 44px auto;
+        padding: 0 24px;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      #navigation-bar {
+        display: flex;
+        gap: 28px;
+        padding: 0;
+        list-style: none;
+        margin: 24px 0;
+      }
+      #navigation-bar li:first-child {
+        color: #08c;
+        border-bottom: 2px solid;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        font-size: 13px;
+        font-weight: 400;
+      }
+      td,
+      th {
+        padding: 16px 8px;
+        border-bottom: 1px solid light-dark(#ddd, #454545);
+      }
+      .main-link {
+        width: 74%;
+      }
+      .link-top-line {
+        font-size: 18px;
+      }
+      .link-bottom-line {
+        font-size: 13px;
+        color: light-dark(#666, #aaa);
+        margin-top: 4px;
+      }
+      .discourse-tags {
+        display: inline-flex;
+        gap: 8px;
+        padding: 0;
+        margin: 0 0 0 12px;
+        list-style: none;
+      }
+      .topic-post-badges {
+        color: #08c;
+        font-size: 13px;
+      }
+      .num {
+        text-align: center;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+      }
+      article {
+        max-width: 720px;
+        margin-top: 36px;
+      }
+      pre {
+        overflow-x: auto;
+      }
+      @media (max-width: 600px) {
+        main {
+          margin: 20px auto;
+          padding: 0 12px;
+        }
+        td,
+        th {
+          padding: 12px 4px;
+        }
+        .link-top-line {
+          font-size: 15px;
+        }
+        .main-link {
+          width: 68%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <ul class="filters">
+        <li>
+          <details><summary>categories</summary></details>
+        </li>
+        <li>
+          <div role="button"><span>tags</span></div>
+        </li>
+      </ul>
+      <ul id="navigation-bar">
+        <li><a href="/latest">Latest</a></li>
+        <li><a href="/new">New (2)</a></li>
+        <li><a href="/top">Top</a></li>
+      </ul>
+      <table class="topic-list" aria-label="All latest topics">
+        <thead>
+          <tr>
+            <th>Topic</th>
+            <th class="num"><button>Replies</button></th>
+            <th class="num"><button>Views</button></th>
+            <th class="num"><button>Activity</button></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="main-link">
+              <span role="heading" aria-level="2" class="link-top-line"
+                ><a class="raw-topic-link" href="/t/chromium/1"
+                  >[RFC] Adding Chromium C++ code to CTMark</a
+                ><span class="topic-post-badges"> 6</span></span
+              >
+              <div class="link-bottom-line">
+                <a href="/c/clang/6">Clang Frontend</a>
+              </div>
+            </td>
+            <td class="num">19</td>
+            <td class="num">620</td>
+            <td class="num"><span class="relative-date">1h</span></td>
+          </tr>
+          <tr>
+            <td class="main-link">
+              <span role="heading" aria-level="2" class="link-top-line"
+                ><a class="raw-topic-link" href="/t/release-notes/2"
+                  >[RFC] Reducing release note merge conflicts with per-change
+                  fragments<span class="sr-only"> read</span></a
+                ></span
+              >
+              <div class="link-bottom-line">
+                <a href="/c/llvm/5">LLVM Project</a>
+                <ul class="discourse-tags" aria-label="Tags">
+                  <li><a href="/tag/llvm">llvm</a>,</li>
+                  <li><a href="/tag/infrastructure">infrastructure</a></li>
+                </ul>
+              </div>
+            </td>
+            <td class="num">13</td>
+            <td class="num">159</td>
+            <td class="num"><time>3h</time></td>
+          </tr>
+          <tr>
+            <td class="main-link">
+              <span role="heading" aria-level="2" class="link-top-line"
+                ><a class="raw-topic-link" href="/t/vectorizer/3"
+                  >[LoadStoreVectorizer] CPU store-packing opportunities and
+                  default pipeline scheduling</a
+                ></span
+              >
+              <div class="link-bottom-line">
+                <a href="/c/ir/61">IR &amp; Optimizations</a>
+              </div>
+            </td>
+            <td class="num">2</td>
+            <td class="num">4.9k</td>
+            <td class="num">Oct 16</td>
+          </tr>
+        </tbody>
+      </table>
+      <article>
+        <p>
+          I think some maintenance cost is unavoidable. We can settle on the
+          design and metadata before implementing the workflow.
+        </p>
+        <pre><code>$ reln feature
+Created clang/ReleaseNote.d/Feature/example.md</code></pre>
+      </article>
+    </main>
+  </body>
+</html>

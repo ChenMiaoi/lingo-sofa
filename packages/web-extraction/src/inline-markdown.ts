@@ -16,7 +16,16 @@ export function inlineMarkdown(
   while (root.textContent?.includes(prefix)) prefix += ":";
   const links: Record<string, string> = {};
   const protectedParts: string[] = [];
-  const escape = (text: string) => text.replace(/[\\`*_[\]<>~]/g, "\\$&");
+  // Markdown's escaped brackets also form TeX display delimiters. Use
+  // entities for literal brackets so topic prefixes cannot become formulas.
+  const escape = (text: string) =>
+    text.replace(/[\\`*_[\]<>~]/g, (character) =>
+      character === "["
+        ? "&#91;"
+        : character === "]"
+          ? "&#93;"
+          : `\\${character}`,
+    );
   function prose(text: string): string {
     // HTML source line wrapping is whitespace, not a reading line break.
     const normalize = (value: string) => value.replace(/[\t\r\n ]+/g, " ");

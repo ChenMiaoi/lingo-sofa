@@ -16,6 +16,58 @@ it("extracts legal leaf blocks and excludes hidden and editable contents", () =>
   );
   expect(blocks[0]!.links).toEqual({ "⟦LS-WEB-LINK:0⟧": "https://x.test/" });
 });
+it("distinguishes reading headers from global banners, sidebars and toolbars", () => {
+  document.body.innerHTML = `<header><h1>Site banner</h1></header><main><header><h1>Article title</h1><nav><p>Article navigation</p></nav></header><p>Reading body</p><div role="toolbar"><p>Share controls</p></div><div role="complementary"><p>Related links</p></div><header role="banner"><h2>Global banner</h2></header></main><article><header><h2>Nested article</h2></header></article><div role="main"><header><h2>Accessible article</h2></header></div><div class="sphinxsidebar"><ul><li>Sidebar item</li></ul></div><div id="mdbook-menu-bar"><h1>Book menu</h1></div>`;
+  expect(extract(document).map((block) => block.text)).toEqual([
+    "Article title",
+    "Reading body",
+    "Nested article",
+    "Accessible article",
+  ]);
+});
+it("skips visually hidden accessibility text even when class names are generated", () => {
+  document.body.innerHTML = `<h2 class="random-hash" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0px,0px,0px,0px)">Repository navigation</h2><div style="clip-path:inset(50%)"><p>Accessibility helper</p></div><div style="content-visibility:hidden"><p>Hidden region</p></div><h2 style="position:absolute;width:200px;height:40px;overflow:hidden">Visible title</h2><p>Visible text</p>`;
+  expect(extract(document).map((block) => block.text)).toEqual([
+    "Visible title",
+    "Visible text",
+  ]);
+});
+it("keeps repository file navigation and custom timestamps out of translated text", () => {
+  document.body.innerHTML = `<main><table aria-labelledby="folders-and-files"><tr><th>File</th><td>README.md</td><td>Update the guide</td><td><relative-time>Oct 18, 2026</relative-time></td></tr></table><h1>The project</h1><p>Updated <relative-time>3 days ago</relative-time></p></main>`;
+  expect(extract(document).map((block) => block.text)).toEqual([
+    "The project",
+    "Updated",
+  ]);
+});
+it("extracts news titles independently of domains, authors, votes and navigation", () => {
+  document.body.innerHTML = `<table id="hnmain"><tr><td><span class="pagetop"><a href="/news">News</a> | <a href="/submit">Submit</a></span></td></tr><tr><td><table><tr class="athing"><td><span class="rank">1.</span></td><td class="title"><span class="titleline"><a href="https://example.test/article">A technical story</a><span class="sitebit"> (<a href="/from">example.test</a>)</span></span></td></tr><tr><td class="subtext"><span class="score">42 points</span> by <a href="/user">reader</a> <span class="age">2 hours ago</span> | <a href="/comments">12 comments</a></td></tr></table></td></tr><tr><td><span class="yclinks">Guidelines | FAQ</span><a class="morelink" href="/next">More</a></td></tr></table>`;
+  const blocks = extract(document);
+  expect(blocks.map((block) => block.text)).toEqual(["A technical story"]);
+  expect(blocks[0]!.element.className).toBe("titleline");
+  expect(blocks[0]!.presentation).toBe("heading");
+  expect(Object.values(blocks[0]!.links)).toEqual([
+    "https://example.test/article",
+  ]);
+});
+it("keeps issue activity metadata out of grid rows while translating comment lists", () => {
+  document.body.innerHTML = `<main><h1>A compiler issue</h1><ol><li class="Timeline-Item" style="display:grid;grid-template-columns:24px 1fr"><div aria-hidden="true">Label icon</div><div class="TimelineBody"><a href="/user">A contributor</a> added <a href="/labels">Design Notes</a><relative-time>on Jul 29, 2016</relative-time></div></li><li class="Timeline-Item"><div class="TimelineBody"><a href="/user">A contributor</a> referenced a commit<div class="markdown-body"><p>Fix compiler analysis</p></div></div></li><li class="Timeline-Item"><article><h2>Discussion</h2><div class="markdown-body"><p>Explain the compiler behavior.</p><ul><li>A useful example</li></ul></div></article></li></ol></main>`;
+  expect(extract(document).map((block) => block.text)).toEqual([
+    "A compiler issue",
+    "Discussion",
+    "Explain the compiler behavior.",
+    "A useful example",
+  ]);
+});
+it("keeps encyclopedia metadata and edit/permalink controls out of reading content", () => {
+  document.body.innerHTML = `<main><header><h1>LLVM</h1></header><div class="mw-parser-output"><div><h2>History<a class="headerlink" href="#history">¶</a></h2><span class="mw-editsection"><a href="?action=edit">edit</a></span></div><p>A compiler framework.<a href="https://www.wikidata.org/wiki/Example?action=edit">edit this statement</a></p><table class="infobox"><tr><th>Stable release</th><td>23.1.3 / 6 October 2026</td></tr><tr><th>Authors</th><td>Chris Lattner</td></tr></table></div></main>`;
+  expect(extract(document).map((block) => block.text)).toEqual([
+    "LLVM",
+    "History",
+    "A compiler framework.",
+    "Stable release",
+    "Authors",
+  ]);
+});
 it("discards a late result after editing and removes only owned nodes on stop", async () => {
   document.body.innerHTML = "<p>Hello</p>";
   const pending: { text: string; resolve: (text: string) => void }[] = [];
@@ -285,7 +337,7 @@ it("does not include hidden code children, unsafe destinations or alter formulas
   expect(block.links).toEqual({});
   expect(block.markdown).toContain("read me");
   expect(block.markdown).toContain("\\*literal\\*");
-  expect(block.markdown).toContain("\\[brackets\\]");
+  expect(block.markdown).toContain("&#91;brackets&#93;");
 });
 
 it("retains visible URL and formula spelling when escaping plain Markdown characters", () => {

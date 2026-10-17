@@ -12,9 +12,12 @@ import {
 } from "@lingo-sofa/translation-core";
 import { extract, PageTranslator } from "@lingo-sofa/web-extraction";
 
-function rendered(text: string): HTMLDivElement {
+function rendered(
+  text: string,
+  options: Parameters<typeof renderTranslationMarkdown>[2] = {},
+): HTMLDivElement {
   const element = document.createElement("div");
-  element.innerHTML = renderTranslationMarkdown(text);
+  element.innerHTML = renderTranslationMarkdown(text, [], options);
   return element;
 }
 
@@ -36,15 +39,19 @@ describe("translation Markdown", () => {
     );
     expect(element.querySelector("img")).toBeNull();
   });
-  it("treats model HTML as text and blocks active URLs and remote images", () => {
-    const element = rendered(
-      "<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[bad](javascript:alert%281%29) [data](data:text/html,evil) [encoded](jav&#x61;script:alert%281%29) ![label](https://tracker.test/pixel)\n\n<input autofocus onfocus=alert(1)>",
-    );
-    expect(element.querySelector("script,img,input,iframe,svg")).toBeNull();
-    expect(element.querySelector("a")).toBeNull();
-    expect(element.textContent).toContain("<script>");
-    expect(element.textContent).toContain("label");
-  });
+  it.each([false, true])(
+    "treats model HTML as text and blocks active URLs and remote images (inline=%s)",
+    (inline) => {
+      const element = rendered(
+        "<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[bad](javascript:alert%281%29) [data](data:text/html,evil) [encoded](jav&#x61;script:alert%281%29) ![label](https://tracker.test/pixel)\n\n<input autofocus onfocus=alert(1)>",
+        { inline },
+      );
+      expect(element.querySelector("script,img,input,iframe,svg")).toBeNull();
+      expect(element.querySelector("a")).toBeNull();
+      expect(element.textContent).toContain("<script>");
+      expect(element.textContent).toContain("label");
+    },
+  );
   it("renders Markdown below the original with a theme-inherited separator", async () => {
     document.body.innerHTML =
       "<article><p>Original <code>fetch()</code></p><p><code>const x = 1</code></p><pre>private code</pre></article>";
