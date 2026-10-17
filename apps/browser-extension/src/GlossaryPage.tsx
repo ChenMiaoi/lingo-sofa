@@ -1,9 +1,15 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
+import { importGlossary, exportGlossary } from "./glossary-files.js";
 import { settingsSchema } from "@lingo-sofa/protocol";
 
-export function GlossaryPage() {
+export function GlossaryPage({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
+  const [query, setQuery] = useState("");
   const [terms, setTerms] = useState<
     { id: string; source: string; target: string }[]
   >([]);
@@ -26,6 +32,9 @@ export function GlossaryPage() {
       })
       .catch(() => setError("无法读取术语表，请重新打开此页面。"));
   }, []);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (dirty) event.preventDefault();
@@ -93,12 +102,16 @@ export function GlossaryPage() {
               <h2>
                 我的术语 <span className="ls-count">{terms.length}</span>
               </h2>
-              <p>原词与译词成对保存，适用于此浏览器的模型直连翻译。</p>
+              <p>
+                手动保存 · 仅用于此浏览器的直连翻译，不会同步到本地助手或
+                Discord。
+              </p>
             </div>
             <button
               type="button"
               disabled={!ready || busy || terms.length >= 200}
               onClick={() => {
+                setQuery("");
                 setTerms([
                   ...terms,
                   { id: crypto.randomUUID(), source: "", target: "" },
@@ -109,6 +122,94 @@ export function GlossaryPage() {
               ＋ 添加术语
             </button>
           </div>
+          <div className="ls-glossary-tools">
+            <input
+              type="search"
+              aria-label="搜索术语"
+              placeholder="搜索原词或译词"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <label>
+              导入 JSON / TSV
+              <input
+                type="file"
+                aria-label="导入术语文件"
+                accept=".json,.tsv,application/json,text/tab-separated-values"
+                disabled={!ready || busy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  if (file.size > 100_000) {
+                    setError("文件过大，请限制在 100 KB 内。");
+                    return;
+                  }
+                  setBusy(true);
+                  setError("");
+                  setNotice("");
+                  void file
+                    .text()
+                    .then((text) => {
+                      const merged = importGlossary(
+                        text,
+                        terms.map(({ source, target }) => ({ source, target })),
+                      );
+                      setTerms(
+                        merged.map((term) => ({
+                          ...term,
+                          id: crypto.randomUUID(),
+                        })),
+                      );
+                      setDirty(true);
+                      setQuery("");
+                      setNotice("已合并到草稿，请检查后保存。");
+                    })
+                    .catch((reason: unknown) =>
+                      setError(
+                        reason instanceof Error ? reason.message : "导入失败",
+                      ),
+                    )
+                    .finally(() => setBusy(false));
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!ready || busy || !terms.length}
+              onClick={() => {
+                try {
+                  const text = exportGlossary(
+                    terms.map(({ source, target }) => ({ source, target })),
+                  );
+                  const url = URL.createObjectURL(
+                    new Blob([text], { type: "application/json" }),
+                  );
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = "lingo-sofa-glossary.json";
+                  link.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  setError("");
+                  setNotice(
+                    dirty
+                      ? "已导出当前草稿；扩展中的更改仍需保存。"
+                      : "术语表已导出。",
+                  );
+                } catch (reason) {
+                  setError(
+                    reason instanceof Error ? reason.message : "导出失败",
+                  );
+                }
+              }}
+            >
+              导出 JSON
+            </button>
+          </div>
+          <p className="ls-muted">
+            导入会合并已有术语；译法冲突时保留原草稿。TSV
+            每行用制表符分隔原词与译词，不含标题行。
+          </p>
           {!terms.length && (
             <div className="ls-activity-empty">
               <span aria-hidden="true">Aa</span>
@@ -123,57 +224,70 @@ export function GlossaryPage() {
                 <span>译词</span>
                 <span />
               </div>
-              {terms.map((term, index) => (
-                <div className="ls-glossary-row" key={term.id}>
-                  <input
-                    aria-label={`原词 ${index + 1}`}
-                    placeholder="例如 kernel"
-                    maxLength={100}
-                    value={term.source}
-                    disabled={busy}
-                    onChange={(event) => {
-                      setTerms(
-                        terms.map((t) =>
-                          t.id === term.id
-                            ? { ...t, source: event.target.value }
-                            : t,
-                        ),
-                      );
-                      changed();
-                    }}
-                  />
-                  <input
-                    aria-label={`译词 ${index + 1}`}
-                    placeholder="例如 内核"
-                    maxLength={100}
-                    value={term.target}
-                    disabled={busy}
-                    onChange={(event) => {
-                      setTerms(
-                        terms.map((t) =>
-                          t.id === term.id
-                            ? { ...t, target: event.target.value }
-                            : t,
-                        ),
-                      );
-                      changed();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    aria-label={`删除术语 ${index + 1}`}
-                    disabled={busy}
-                    onClick={() => {
-                      setTerms(terms.filter((t) => t.id !== term.id));
-                      changed();
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              {terms
+                .map((term, index) => ({ term, index }))
+                .filter(({ term }) =>
+                  `${term.source} ${term.target}`
+                    .toLocaleLowerCase()
+                    .includes(query.trim().toLocaleLowerCase()),
+                )
+                .map(({ term, index }) => (
+                  <div className="ls-glossary-row" key={term.id}>
+                    <input
+                      aria-label={`原词 ${index + 1}`}
+                      placeholder="例如 kernel"
+                      maxLength={100}
+                      value={term.source}
+                      disabled={busy}
+                      onChange={(event) => {
+                        setTerms(
+                          terms.map((t) =>
+                            t.id === term.id
+                              ? { ...t, source: event.target.value }
+                              : t,
+                          ),
+                        );
+                        changed();
+                      }}
+                    />
+                    <input
+                      aria-label={`译词 ${index + 1}`}
+                      placeholder="例如 内核"
+                      maxLength={100}
+                      value={term.target}
+                      disabled={busy}
+                      onChange={(event) => {
+                        setTerms(
+                          terms.map((t) =>
+                            t.id === term.id
+                              ? { ...t, target: event.target.value }
+                              : t,
+                          ),
+                        );
+                        changed();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`删除术语 ${index + 1}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setTerms(terms.filter((t) => t.id !== term.id));
+                        changed();
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
             </div>
           )}
+          {query &&
+            !terms.some((term) =>
+              `${term.source} ${term.target}`
+                .toLocaleLowerCase()
+                .includes(query.trim().toLocaleLowerCase()),
+            ) && <p>没有匹配的术语。</p>}
           <footer className="ls-glossary-footer">
             <span>
               {dirty ? "有未保存的更改" : "最多 200 项 · 保存在此浏览器"}

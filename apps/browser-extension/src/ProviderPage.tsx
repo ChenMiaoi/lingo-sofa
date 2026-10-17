@@ -123,6 +123,7 @@ function ProductSettings({
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [glossaryDirty, setGlossaryDirty] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     void browser.storage.local
@@ -208,6 +209,17 @@ function ProductSettings({
         />
         {ready && mode === "bridge" && (
           <AssistantSetup onConnected={connected} />
+        )}
+        {glossaryDirty && section !== "glossary" && (
+          <button
+            className="ls-draft-reminder"
+            onClick={() => {
+              setSection("glossary");
+              location.hash = "glossary";
+            }}
+          >
+            术语表有未保存更改 · 返回保存
+          </button>
         )}
         {(error || failure) && <p role="alert">{error || failure}</p>}
         {section === "accounts" ? (
@@ -561,7 +573,7 @@ function ProductSettings({
           </>
         )}
         <div hidden={section !== "glossary"}>
-          <GlossaryPage />
+          <GlossaryPage onDirtyChange={setGlossaryDirty} />
         </div>
       </div>
     </main>

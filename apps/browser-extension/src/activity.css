@@ -396,3 +396,38 @@
 .ls-product-content > .permission-banner {
   margin-inline: auto;
 }
+
+.ls-glossary-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--ls-surface);
+  padding: 16px 0;
+  z-index: 1;
+  box-shadow: 0 -8px 16px var(--ls-surface);
+}
+.ls-glossary-tools {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 16px 0;
+}
+.ls-glossary-tools > input {
+  flex: 1;
+  min-width: 180px;
+}
+.ls-glossary-tools label {
+  font-size: 12px;
+  max-width: 100%;
+}
+.ls-glossary-tools input[type="file"] {
+  max-width: 240px;
+  display: block;
+  margin-top: 6px;
+}
+.ls-product-settings .ls-draft-reminder {
+  border-color: var(--ls-accent);
+  color: var(--ls-accent);
+  background: var(--ls-tint);
+  text-align: left;
+}

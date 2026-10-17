@@ -230,6 +230,25 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
     expect(saved.settings.glossary).toEqual([
       { source: "kernel", target: "内核" },
     ]);
+    await page.getByLabel("导入术语文件").setInputFiles({
+      name: "terms.tsv",
+      mimeType: "text/tab-separated-values",
+      buffer: Buffer.from("cache\t缓存"),
+    });
+    await expect(page.getByRole("status")).toContainText("合并到草稿");
+    await page.getByLabel("搜索术语").fill("缓存");
+    await expect(page.getByLabel("原词 1", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("原词 2", { exact: true })).toHaveValue(
+      "cache",
+    );
+    await page.getByLabel("搜索术语").fill("");
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "导出 JSON" }).click();
+    expect((await download).suggestedFilename()).toBe(
+      "lingo-sofa-glossary.json",
+    );
+    await page.getByRole("button", { name: "保存术语表" }).click();
+    await expect(page.getByRole("status")).toContainText("术语表已保存");
     await page.screenshot({ path: ".cache/ui/glossary-populated-dark.png" });
     await nav.getByRole("button", { name: "隐私与数据", exact: true }).click();
     await expect(page.getByLabel("历史保留天数")).toBeDisabled();
