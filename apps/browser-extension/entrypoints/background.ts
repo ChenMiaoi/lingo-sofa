@@ -1081,6 +1081,49 @@ export default defineBackground(() => {
         await browser.storage.session.remove(["apiKey", "balance"]);
         return { ok: true };
       }
+      if (data.action === "page-status") {
+        const [tab] = await browser.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (!tab?.id || !tab.url || !/^https?:/.test(tab.url))
+          return { supported: false };
+        const status = await browser.tabs
+          .sendMessage(tab.id, { action: "page-status" })
+          .catch(() => undefined);
+        if (status)
+          return {
+            ...status,
+            supported: true,
+            hostname: new URL(tab.url).hostname,
+          };
+        // Read only availability. Opening the popup never starts the reader or sends page text.
+        const probe = await browser.scripting
+          .executeScript({
+            target: { tabId: tab.id },
+            func: () => {
+              const selection = document.getSelection();
+              const node = selection?.anchorNode;
+              const element =
+                node instanceof Element ? node : node?.parentElement;
+              return {
+                hasSelection:
+                  Boolean(selection?.toString().trim()) &&
+                  !element?.closest("input,textarea,pre,[contenteditable]"),
+                translated: false,
+                pending: false,
+              };
+            },
+          })
+          .catch(() => []);
+        const stored = await browser.storage.local.get("readingEnabled");
+        return {
+          ...probe[0]?.result,
+          supported: true,
+          hostname: new URL(tab.url).hostname,
+          readingEnabled: stored.readingEnabled !== false,
+        };
+      }
       if (data.action === "page") {
         const [tab] = await browser.tabs.query({
           active: true,

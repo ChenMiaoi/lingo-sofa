@@ -50,7 +50,7 @@ select:disabled {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 .quick-header img {
   display: block;
@@ -139,9 +139,9 @@ select:disabled {
   min-height: 40px;
 }
 .quick-hint {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
-  margin: 14px 0 16px;
+  margin: 10px 0;
   text-align: center;
 }
 .quick-footer {
@@ -189,4 +189,19 @@ select:disabled {
   font-size: 11px;
   text-align: center;
   text-decoration: none;
+}
+
+.quick-page-state {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.quick-page-state strong {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -144,6 +144,17 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
     await expect(
       article.locator('[data-lingo-sofa="translation"]'),
     ).toContainText(live ? /你好|您好/u : "必应测试译文");
+    await article.bringToFront();
+    const availability = await page.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      return api.runtime.sendMessage({ action: "page-status" });
+    });
+    expect(availability).toMatchObject({
+      supported: true,
+      translated: true,
+      hasSelection: false,
+    });
     await page
       .getByRole("navigation", { name: "设置导航" })
       .getByRole("button", { name: "问答设置", exact: true })

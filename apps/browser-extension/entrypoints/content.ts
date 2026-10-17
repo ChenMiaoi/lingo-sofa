@@ -446,6 +446,15 @@ export default defineContentScript({
         start(data.targetLanguage ?? "简体中文");
         return Promise.resolve({ ok: true });
       }
+      if (data.action === "page-status")
+        return {
+          hasSelection: Boolean(selectedContent(document).text),
+          translated: Boolean(
+            translator?.progress.completed || selectionNodes.size,
+          ),
+          pending: Boolean(translator?.progress.pending),
+          readingEnabled,
+        };
       if (data.action === "context-token")
         return Promise.resolve({ documentToken });
       if (data.action === "context")

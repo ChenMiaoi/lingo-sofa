@@ -39,6 +39,15 @@ test("keeps the popup compact, saves language and opens full settings in a separ
       popup.getByRole("heading", { name: "用量与费用" }),
     ).toHaveCount(0);
     await expect(popup.getByLabel("目标语言")).toBeEnabled();
+    await expect(popup.getByLabel("当前页面")).toContainText(
+      "当前页面不支持翻译",
+    );
+    await expect(
+      popup.getByRole("button", { name: "翻译选中", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      popup.getByRole("button", { name: "恢复原文", exact: true }),
+    ).toBeDisabled();
     await popup.getByLabel("目标语言").selectOption("English");
     await expect(popup.getByRole("status")).toHaveText("目标语言已保存");
     await popup.reload();
