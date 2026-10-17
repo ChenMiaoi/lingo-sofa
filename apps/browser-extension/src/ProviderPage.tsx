@@ -15,6 +15,7 @@ import { ActivityPage } from "./ActivityPage.js";
 import { GlossaryPage } from "./GlossaryPage.js";
 import { TranslationCachePreferences } from "./TranslationCachePreferences.js";
 import "./activity.css";
+import { SettingsNavigation, sections } from "./SettingsNavigation.js";
 const AISettings = createAISettings(() => React);
 const ProviderEditor = createProviderEditor(() => React);
 async function send(message: unknown) {
@@ -81,17 +82,6 @@ export function ProviderPage() {
   );
 }
 
-const sections = [
-  ["translation", "翻译偏好"],
-  ["intelligence", "问答设置"],
-  ["accounts", "供应商"],
-  ["usage", "用量与费用"],
-  ["glossary", "术语表"],
-  ["history", "请求历史"],
-  ["shortcuts", "快捷键"],
-  ["appearance", "外观"],
-  ["privacy", "隐私与数据"],
-] as const;
 function ProductSettings({
   mode,
   setMode,
@@ -126,7 +116,7 @@ function ProductSettings({
     () => setConnectionRevision((value) => value + 1),
     [],
   );
-  const [query, setQuery] = useState("");
+
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const [settings, setSettings] = useState<Settings>();
   const [notice, setNotice] = useState("");
@@ -191,37 +181,15 @@ function ProductSettings({
         <span className="ls-muted">阅读与理解，都在此处。</span>
       </header>
       <aside className="ls-product-sidebar">
-        <input
-          className="ls-settings-search"
-          type="search"
-          aria-label="搜索设置"
-          placeholder="搜索设置"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
+        <SettingsNavigation
+          section={section}
+          content={content}
+          onSelect={(id) => {
+            setSection(id);
+            location.hash = id;
+            setNotice("");
+          }}
         />
-        <nav aria-label="设置导航">
-          {sections
-            .filter(([, label]) =>
-              label.toLowerCase().includes(query.toLowerCase()),
-            )
-            .map(([id, label]) => (
-              <button
-                key={id}
-                aria-current={section === id ? "page" : undefined}
-                onClick={() => {
-                  setSection(id);
-                  location.hash = id;
-                  setNotice("");
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          {query &&
-            !sections.some(([, label]) =>
-              label.toLowerCase().includes(query.toLowerCase()),
-            ) && <p className="ls-search-empty">没有匹配的设置</p>}
-        </nav>
         <footer>
           <span>浏览器扩展 / v{browser.runtime.getManifest().version}</span>
           <span>Read together.</span>

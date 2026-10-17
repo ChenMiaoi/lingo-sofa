@@ -169,6 +169,23 @@ test("keeps the popup compact, saves language and opens full settings in a separ
         )
         .toBe(canvas);
     }
+    await settings.getByLabel("搜索设置").fill("缓存");
+    await settings
+      .getByRole("navigation", { name: "设置搜索结果" })
+      .getByRole("button", { name: /本地译文缓存/ })
+      .click();
+    await expect(
+      settings.getByRole("region", { name: "本地译文缓存" }),
+    ).toHaveClass(/ls-search-highlight/);
+    await settings.getByLabel("搜索设置").fill("主题");
+    await settings
+      .getByRole("navigation", { name: "设置搜索结果" })
+      .getByRole("button", { name: /颜色主题/ })
+      .click();
+    await expect(settings.getByLabel("颜色主题")).toBeVisible();
+    await settings.getByLabel("搜索设置").fill("不存在的设置");
+    await expect(settings.getByText("没有匹配的设置")).toBeVisible();
+    await settings.getByLabel("搜索设置").fill("");
     await popup.reload();
     await expect(popup.getByLabel("目标语言")).toHaveValue("日本語");
   } finally {

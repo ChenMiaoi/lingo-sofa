@@ -348,3 +348,15 @@
   min-height: 28px;
   font-size: 12px;
 }
+
+.ls-search-highlight {
+  outline: 2px solid var(--ls-accent);
+  outline-offset: 4px;
+  scroll-margin: 24px;
+}
+.ls-product-sidebar nav button small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ls-muted);
+  font-size: 12px;
+}
