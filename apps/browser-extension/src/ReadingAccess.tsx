@@ -2,7 +2,15 @@ import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import { readingOrigins } from "./site-access.js";
 
-export function ReadingAccess({ compact = false }: { compact?: boolean }) {
+export function ReadingAccess({
+  compact = false,
+  detailed = true,
+}: {
+  compact?: boolean;
+  detailed?: boolean;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  const [expanded, setExpanded] = useState(detailed);
   const [needed, setNeeded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,12 +41,32 @@ export function ReadingAccess({ compact = false }: { compact?: boolean }) {
         让悬浮球自动显示 ↗
       </a>
     );
+  if (dismissed)
+    return (
+      <button
+        className="reading-access-restore"
+        onClick={() => setDismissed(false)}
+      >
+        设置网页悬浮球
+      </button>
+    );
   return (
-    <section className="permission-card" aria-label="网页悬浮入口授权">
-      <h2>让悬浮球自动出现在网页上</h2>
-      <p className="muted">
-        首次允许网页访问后，打开网页即可使用悬浮入口。显示入口不会发送正文；自动翻译由你在各网站的悬浮面板中开启。
-      </p>
+    <section
+      className={
+        expanded ? "permission-card" : "permission-card permission-banner"
+      }
+      aria-label="网页悬浮入口授权"
+    >
+      {expanded ? (
+        <h2>让悬浮球自动出现在网页上</h2>
+      ) : (
+        <strong>随时在网页上打开翻译与问答</strong>
+      )}
+      {expanded && (
+        <p className="muted">
+          首次允许网页访问后，打开网页即可使用悬浮入口。显示入口不会发送正文；自动翻译由你在各网站的悬浮面板中开启。
+        </p>
+      )}
       <button
         className="primary"
         disabled={busy}
@@ -73,6 +101,12 @@ export function ReadingAccess({ compact = false }: { compact?: boolean }) {
       >
         启用网页悬浮球
       </button>
+      {!expanded && <button onClick={() => setExpanded(true)}>了解权限</button>}
+      {!detailed && (
+        <button disabled={busy} onClick={() => setDismissed(true)}>
+          稍后
+        </button>
+      )}
       {error && <p role="alert">{error}</p>}
     </section>
   );

@@ -228,7 +228,11 @@ function ProductSettings({
         </footer>
       </aside>
       <div className="ls-product-content" ref={content}>
-        <ReadingAccess />
+        <ReadingAccess
+          detailed={
+            new URLSearchParams(location.search).get("setup") === "reading"
+          }
+        />
         {ready && mode === "bridge" && (
           <AssistantSetup onConnected={connected} />
         )}

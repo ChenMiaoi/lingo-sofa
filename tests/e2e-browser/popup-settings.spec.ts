@@ -102,6 +102,19 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await expect(
       settings.getByRole("heading", { name: "翻译偏好", exact: true }),
     ).toBeVisible();
+    await expect(
+      settings.getByRole("button", { name: "稍后", exact: true }),
+    ).toBeVisible();
+    await settings.getByRole("button", { name: "稍后", exact: true }).click();
+    await expect(
+      settings.getByRole("region", { name: "网页悬浮入口授权" }),
+    ).toHaveCount(0);
+    await settings
+      .getByRole("button", { name: "设置网页悬浮球", exact: true })
+      .click();
+    await expect(
+      settings.getByRole("button", { name: "启用网页悬浮球" }),
+    ).toBeVisible();
     await settings.setViewportSize({ width: 1440, height: 1000 });
     await expect(
       settings.getByRole("navigation", { name: "设置导航" }),
