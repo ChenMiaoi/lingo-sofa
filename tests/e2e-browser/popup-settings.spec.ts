@@ -127,6 +127,9 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await expect(settings.getByRole("status")).toHaveText("所有更改已保存");
     await settings.reload();
     await expect(settings.getByLabel("目标语言")).toHaveValue("日本語");
+    await expect(settings.getByLabel("双语效果预览")).toContainText(
+      "少しの文脈",
+    );
     for (const colorScheme of ["light", "dark"] as const) {
       await settings.emulateMedia({ colorScheme });
       const layout = await settings.locator("main").evaluate((node) => ({
@@ -169,6 +172,25 @@ test("keeps the popup compact, saves language and opens full settings in a separ
         )
         .toBe(canvas);
     }
+    await settings.evaluate(() => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const original = api.storage.local.set.bind(api.storage.local);
+      let fail = true;
+      api.storage.local.set = async (values) => {
+        if ("uiTheme" in values && fail) {
+          fail = false;
+          throw new Error("fixture storage failure");
+        }
+        return original(values);
+      };
+    });
+    await settings.getByLabel("颜色主题").selectOption("light");
+    await expect(settings.getByRole("alert")).toContainText("外观保存失败");
+    await expect(settings.getByLabel("颜色主题")).toHaveValue("system");
+    await settings.getByLabel("颜色主题").selectOption("light");
+    await expect(settings.getByRole("alert")).toHaveCount(0);
+    await expect(settings.getByRole("status")).toContainText("外观已保存");
     await settings.getByLabel("搜索设置").fill("缓存");
     await settings
       .getByRole("navigation", { name: "设置搜索结果" })

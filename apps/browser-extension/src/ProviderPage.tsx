@@ -15,6 +15,7 @@ import { ActivityPage } from "./ActivityPage.js";
 import { GlossaryPage } from "./GlossaryPage.js";
 import { TranslationCachePreferences } from "./TranslationCachePreferences.js";
 import "./activity.css";
+import { BilingualPreview } from "./BilingualPreview.js";
 import { SettingsNavigation, sections } from "./SettingsNavigation.js";
 const AISettings = createAISettings(() => React);
 const ProviderEditor = createProviderEditor(() => React);
@@ -126,7 +127,8 @@ function ProductSettings({
   useEffect(() => {
     void browser.storage.local
       .get("uiTheme")
-      .then((value) => setTheme(colorTheme(value.uiTheme)));
+      .then((value) => setTheme(colorTheme(value.uiTheme)))
+      .catch(() => setFailure("无法读取外观设置，请重试"));
     const changed = (
       changes: Record<string, { newValue?: unknown }>,
       area: string,
@@ -331,12 +333,9 @@ function ProductSettings({
                     <span className="ls-readonly-value">双语 · 译文在下</span>,
                   )}
                 </div>
-                <div className="ls-bilingual-preview">
-                  <span className="ls-status-chip">效果预览</span>
-                  <p>A little context goes a long way.</p>
-                  <p>一点上下文，就能带来很大的帮助。</p>
-                  <small>原文不会被替换，译文保持在同一阅读位置。</small>
-                </div>
+                <BilingualPreview
+                  language={settings?.targetLanguage ?? "简体中文"}
+                />
                 <div className="ls-design-card">
                   <h2>网站规则</h2>
                   <p>在网页的 LingoSofa 面板中，可为当前网站开启自动翻译。</p>
@@ -382,13 +381,20 @@ function ProductSettings({
                   <select
                     aria-label="颜色主题"
                     value={theme}
+                    disabled={busy}
                     onChange={(event) => {
                       const next = event.target.value as typeof theme;
-                      setTheme(next);
+                      setBusy(true);
+                      setFailure("");
+                      setNotice("");
                       void browser.storage.local
                         .set({ uiTheme: next })
-                        .then(() => setNotice("外观已保存"))
-                        .catch(() => setFailure("外观保存失败，请重试"));
+                        .then(() => {
+                          setTheme(next);
+                          setNotice("外观已保存");
+                        })
+                        .catch(() => setFailure("外观保存失败，请重试"))
+                        .finally(() => setBusy(false));
                     }}
                   >
                     <option value="system">跟随系统</option>
