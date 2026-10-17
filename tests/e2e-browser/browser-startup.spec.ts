@@ -3,6 +3,7 @@ import { mkdtemp, cp, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { Settings } from "@lingo-sofa/protocol";
 
 test.skip(
   process.platform === "win32",
@@ -73,13 +74,37 @@ test("registers profile startup and bootstraps native with reading disabled", as
         ).chrome.runtime.onStartup.hasListeners(),
       ),
     ).toBe(true);
-    await worker.evaluate(() =>
-      (
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${id}/popup.html`);
+    // Wait for initialization before changing modes, so migration cannot
+    // overwrite the explicit shared-assistant setting.
+    const settings = await page.evaluate(async () => {
+      const api = (
         globalThis as typeof globalThis & {
           chrome: typeof import("wxt/browser").browser;
         }
-      ).chrome.storage.local.set({ readingEnabled: false }),
+      ).chrome;
+      const state = await api.runtime.sendMessage({
+        action: "state",
+        localOnly: true,
+      });
+      return state.settings as Settings;
+    });
+    expect(settings.mode).toBe("direct");
+    expect(await readFile(marker, "utf8").catch(() => "")).toBe("");
+    await worker.evaluate(
+      (settings) =>
+        (
+          globalThis as typeof globalThis & {
+            chrome: typeof import("wxt/browser").browser;
+          }
+        ).chrome.storage.local.set({
+          readingEnabled: false,
+          settings: { ...settings, mode: "bridge" },
+        }),
+      settings,
     );
+    await page.close();
     await expect
       .poll(async () => readFile(marker, "utf8").catch(() => ""))
       .toContain("started");
