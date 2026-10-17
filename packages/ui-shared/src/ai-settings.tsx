@@ -414,7 +414,8 @@ export function createAISettings(getReact: () => HostReact) {
           </div>
         )}
         {section !== "translation" && (
-          <div className="ls-design-card">
+          <details className="ls-design-card ls-capability-details">
+            <summary>上下文与权限说明</summary>
             <div className="ls-setting-row">
               <div>
                 <strong>默认上下文</strong>
@@ -429,7 +430,7 @@ export function createAISettings(getReact: () => HostReact) {
               </div>
               <span className="ls-readonly-value">未启用工具操作</span>
             </div>
-          </div>
+          </details>
         )}
         {!embedded && (
           <button

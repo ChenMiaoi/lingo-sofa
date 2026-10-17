@@ -148,6 +148,12 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
       .getByRole("navigation", { name: "设置导航" })
       .getByRole("button", { name: "问答设置", exact: true })
       .click();
+    await page.getByText("上下文与权限说明", { exact: true }).click();
+    await expect(page.getByText("仅所选文本", { exact: true })).toBeVisible();
+    await page.getByText("上下文与权限说明", { exact: true }).click();
+    await expect(
+      page.getByText("仅所选文本", { exact: true }),
+    ).not.toBeVisible();
     await expect(
       page.getByLabel("Ask 默认模型", { exact: true }),
     ).toBeVisible();

@@ -391,3 +391,8 @@
     flex-direction: column;
   }
 }
+
+.ls-product-content > .ls-design-heading,
+.ls-product-content > .permission-banner {
+  margin-inline: auto;
+}
