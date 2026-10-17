@@ -360,3 +360,34 @@
   color: var(--ls-muted);
   font-size: 12px;
 }
+
+.ls-product-content > * {
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+  flex-shrink: 0;
+}
+.ls-product-content.ls-content-wide > * {
+  max-width: 1440px;
+}
+.ls-product-content .reading-access-restore {
+  width: auto;
+  margin-left: 0;
+}
+.ls-product-settings .ls-design-card p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+@media (max-width: 700px) {
+  .ls-product-sidebar nav[aria-label="设置导航"] {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 4px;
+  }
+  .ls-product-sidebar nav[aria-label="设置导航"] button {
+    flex-shrink: 0;
+  }
+  .ls-product-sidebar nav[aria-label="设置搜索结果"] {
+    flex-direction: column;
+  }
+}

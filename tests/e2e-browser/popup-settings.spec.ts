@@ -137,6 +137,11 @@ test("keeps the popup compact, saves language and opens full settings in a separ
         height: node.getBoundingClientRect().height,
       }));
       expect(layout.width).toBe(1440);
+      expect(
+        await settings
+          .locator(".ls-bilingual-preview")
+          .evaluate((node) => node.getBoundingClientRect().width),
+      ).toBeLessThanOrEqual(960);
       expect(layout.height).toBe(1000);
       await settings.screenshot({
         path: `.cache/ui/settings-web-${colorScheme}.png`,
