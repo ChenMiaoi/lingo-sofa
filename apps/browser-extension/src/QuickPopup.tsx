@@ -54,30 +54,54 @@ export function QuickPopup() {
     }
   }
   async function command(value: string) {
-    // Start optional network authorization within the originating toolbar click.
-    const permission =
+    const startsReader = [
+      "page",
+      "selection",
+      "ask-selection",
+      "controls",
+    ].includes(value);
+    const site =
+      startsReader && pageStatus?.origin ? `${pageStatus.origin}/*` : undefined;
+    const service =
       settings?.mode === "direct" &&
       engine &&
       engine !== "llm" &&
       ["page", "selection", "controls"].includes(value)
-        ? browser.permissions.request({
-            origins: [webTranslationOrigins[engine]],
-          })
-        : Promise.resolve(true);
+        ? webTranslationOrigins[engine]
+        : undefined;
+    const origins = [
+      ...new Set(
+        [site, service].filter((origin): origin is string => Boolean(origin)),
+      ),
+    ];
+    // activeTab lasts only for this visit. Request persistent access to this
+    // site in the toolbar click so its reader can return after browser restart.
+    const permission = origins.length
+      ? browser.permissions.request({ origins })
+      : Promise.resolve(true);
     await act(async () => {
-      if (!(await permission))
+      const granted = await permission;
+      if (
+        !granted &&
+        service &&
+        !(await browser.permissions.contains({ origins: [service] }))
+      )
         throw new Error("需要允许访问所选翻译服务，才能开始翻译");
+      if (site && granted) await request({ action: "reading-access-sync" });
       await request({ action: "page", command: value });
       void request({ action: "page-status" })
         .then(setPageStatus)
         .catch(() => undefined);
-      setNotice(
-        value === "stop"
-          ? "已恢复原页面"
-          : value === "page" || value === "selection"
-            ? "翻译已开始，可在网页中查看"
-            : "已在网页中打开",
-      );
+      let message = "已在网页中打开";
+      if (value === "stop") message = "已恢复原页面";
+      else if (value === "page" || value === "selection")
+        message = "翻译已开始，可在网页中查看";
+      else if (value === "controls" && site && granted)
+        message = "已在此网站启用悬浮球，重开浏览器后自动显示";
+      if (site && !granted)
+        message +=
+          "；本次为临时启用，允许此网站访问后可在重开浏览器时自动显示悬浮球";
+      setNotice(message);
     });
   }
   return (
@@ -165,6 +189,7 @@ export function QuickPopup() {
         </button>
         <button
           disabled={busy || !pageStatus?.supported}
+          title="首次允许此网站访问后，重开浏览器也会自动显示悬浮球"
           onClick={() => void command("controls")}
         >
           显示网页悬浮球

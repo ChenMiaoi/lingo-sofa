@@ -70,7 +70,9 @@ test("keeps the popup compact, saves language and opens full settings in a separ
         .screenshot({ path: `.cache/ui/quick-popup-${colorScheme}.png` });
     }
     const setupOpened = context.waitForEvent("page");
-    await popup.getByRole("link", { name: "让悬浮球自动显示 ↗" }).click();
+    await popup
+      .getByRole("link", { name: "在所有网站自动显示悬浮球 ↗" })
+      .click();
     const setup = await setupOpened;
     await setup.waitForURL(
       `chrome-extension://${id}/options.html?setup=reading`,

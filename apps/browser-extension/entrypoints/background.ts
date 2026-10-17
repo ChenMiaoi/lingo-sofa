@@ -1149,6 +1149,7 @@ export default defineBackground(() => {
         });
         if (!tab?.id || !tab.url || !/^https?:/.test(tab.url))
           return { supported: false };
+        const url = new URL(tab.url);
         const status = await browser.tabs
           .sendMessage(tab.id, { action: "page-status" })
           .catch(() => undefined);
@@ -1156,7 +1157,8 @@ export default defineBackground(() => {
           return {
             ...status,
             supported: true,
-            hostname: new URL(tab.url).hostname,
+            origin: url.origin,
+            hostname: url.hostname,
           };
         // Read only availability. Opening the popup never starts the reader or sends page text.
         const probe = await browser.scripting
@@ -1181,7 +1183,8 @@ export default defineBackground(() => {
         return {
           ...probe[0]?.result,
           supported: true,
-          hostname: new URL(tab.url).hostname,
+          origin: url.origin,
+          hostname: url.hostname,
           readingEnabled: stored.readingEnabled !== false,
         };
       }

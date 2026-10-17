@@ -1,5 +1,6 @@
 export interface PageStatus {
   supported: boolean;
+  origin?: string;
   hostname?: string;
   hasSelection?: boolean;
   translated?: boolean;

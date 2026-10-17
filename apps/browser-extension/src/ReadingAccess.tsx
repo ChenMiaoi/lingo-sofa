@@ -50,7 +50,7 @@ export function ReadingAccess({
         target="_blank"
         rel="noreferrer"
       >
-        让悬浮球自动显示 ↗
+        在所有网站自动显示悬浮球 ↗
       </a>
     );
   if (dismissed === undefined) return null;
