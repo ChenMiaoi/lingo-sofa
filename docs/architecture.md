@@ -16,7 +16,7 @@ translation-core  → protocol / glossary
 
 共享核心不导入 DOM、Discord、浏览器或 Node 专属实现。宿主提供模型客户端、凭证、持久化检查点与统计回调。`web-extraction` 只处理网页 DOM；Discord 使用自身消息状态和宿主 React，不捆绑另一份 React。
 
-v0.1.8 起，翻译引擎与 Ask 模型独立配置。`provider-web` 通过宿主注入的网络接口接入必应和谷歌免 Key 翻译，复用共享队列、缓存和结果协议，不创建模型会话。无模型凭证时默认使用必应；已有模型配置与手动选择会保留。配置迁移、权限及计量边界见 [翻译引擎](translation-engines.md)。
+v0.1.9 起，翻译引擎与 Ask 模型独立配置。`provider-web` 通过宿主注入的网络接口接入必应和谷歌免 Key 翻译，复用共享队列、缓存和结果协议，不创建模型会话。无模型凭证时默认使用必应；已有模型配置与手动选择会保留。配置迁移、权限及计量边界见 [翻译引擎](translation-engines.md)。
 
 ## 网页生命周期
 
