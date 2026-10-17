@@ -84,7 +84,8 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
         const original = api.runtime.sendMessage.bind(api.runtime);
         api.runtime.sendMessage = ((message: {
           action: string;
-          settings: typeof settings;
+          settings?: typeof settings;
+          patch?: Partial<typeof settings>;
           historyQuery?: unknown;
         }) => {
           if (message.action === "state" && message.historyQuery)
@@ -110,8 +111,10 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
                 ok: false,
                 error: "Fixture save failure",
               });
-            saved = message.settings;
-            return Promise.resolve({ ok: true });
+            saved = message.patch
+              ? { ...saved, ...message.patch }
+              : (message.settings ?? saved);
+            return Promise.resolve({ ok: true, settings: saved });
           }
           if (message.action === "fixture-many") {
             usage = Array.from({ length: 123 }, (_, index) => ({

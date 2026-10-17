@@ -100,7 +100,7 @@ createRoot(document.getElementById("root")).render(<section className="ls-produc
           }));
           builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
             contents:
-              "export const browser={runtime:{sendMessage:async()=>({ok:true,preferences:{enabled:true,days:7}})}};",
+              "export const browser={runtime:{sendMessage:async()=>({ok:true,preferences:{enabled:true,days:7}})},storage:{onChanged:{addListener(){},removeListener(){}}}};",
           }));
         },
       },

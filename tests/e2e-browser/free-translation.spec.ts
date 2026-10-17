@@ -95,7 +95,10 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
     ).toContainText(live ? /你好|您好/u : "谷歌测试译文");
     await expect(
       article.locator('[data-lingo-sofa="translation"]'),
-    ).toContainText("免 Key 翻译");
+    ).toHaveAttribute("title", /免 Key 翻译/u);
+    await expect(
+      article.locator('[data-lingo-sofa="translation"]'),
+    ).not.toContainText("免 Key 翻译");
     const before = await page.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;

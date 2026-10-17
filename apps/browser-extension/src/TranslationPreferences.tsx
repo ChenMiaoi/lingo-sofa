@@ -80,13 +80,7 @@ export function TranslationPreferences({
               <button
                 key={origin}
                 disabled={busy}
-                onClick={() =>
-                  void update({
-                    autoOrigins: settings.autoOrigins.filter(
-                      (value) => value !== origin,
-                    ),
-                  })
-                }
+                onClick={() => void preferences.disableSite(origin)}
               >
                 关闭自动翻译
               </button>,

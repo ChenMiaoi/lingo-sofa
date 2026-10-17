@@ -219,6 +219,40 @@ ${themeStyles(":host")}
     if (!value) paragraph.hidden = true;
   }
   const language = shadow.querySelector<HTMLSelectElement>(".language")!;
+  let savedLanguage = "简体中文";
+  let savedAutomatic = false;
+  let preferenceRevision = 0;
+  let configurationRequest = 0;
+  let preferenceChanges = 0;
+  let refreshQueued = false;
+  function refreshPreferences() {
+    configurationRequest++;
+    if (refreshQueued) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      if (!preferenceChanges && !panel.hidden && panel !== usage.panel)
+        toggle(true, false);
+    });
+  }
+  function beginPreferenceChange() {
+    preferenceChanges++;
+    preferenceRevision++;
+    configurationRequest++;
+  }
+  function finishPreferenceChange() {
+    preferenceChanges--;
+    refreshPreferences();
+  }
+  function setLanguage(value: string) {
+    savedLanguage = value;
+    if (![...language.options].some((option) => option.value === value)) {
+      const option = document.createElement("option");
+      option.textContent = value;
+      language.append(option);
+    }
+    language.value = value;
+  }
   for (const name of [
     "简体中文",
     "繁體中文",
@@ -303,12 +337,15 @@ ${themeStyles(":host")}
     panel.style.top = below ? "54px" : "auto";
     panel.style.bottom = below ? "auto" : "54px";
   }
-  function toggle(open: boolean) {
+  function toggle(open: boolean, clearNotice = true) {
+    if (!open) configurationRequest++;
     panel.hidden = !open;
     launcher.setAttribute("aria-expanded", String(open));
     floating.setOpen(open);
     usage.setVisible(open && panel === usage.panel);
     if (open) {
+      const request = ++configurationRequest;
+      const revision = preferenceRevision;
       const selected = Boolean(document.getSelection()?.toString().trim());
       menuButtons[0]!.disabled = !readingEnabled || !selected;
       menuButtons[1]!.disabled = !readingEnabled || pageBusy;
@@ -322,7 +359,7 @@ ${themeStyles(":host")}
       void actions
         .configuration()
         .then((info) => {
-          if (!host.isConnected) return;
+          if (!host.isConnected || request !== configurationRequest) return;
           model.replaceChildren();
           for (const id of [...new Set([info.model, ...info.models])]) {
             const option = document.createElement("option");
@@ -344,14 +381,18 @@ ${themeStyles(":host")}
             heading.textContent = info.model.startsWith("engine:")
               ? "翻译引擎"
               : "模型";
-          automatic.checked = info.automatic;
-          language.value = info.targetLanguage;
+          if (revision === preferenceRevision) {
+            savedAutomatic = automatic.checked = info.automatic;
+            setLanguage(info.targetLanguage);
+            setEnabled(info.readingEnabled);
+          }
           shadow.querySelector<HTMLElement>(".provider")!.textContent =
             info.providerName;
-          setEnabled(info.readingEnabled);
-          notice.textContent = "";
+          model.disabled = !readingEnabled;
+          if (clearNotice) notice.textContent = "";
         })
         .catch(() => {
+          if (!host.isConnected || request !== configurationRequest) return;
           notice.textContent = "模型连接不可用，请检查扩展的供应商设置。";
         });
     }
@@ -369,6 +410,7 @@ ${themeStyles(":host")}
     launcher.focus();
   };
   model.addEventListener("change", () => {
+    beginPreferenceChange();
     model.disabled = true;
     void actions
       .model(model.value)
@@ -377,18 +419,14 @@ ${themeStyles(":host")}
       })
       .catch(() => {
         notice.textContent = "切换失败，请等当前翻译完成后重试。";
-        void actions
-          .configuration()
-          .then((info) => {
-            model.value = info.model;
-          })
-          .catch(() => undefined);
       })
       .finally(() => {
         model.disabled = !readingEnabled;
+        finishPreferenceChange();
       });
   });
   reading.addEventListener("change", () => {
+    beginPreferenceChange();
     const value = reading.checked;
     reading.disabled = true;
     void actions
@@ -405,20 +443,24 @@ ${themeStyles(":host")}
       })
       .finally(() => {
         reading.disabled = false;
+        finishPreferenceChange();
       });
   });
   automatic.addEventListener("change", () => {
+    beginPreferenceChange();
+    const revision = preferenceRevision;
     const enabled = automatic.checked;
     automatic.disabled = true;
     void actions
       .automatic(enabled)
       .then(() => {
+        if (revision === preferenceRevision) savedAutomatic = enabled;
         notice.textContent = enabled
           ? "自动翻译已开启"
           : "自动翻译已暂停，已有译文保留";
       })
       .catch((reason: unknown) => {
-        automatic.checked = !enabled;
+        automatic.checked = savedAutomatic;
         notice.textContent =
           reason instanceof Error
             ? reason.message
@@ -426,19 +468,27 @@ ${themeStyles(":host")}
       })
       .finally(() => {
         automatic.disabled = !readingEnabled;
+        finishPreferenceChange();
       });
   });
   language.addEventListener("change", () => {
+    beginPreferenceChange();
+    const revision = preferenceRevision;
     const value = language.value;
     language.disabled = true;
     void actions
       .language(value)
+      .then(() => {
+        if (revision === preferenceRevision) setLanguage(value);
+      })
       .catch((error: unknown) => {
+        language.value = savedLanguage;
         notice.textContent =
           error instanceof Error ? error.message : "语言更新失败";
       })
       .finally(() => {
         language.disabled = !readingEnabled;
+        finishPreferenceChange();
       });
   });
   paragraph.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -554,17 +604,20 @@ ${themeStyles(":host")}
             : `已完成 ${next.completed} / ${next.total} 段${next.pending ? ` · 处理中 ${next.pending} 段` : ""}${next.failed ? ` · 失败 ${next.failed} 段${next.error ? `：${next.error}` : ""}。可悬停段落重试。` : next.completed < next.total && !pageBusy && !next.paused ? " · 滚动页面后继续翻译" : ""}`;
       launcher.title = `${taskTitle.textContent} · Alt L 查看详情`;
     },
-    setEnabled,
+    setEnabled(value: boolean) {
+      preferenceRevision++;
+      setEnabled(value);
+      refreshPreferences();
+    },
     setLanguage(value: string) {
-      if (![...language.options].some((option) => option.value === value)) {
-        const option = document.createElement("option");
-        option.textContent = value;
-        language.append(option);
-      }
-      language.value = value;
+      preferenceRevision++;
+      setLanguage(value);
+      refreshPreferences();
     },
     setAutomatic(value: boolean) {
-      automatic.checked = value;
+      preferenceRevision++;
+      savedAutomatic = automatic.checked = value;
+      refreshPreferences();
     },
     setNotice(value: string) {
       notice.textContent = value;

@@ -127,13 +127,11 @@ export function QuickPopup() {
           onChange={(event) => {
             const targetLanguage = event.target.value;
             void act(async () => {
-              const current = await request({
-                action: "state",
-                localOnly: true,
+              const reply = await request({
+                action: "save",
+                patch: { targetLanguage },
               });
-              const next = { ...current.settings, targetLanguage };
-              await request({ action: "save", settings: next });
-              setSettings(next);
+              setSettings(reply.settings);
               setNotice("目标语言已保存");
             });
           }}

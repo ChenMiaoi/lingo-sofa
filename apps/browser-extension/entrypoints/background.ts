@@ -21,7 +21,6 @@ import {
   replySchema,
   requestSchema,
   settingsSchema,
-  usageRecordSchema,
   type UsageRecord,
   type Request,
   type Reply,
@@ -33,7 +32,7 @@ import {
   createWebTranslator,
   webTranslationOrigins,
 } from "@lingo-sofa/provider-web";
-import { readSettings, records } from "../src/storage.js";
+import { readSettings, records, mergeSettingsPatch } from "../src/storage.js";
 import { UsageStorage } from "../src/usage-storage.js";
 import { runDataCleanup } from "../src/data-cleanup.js";
 
@@ -52,8 +51,20 @@ import {
   cachePreferences,
 } from "../src/translation-cache.js";
 
+function serialUpdates() {
+  let pending: Promise<unknown> = Promise.resolve();
+  return <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = pending.then(operation);
+    pending = result.catch(() => undefined);
+    return result;
+  };
+}
+
 export default defineBackground(() => {
   const native = new NativeConnection();
+  const updateSettings = serialUpdates();
+  const updateFloating = serialUpdates();
+  const updateCache = serialUpdates();
   const usageStorage = new UsageStorage(browser.storage, readSettings);
   const translationCache = new LocalTranslationCache({
     read: async () =>
@@ -73,7 +84,8 @@ export default defineBackground(() => {
     void syncReadingAccess().catch(() => undefined);
   });
   browser.permissions.onRemoved.addListener(() => {
-    void (async () => {
+    void updateSettings(async () => {
+      await ready;
       await cancelTransports((origin) =>
         browser.permissions.contains({ origins: [`${origin}/*`] }),
       );
@@ -96,7 +108,7 @@ export default defineBackground(() => {
             .sendMessage(tab.id, { action: "disable" })
             .catch(() => undefined);
       }
-    })().catch(() => undefined);
+    }).catch(() => undefined);
   });
   // Register synchronously so Chrome wakes this worker on profile startup,
   // even when no extension UI or authorized page is open.
@@ -132,8 +144,7 @@ export default defineBackground(() => {
     if (settings.data.mode === "bridge") native.start();
     else native.stop();
   });
-  const inFlight = new Map<string, UsageRecord>();
-  const service = new TranslationService({
+  const service: TranslationService = new TranslationService({
     translator: (settings) =>
       createWebTranslator(
         settings.translationEngine === "google" ? "google" : "bing",
@@ -151,10 +162,7 @@ export default defineBackground(() => {
           return fetch(url, init);
         },
       ),
-    onFinish: async (id) => {
-      inFlight.delete(id);
-      await browser.storage.session.set({ inFlight: [...inFlight.values()] });
-    },
+    onFinish: (id) => usageStorage.finish(id, () => service.ledger.list()),
     client: async (settings, onMetrics) => {
       const key = await directKey(settings, settings.model);
       if (!key) throw new Error("请在设置中填写本次浏览器会话使用的 API Key");
@@ -164,16 +172,11 @@ export default defineBackground(() => {
         throw new Error("缺少模型端点访问权限，请在设置中授权");
       return createPiClient(settings.model, key, undefined, onMetrics);
     },
-    onBegin: async (record) => {
-      inFlight.set(record.requestId, record);
-      await browser.storage.session.set({ inFlight: [...inFlight.values()] });
-    },
-    onRecords: async (usage) => {
-      for (const record of usage) inFlight.delete(record.requestId);
+    onBegin: (record) => usageStorage.begin(record),
+    onRecords: async () => {
       const settings = await readSettings();
       service.ledger.prune(Date.now(), settings.retentionDays);
       await usageStorage.write(() => service.ledger.list());
-      await browser.storage.session.set({ inFlight: [...inFlight.values()] });
     },
   });
   const ready = (async () => {
@@ -198,23 +201,17 @@ export default defineBackground(() => {
     if (settings.mode === "bridge") native.start();
     await syncReadingAccess();
     const saved = await records(settings);
-    const pending = await browser.storage.session.get("inFlight");
+    const pending = await usageStorage.readPending();
     service.ledger.restore([
       ...saved,
-      ...(Array.isArray(pending.inFlight)
-        ? usageRecordSchema
-            .array()
-            .parse(pending.inFlight)
-            .filter(
-              (record) =>
-                !saved.some((final) => final.requestId === record.requestId),
-            )
-        : []),
+      ...pending.filter(
+        (record) =>
+          !saved.some((final) => final.requestId === record.requestId),
+      ),
     ]);
-    inFlight.clear();
     service.ledger.prune(Date.now(), settings.retentionDays);
     await usageStorage.write(() => service.ledger.list());
-    await browser.storage.session.set({ inFlight: [] });
+    await usageStorage.clearPending();
   })();
   const trustedUI = (sender: Browser.runtime.MessageSender) =>
     sender.id === browser.runtime.id &&
@@ -392,7 +389,7 @@ export default defineBackground(() => {
   }
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
     const permission = automaticPermission(message, sender);
-    return (async (): Promise<unknown> => {
+    const handle = async (): Promise<unknown> => {
       await ready;
       if (!message || typeof message !== "object")
         throw new Error("Invalid message");
@@ -444,6 +441,9 @@ export default defineBackground(() => {
         targets?: unknown;
         section?: unknown;
         settings?: unknown;
+        patch?: unknown;
+        expectedGlossary?: unknown;
+        origin?: unknown;
         apiKey?: unknown;
         command?: string;
         tabId?: number;
@@ -693,10 +693,15 @@ export default defineBackground(() => {
         }
         return { ok: true };
       }
-      if (data.action === "page-auto" && topPage) {
+      if (
+        data.action === "page-auto" &&
+        (topPage || (trustedUI(sender) && data.enabled === false))
+      ) {
         if (typeof data.enabled !== "boolean")
           throw new Error("Invalid automatic state");
-        const origin = new URL(sender.url!).origin;
+        const origin = topPage
+          ? new URL(sender.url!).origin
+          : settingsSchema.shape.autoOrigins.parse([data.origin])[0]!;
         if (data.enabled && !(await permission))
           throw new Error("Chrome 未授予此网站访问权限，自动翻译尚未开启。");
         const current = await readSettings();
@@ -715,7 +720,7 @@ export default defineBackground(() => {
                 automatic: data.enabled,
               })
               .catch(() => undefined);
-        return { ok: true };
+        return { ok: true, settings: next };
       }
       if (data.action === "auto-state" && sender.tab && sender.url)
         return {
@@ -984,7 +989,19 @@ export default defineBackground(() => {
         };
       }
       if (data.action === "save") {
-        const next = settingsSchema.parse(data.settings);
+        const next =
+          data.patch === undefined
+            ? settingsSchema.parse(data.settings)
+            : mergeSettingsPatch(settings, data.patch);
+        if (
+          data.expectedGlossary !== undefined &&
+          JSON.stringify(
+            settingsSchema.shape.glossary.parse(data.expectedGlossary),
+          ) !== JSON.stringify(settings.glossary)
+        )
+          throw new Error(
+            "术语表已在其他页面更新，当前草稿已保留。请导出草稿后重新载入再合并。",
+          );
         for (const origin of next.autoOrigins)
           if (
             !(await browser.permissions.contains({ origins: [`${origin}/*`] }))
@@ -1053,7 +1070,7 @@ export default defineBackground(() => {
           next,
           typeof data.apiKey === "string" && Boolean(data.apiKey.trim()),
         );
-        return { ok: true };
+        return { ok: true, settings: next };
       }
       if (data.action === "clear") {
         const results = await runDataCleanup(
@@ -1098,24 +1115,30 @@ export default defineBackground(() => {
         } | null;
         if (
           !patch ||
-          typeof patch.enabled !== "boolean" ||
-          typeof patch.days !== "number" ||
-          ![1, 7, 30].includes(patch.days)
+          typeof patch !== "object" ||
+          Array.isArray(patch) ||
+          Object.keys(patch).some(
+            (key) => !["enabled", "days"].includes(key),
+          ) ||
+          ("enabled" in patch && typeof patch.enabled !== "boolean") ||
+          ("days" in patch &&
+            (typeof patch.days !== "number" ||
+              ![1, 7, 30].includes(patch.days)))
         )
           throw new Error("Invalid translation cache preferences");
         const previous = cachePreferences(
           (await browser.storage.local.get("translationCachePreferences"))
             .translationCachePreferences,
         );
+        const next = { ...previous, ...patch } as typeof previous;
+        if (next.enabled === previous.enabled && next.days === previous.days)
+          return { ok: true, preferences: next };
         await translationCache.prune(previous.days);
         await translationCache.clear();
         await browser.storage.local.set({
-          translationCachePreferences: {
-            enabled: patch.enabled,
-            days: patch.days,
-          },
+          translationCachePreferences: next,
         });
-        return { ok: true };
+        return { ok: true, preferences: next };
       }
       if (data.action === "translation-cache-clear") {
         await translationCache.clear();
@@ -1282,7 +1305,29 @@ export default defineBackground(() => {
         return balance;
       }
       throw new Error("Unsupported action");
-    })().catch((error: unknown) => ({
+    };
+    const action =
+      message && typeof message === "object" && "action" in message
+        ? message.action
+        : undefined;
+    const result =
+      action === "floating-preferences-update"
+        ? updateFloating(handle)
+        : ["translation-cache-update", "translation-cache-clear"].includes(
+              String(action),
+            )
+          ? updateCache(handle)
+          : [
+                "save",
+                "page-auto",
+                "page-language",
+                "page-model",
+                "provider-update",
+                "forget-key",
+              ].includes(String(action))
+            ? updateSettings(handle)
+            : handle();
+    return result.catch((error: unknown) => ({
       ok: false,
       error: error instanceof Error ? error.message : "操作失败",
     }));

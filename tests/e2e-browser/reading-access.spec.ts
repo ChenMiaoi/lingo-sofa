@@ -109,4 +109,21 @@ createRoot(document.getElementById("root")).render(React.createElement(ReadingAc
     page.getByRole("button", { name: "启用网页悬浮球" }),
   ).toBeVisible();
   expect((await access()).requests).toHaveLength(2);
+  await page.evaluate(async () => {
+    const fixture = window as unknown as {
+      browser: { permissions: { contains: () => Promise<boolean> } };
+      permissionListeners: { added: Set<() => void>; removed: Set<() => void> };
+    };
+    const pending: ((value: boolean) => void)[] = [];
+    fixture.browser.permissions.contains = () =>
+      new Promise((resolve) => pending.push(resolve));
+    for (const listener of fixture.permissionListeners.added) listener();
+    for (const listener of fixture.permissionListeners.removed) listener();
+    pending[1]!(false);
+    pending[0]!(true);
+    await new Promise(requestAnimationFrame);
+  });
+  await expect(
+    page.getByRole("button", { name: "启用网页悬浮球" }),
+  ).toBeVisible();
 });

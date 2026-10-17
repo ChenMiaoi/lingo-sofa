@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { browser } from "wxt/browser";
 import { importGlossary, exportGlossary } from "./glossary-files.js";
-import { settingsSchema } from "@lingo-sofa/protocol";
+import { settingsSchema, type Settings } from "@lingo-sofa/protocol";
 
 export function GlossaryPage({
   onDirtyChange,
@@ -21,6 +21,12 @@ export function GlossaryPage({
   const [focusTarget, setFocusTarget] = useState<string>();
   const inputs = useRef(new Map<string, HTMLInputElement>());
   const fileInput = useRef<HTMLInputElement>(null);
+  const savedGlossary = useRef<Settings["glossary"] | undefined>(undefined);
+  const draftDirty = useRef(false);
+  function markDirty(value: boolean) {
+    draftDirty.current = value;
+    setDirty(value);
+  }
   useEffect(() => {
     if (!focusTarget) return;
     const input = inputs.current.get(focusTarget);
@@ -31,18 +37,46 @@ export function GlossaryPage({
     }
   }, [focusTarget, terms, query]);
   useEffect(() => {
+    let active = true;
+    function apply(glossary: Settings["glossary"]) {
+      savedGlossary.current = glossary;
+      setTerms(glossary.map((term) => ({ ...term, id: crypto.randomUUID() })));
+      setReady(true);
+    }
     void browser.runtime
       .sendMessage({ action: "state", localOnly: true })
       .then((reply) => {
         if (reply?.ok === false) throw new Error(reply.error);
-        setTerms(
-          settingsSchema
-            .parse(reply.settings)
-            .glossary.map((term) => ({ ...term, id: crypto.randomUUID() })),
-        );
-        setReady(true);
+        if (active && savedGlossary.current === undefined)
+          apply(settingsSchema.parse(reply.settings).glossary);
       })
-      .catch(() => setError("无法读取术语表，请重新打开此页面。"));
+      .catch(() => {
+        if (active && savedGlossary.current === undefined)
+          setError("无法读取术语表，请重新打开此页面。");
+      });
+    const changed = (
+      changes: Record<string, { newValue?: unknown }>,
+      area: string,
+    ) => {
+      if (area !== "local" || !changes.settings) return;
+      const next = settingsSchema.safeParse(changes.settings.newValue);
+      if (
+        !next.success ||
+        JSON.stringify(savedGlossary.current) ===
+          JSON.stringify(next.data.glossary)
+      )
+        return;
+      if (draftDirty.current)
+        setError(
+          "术语表已在其他页面更新，当前草稿已保留。请导出草稿后重新载入再合并。",
+        );
+      else apply(next.data.glossary);
+    };
+    browser.storage.onChanged.addListener(changed);
+    return () => {
+      active = false;
+      browser.storage.onChanged.removeListener(changed);
+    };
   }, []);
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -55,7 +89,7 @@ export function GlossaryPage({
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [dirty]);
   function changed() {
-    setDirty(true);
+    markDirty(true);
     setNotice("");
     setError("");
     setInvalid(new Set());
@@ -123,24 +157,28 @@ export function GlossaryPage({
             return;
           }
           setBusy(true);
-          // Merge only glossary into the latest settings, retaining model changes elsewhere.
           void browser.runtime
-            .sendMessage({ action: "state", localOnly: true })
-            .then(async (current) => {
-              if (current?.ok === false) throw new Error(current.error);
-              const settings = settingsSchema.parse({
-                ...current.settings,
-                glossary,
-              });
-              const reply = await browser.runtime.sendMessage({
-                action: "save",
-                settings,
-              });
+            .sendMessage({
+              action: "save",
+              patch: { glossary },
+              expectedGlossary: savedGlossary.current,
+            })
+            .then((reply) => {
               if (reply?.ok === false) throw new Error(reply.error);
-              setDirty(false);
+              savedGlossary.current = settingsSchema.parse(
+                reply.settings,
+              ).glossary;
+              markDirty(false);
+              setError("");
               setNotice("术语表已保存，将用于后续翻译。");
             })
-            .catch(() => setError("术语表保存失败，请检查内容后重试。"))
+            .catch((reason: unknown) =>
+              setError(
+                reason instanceof Error
+                  ? `术语表保存失败：${reason.message}`
+                  : "术语表保存失败，请检查内容后重试。",
+              ),
+            )
             .finally(() => setBusy(false));
         }}
       >
@@ -210,7 +248,7 @@ export function GlossaryPage({
                           id: crypto.randomUUID(),
                         })),
                       );
-                      setDirty(true);
+                      markDirty(true);
                       setQuery("");
                       setNotice("已合并到草稿，请检查后保存。");
                     })

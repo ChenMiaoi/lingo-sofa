@@ -7,13 +7,16 @@ import {
 
 export function bindAppearance(target: HTMLElement): () => void {
   let active = true;
+  let changedSinceRead = false;
   const apply = (value: unknown) => {
     if (active) target.dataset.theme = colorTheme(value);
   };
   apply("system");
   void browser.runtime
     .sendMessage({ action: "appearance" })
-    .then((value) => apply(value.uiTheme))
+    .then((value) => {
+      if (!changedSinceRead) apply(value.uiTheme);
+    })
     .catch(() => undefined);
   const notified = (message: unknown) => {
     if (
@@ -21,15 +24,20 @@ export function bindAppearance(target: HTMLElement): () => void {
       typeof message === "object" &&
       "action" in message &&
       message.action === "appearance-changed"
-    )
+    ) {
+      changedSinceRead = true;
       apply((message as { uiTheme?: unknown }).uiTheme);
+    }
   };
   browser.runtime.onMessage.addListener(notified);
   const changed = (
     changes: Record<string, { newValue?: unknown }>,
     area: string,
   ) => {
-    if (area === "local" && changes.uiTheme) apply(changes.uiTheme.newValue);
+    if (area === "local" && changes.uiTheme) {
+      changedSinceRead = true;
+      apply(changes.uiTheme.newValue);
+    }
   };
   browser.storage.onChanged.addListener(changed);
   return () => {

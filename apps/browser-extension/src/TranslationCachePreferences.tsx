@@ -1,32 +1,60 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { browser } from "wxt/browser";
-import type { CachePreferences } from "./translation-cache.js";
+import {
+  cachePreferences,
+  type CachePreferences,
+} from "./translation-cache.js";
 
 export function TranslationCachePreferences() {
   const [preferences, setPreferences] = useState<CachePreferences>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const revision = useRef(0);
   useEffect(() => {
+    let active = true;
+    const initial = revision.current;
     void browser.runtime
       .sendMessage({ action: "translation-cache-state" })
       .then((reply) => {
         if (!reply.ok) throw new Error(reply.error);
-        setPreferences(reply.preferences);
+        if (active && revision.current === initial)
+          setPreferences(cachePreferences(reply.preferences));
       })
-      .catch(() => setError("无法读取译文缓存设置"));
+      .catch(() => {
+        if (active && revision.current === initial)
+          setError("无法读取译文缓存设置");
+      });
+    const changed = (
+      changes: Record<string, { newValue?: unknown }>,
+      area: string,
+    ) => {
+      if (area === "local" && changes.translationCachePreferences) {
+        revision.current++;
+        setPreferences(
+          cachePreferences(changes.translationCachePreferences.newValue),
+        );
+      }
+    };
+    browser.storage.onChanged.addListener(changed);
+    return () => {
+      active = false;
+      browser.storage.onChanged.removeListener(changed);
+    };
   }, []);
-  async function save(next: CachePreferences) {
+  async function save(patch: Partial<CachePreferences>) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
+      const before = revision.current;
       const reply = await browser.runtime.sendMessage({
         action: "translation-cache-update",
-        preferences: next,
+        preferences: patch,
       });
       if (!reply.ok) throw new Error(reply.error);
-      setPreferences(next);
+      if (revision.current === before)
+        setPreferences(cachePreferences(reply.preferences));
       setMessage("缓存设置已保存，旧缓存已清理。");
     } catch {
       setError("缓存设置保存失败，请重试。");
@@ -58,7 +86,6 @@ export function TranslationCachePreferences() {
           value={String(preferences?.enabled ?? true)}
           onChange={(event) =>
             void save({
-              ...preferences!,
               enabled: event.target.value === "true",
             })
           }
@@ -78,9 +105,7 @@ export function TranslationCachePreferences() {
           aria-label="译文保留时长"
           disabled={busy || !preferences?.enabled}
           value={preferences?.days ?? 7}
-          onChange={(event) =>
-            void save({ ...preferences!, days: Number(event.target.value) })
-          }
+          onChange={(event) => void save({ days: Number(event.target.value) })}
         >
           {[1, 7, 30].map((days) => (
             <option key={days} value={days}>

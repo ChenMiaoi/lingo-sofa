@@ -27,16 +27,23 @@ export function ReadingAccess({
       .catch(() => setDismissed(false));
   }, [compact]);
   useEffect(() => {
+    let revision = 0;
     const refresh = () => {
+      const request = ++revision;
       void browser.permissions
         .contains({ origins: readingOrigins })
-        .then((granted) => setNeeded(!granted))
-        .catch(() => setNeeded(true));
+        .then((granted) => {
+          if (request === revision) setNeeded(!granted);
+        })
+        .catch(() => {
+          if (request === revision) setNeeded(true);
+        });
     };
     refresh();
     browser.permissions.onAdded.addListener(refresh);
     browser.permissions.onRemoved.addListener(refresh);
     return () => {
+      revision++;
       browser.permissions.onAdded.removeListener(refresh);
       browser.permissions.onRemoved.removeListener(refresh);
     };
