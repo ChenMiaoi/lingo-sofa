@@ -6,6 +6,7 @@ import { createServer, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { resolveModel, listModels } from "@lingo-sofa/provider-pi/node";
 import { capabilities } from "@lingo-sofa/provider-pi";
+import { createWebTranslator } from "@lingo-sofa/provider-web";
 import {
   TranslationService,
   summarizeModels,
@@ -44,6 +45,8 @@ export function createBridge(
     directory,
     config.settings.model,
     apiKey,
+    config.usePiAuth,
+    config.settings.translationEngine,
   );
   const oauth = new BridgeOAuth(directory, undefined, () => {
     service.reset();
@@ -74,6 +77,7 @@ export function createBridge(
   const initialized = accounts.ready.then(() => {
     config.settings.model = accounts.translation;
     config.settings.askModel = accounts.ask;
+    config.settings.translationEngine = accounts.translationEngine;
     currentKey = accounts.key(accounts.translation);
     sessions.dispose();
     sessions = new SafePiSessions(
@@ -124,6 +128,11 @@ export function createBridge(
       ).values(),
     ]);
   const service = new TranslationService({
+    translator: (settings) =>
+      createWebTranslator(
+        settings.translationEngine === "google" ? "google" : "bing",
+        fetch,
+      ),
     sessionCalls: true,
     onBegin: async (record) => {
       inFlight.set(record.requestId, record);
@@ -303,8 +312,9 @@ export function createBridge(
       await initialized;
       if (request.url === "/v1/provider") {
         if (
-          config.settings.model.authMode !== "subscription" ||
-          oauth.status().connected
+          config.settings.translationEngine === "llm" &&
+          (config.settings.model.authMode !== "subscription" ||
+            oauth.status().connected)
         )
           await sessions.runtime();
         reply(200, {
@@ -313,6 +323,7 @@ export function createBridge(
             resolveModel(config.settings.model).model,
           ),
           model: config.settings.model,
+          translationEngine: config.settings.translationEngine,
           askModel: accounts.ask,
           accounts: accounts.list(),
           keyConfigured: Boolean(currentKey),
@@ -360,6 +371,22 @@ export function createBridge(
       }
       if (request.url === "/v1/provider/update") {
         const update = providerUpdateSchema.parse(raw);
+        if (update.target === "translation-engine") {
+          if (service.translationBusy) {
+            reply(409, { ok: false, error: "请等待当前翻译完成后再切换引擎" });
+            return;
+          }
+          if (update.engine === "llm") credential(accounts.translation);
+          configuring = true;
+          try {
+            await accounts.commit(accounts.plan(update));
+            config.settings.translationEngine = update.engine;
+            reply(200, { ok: true });
+          } finally {
+            configuring = false;
+          }
+          return;
+        }
         // Validate the catalog before touching credentials or persistent state.
         if (update.target !== "remove-account") resolveModel(update.model);
         if (
@@ -441,6 +468,7 @@ export function createBridge(
             });
           }
           await accounts.commit(plan);
+          config.settings.translationEngine = plan.translationEngine;
           config.settings.askModel = plan.ask;
           if (changesTranslation) {
             // Paid Ask work and other conversations remain intact.
@@ -509,7 +537,12 @@ export function createBridge(
         reply(200, { ok: true });
         return;
       }
-      if (oauth.busy && ["translate", "ask"].includes(envelope.request.kind)) {
+      if (
+        oauth.busy &&
+        (envelope.request.kind === "ask" ||
+          (envelope.request.kind === "translate" &&
+            config.settings.translationEngine === "llm"))
+      ) {
         reply(409, { ok: false, error: "请完成或取消 ChatGPT 登录后再翻译" });
         return;
       }

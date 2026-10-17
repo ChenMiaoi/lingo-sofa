@@ -2,6 +2,7 @@ import type { UsageRecord, UsageSummary } from "@lingo-sofa/protocol";
 
 /** Freeze each request's API price; changing today's model never reprices history. */
 export function apiCost(record: UsageRecord): number | null {
+  if (record.billingMode === "free") return 0;
   if (!record.usage) return null;
   const prices = record.pricing?.prices;
   if (prices) {
@@ -107,7 +108,9 @@ export function summarize(records: readonly UsageRecord[]) {
         ? speed.reduce((sum, record) => sum + record.usage!.output, 0) /
           (duration / 1_000)
         : null,
-    unknown: unique.filter((record) => record.usage === null).length,
+    unknown: unique.filter(
+      (record) => record.usage === null && record.billingMode !== "free",
+    ).length,
   };
 }
 

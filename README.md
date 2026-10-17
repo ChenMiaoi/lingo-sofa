@@ -26,6 +26,7 @@ LingoSofa brings inline bilingual translation and contextual AI chat to webpages
 - **Translate in place.** Translate a paragraph, selected text or Discord message without replacing the original. Enable automatic bilingual reading per website or channel.
 - **Ask about what you read.** Open a conversation next to selected content to explain, summarize or draft a reply. Replies are yours to review and copy.
 - **Choose your models.** Save multiple provider accounts and set separate defaults for translation and chat. Browser direct mode supports DeepSeek and OpenAI-compatible endpoints; the local assistant provides access through Pi.
+- **Translate without an API key.** Choose Bing or Google in the browser and Discord. Bing is the default without model credentials; adding an account keeps your chosen free engine. Translation and Ask are configured independently. See [translation engines](docs/translation-engines.md).
 - **Share one local assistant.** Browser and Discord reuse the same installation and model configuration on your computer, with separate content contexts.
 - **See observed usage.** Inspect tokens, request history and estimated costs. Unknown usage stays unknown; interrupted requests are not automatically replayed.
 
@@ -44,8 +45,8 @@ Assistant builds target macOS Apple Silicon / Intel, Linux ARM64 / x64, and Wind
 ### Browser
 
 1. Open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, and drag the browser ZIP onto the page. If your browser does not accept ZIP files, unpack it and choose **Load unpacked**.
-2. Open LingoSofa settings. Under **Shared local assistant**, copy the authorization command for your platform if a helper is already installed (including through Discord). Download the helper only for a first installation. Alternatively, select direct mode to use a supported model endpoint without the helper.
-3. Add a provider account and choose your translation and chat models.
+2. Open LingoSofa settings. New browser installations connect directly to the translation service. To share accounts and engines with Discord, choose **Shared local assistant** and authorize your existing helper; download it only for a first installation.
+3. Choose Bing or Google in **Translation preferences** to translate without a key. Add a provider account when you want model translation or Ask, and configure them independently.
 4. Open a webpage and show the floating reader from the extension popup. Hover over a paragraph to translate, or select text for **Translate / Ask**. Press **Alt+Shift+A** to ask about selected content.
 
 Automatic translation is enabled separately for each website. **Restore original** removes the inline translations.

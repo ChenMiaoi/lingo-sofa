@@ -51,6 +51,8 @@ export function ChannelControls({
     (provider) => provider.id === catalog.model.provider,
   );
   const models = provider?.models ?? [];
+  const free =
+    catalog?.translationEngine && catalog.translationEngine !== "llm";
   return (
     <>
       <header className="lingo-sofa-control-heading">
@@ -93,11 +95,16 @@ export function ChannelControls({
         </label>
         <label>
           <span className="lingo-sofa-field-heading">
-            模型<span>{provider?.name ?? "当前供应商"}</span>
+            翻译引擎
+            <span>{free ? "免 Key" : (provider?.name ?? "当前供应商")}</span>
           </span>
           <select
             aria-label="模型"
-            value={catalog?.model.model ?? ""}
+            value={
+              free
+                ? `engine:${catalog?.translationEngine}`
+                : (catalog?.model.model ?? "")
+            }
             disabled={busy || !enabled || !catalog}
             onChange={(event) => onModel(event.target.value)}
           >
@@ -105,6 +112,8 @@ export function ChannelControls({
               <option value="">连接本地助手中…</option>
             ) : (
               <>
+                <option value="engine:bing">必应翻译 · 免 Key</option>
+                <option value="engine:google">谷歌翻译 · 免 Key</option>
                 {!models.some((model) => model.id === catalog.model.model) && (
                   <option value={catalog.model.model}>
                     {catalog.model.model}

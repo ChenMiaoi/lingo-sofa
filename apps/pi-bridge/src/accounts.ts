@@ -5,6 +5,8 @@ import {
   type ModelConfig,
   type StoredAccount,
   type ProviderUpdate,
+  resolveTranslationEngine,
+  type TranslationEngine,
 } from "@lingo-sofa/protocol";
 
 import {
@@ -22,10 +24,17 @@ export class ProviderAccounts {
     private directory: string,
     model: ModelConfig,
     apiKey: string,
+    authenticated = false,
+    engine?: TranslationEngine,
   ) {
-    this.ready = this.load(model, apiKey);
+    this.ready = this.load(model, apiKey, authenticated, engine);
   }
-  private async load(model: ModelConfig, apiKey: string) {
+  private async load(
+    model: ModelConfig,
+    apiKey: string,
+    authenticated: boolean,
+    engine?: TranslationEngine,
+  ) {
     try {
       this.state = schema.parse(
         JSON.parse(
@@ -56,9 +65,21 @@ export class ProviderAccounts {
       this.state = { accounts, translation: model, ask: model };
       await this.commit(this.state);
     }
+    if (!this.state.translationEngine) {
+      this.state.translationEngine = resolveTranslationEngine(
+        engine,
+        Boolean(accountKey(this.state, this.state.translation)) ||
+          this.state.translation.authMode === "subscription" ||
+          authenticated,
+      );
+      await this.commit(this.state);
+    }
   }
   get translation() {
     return this.state.translation;
+  }
+  get translationEngine() {
+    return this.state.translationEngine;
   }
   get ask() {
     return this.state.ask;

@@ -7,6 +7,7 @@ import type {
   ProviderCatalog,
   ProviderUpdate,
   Reply,
+  TranslationEngine,
 } from "@lingo-sofa/protocol";
 import type { HostReact } from "./provider-auth.js";
 
@@ -24,10 +25,14 @@ export function createAISettings(getReact: () => HostReact) {
     client,
     onSaved,
     onManage,
+    section = "all",
+    embedded = false,
   }: {
     client: AISettingsClient;
     onSaved?: (target?: ProviderUpdate["target"]) => void;
     onManage?: (section: "translation" | "ask-default" | "account") => void;
+    section?: "all" | "translation" | "ask";
+    embedded?: boolean;
   }) {
     const React = getReact();
     const [catalog, setCatalog] = React.useState<ProviderCatalog | null>(null);
@@ -87,6 +92,35 @@ export function createAISettings(getReact: () => HostReact) {
             ? "翻译模型已保存，不影响 Ask 会话"
             : "Ask 默认模型已保存，已有会话保持原配置",
         );
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "保存失败，请重试");
+      } finally {
+        setBusy(false);
+      }
+    }
+    async function saveEngine(engine: TranslationEngine) {
+      if (
+        engine === "llm" &&
+        catalog &&
+        !catalog.keyConfigured &&
+        !catalog.piAuth &&
+        catalog.model.authMode !== "subscription"
+      ) {
+        openEditor("translation");
+        return;
+      }
+      setBusy(true);
+      setError("");
+      setNotice("");
+      try {
+        const result = await client.configureProvider({
+          target: "translation-engine",
+          engine,
+        });
+        if (!result.ok) throw new Error(result.error);
+        setCatalog(await client.providers());
+        onSaved?.("translation-engine");
+        setNotice("翻译引擎已保存，不影响 Ask 会话");
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "保存失败，请重试");
       } finally {
@@ -222,118 +256,201 @@ export function createAISettings(getReact: () => HostReact) {
         ref={container}
       >
         <style>{aiWorkspaceStyles}</style>
-        <header className="ls-design-heading">
-          <h1>AI 与 Pi</h1>
-          <p>翻译模型、Ask 默认模型与对话行为。</p>
-        </header>
+        {!embedded && (
+          <header className="ls-design-heading">
+            <h1>{section === "all" ? "翻译与问答" : "AI 与 Pi"}</h1>
+            <p>
+              {section === "all"
+                ? "选择翻译引擎，单独配置 Ask 模型与对话行为。"
+                : "Ask 默认模型与对话行为，独立于翻译引擎。"}
+            </p>
+          </header>
+        )}
         {error && (
           <p className="ls-notification error" role="alert">
             {error} <button onClick={() => void refresh()}>重新连接</button>
           </p>
         )}
-        <div className="ls-design-card">
-          <h2>模型与行为</h2>
-          <div className="ls-setting-row">
-            <div>
-              <button
-                className="ls-row-title"
-                data-editor-target="translation"
-                onClick={() => openEditor("translation")}
-              >
-                翻译模型
-              </button>
-              <small>用于划词、段落和整页翻译。</small>
+        {section !== "ask" && (
+          <div className="ls-design-card">
+            <div className="ls-engine-heading">
+              <h2>翻译引擎</h2>
+              <span className="ls-status-chip">独立配置</span>
             </div>
-            {catalog ? (
-              modelSelect(catalog.model, "translation", "翻译模型")
-            ) : (
-              <span>读取连接中…</span>
-            )}
-          </div>
-          <div className="ls-setting-row">
-            <div>
-              <button
-                className="ls-row-title"
-                data-editor-target="ask-default"
-                onClick={() => openEditor("ask-default")}
-              >
-                Ask 默认模型
-              </button>
-              <small>Pi agent · 用于对话。</small>
-            </div>
-            {askModel && modelSelect(askModel, "ask-default", "Ask 默认模型")}
-          </div>
-          <div className="ls-setting-row">
-            <div>
-              <strong>思考程度</strong>
-              <small>
-                {levels.length
-                  ? "仅在模型支持时可选。"
-                  : "此模型未提供可调档位。"}
-              </small>
-            </div>
-            <select
-              aria-label="思考程度"
-              disabled={busy || !levels.length}
-              value={askModel?.thinkingLevel ?? ""}
-              onChange={(event) => {
-                if (askModel)
-                  void save(
-                    {
-                      ...askModel,
-                      thinkingLevel: (event.target.value ||
-                        undefined) as ModelConfig["thinkingLevel"],
-                    },
-                    "ask-default",
-                  );
-              }}
+            <p className="ls-engine-intro">
+              免 Key 引擎可直接翻译；添加模型账户后仍可继续使用。
+            </p>
+            <div
+              className="ls-engine-choices"
+              role="group"
+              aria-label="翻译引擎"
             >
-              <option value="">模型默认</option>
-              {levels.map((level) => (
-                <option key={level} value={level}>
-                  {{
-                    off: "关闭",
-                    minimal: "最低",
-                    low: "低",
-                    medium: "中",
-                    high: "高",
-                    xhigh: "更高",
-                    max: "最高",
-                  }[level] ?? level}
-                </option>
+              {(
+                [
+                  ["bing", "B", "必应翻译", "免 Key"],
+                  ["google", "G", "谷歌翻译", "免 Key"],
+                  ["llm", "✦", "大模型翻译", "使用模型账户"],
+                ] as const
+              ).map(([engine, icon, label, hint]) => (
+                <button
+                  key={engine}
+                  disabled={busy || !catalog}
+                  aria-pressed={
+                    (catalog?.translationEngine ?? "llm") === engine
+                  }
+                  onClick={() => {
+                    void saveEngine(engine);
+                  }}
+                >
+                  <span className="ls-engine-icon" aria-hidden>
+                    {icon}
+                  </span>
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{hint}</small>
+                  </span>
+                  <span className="ls-engine-check" aria-hidden>
+                    {(catalog?.translationEngine ?? "llm") === engine
+                      ? "✓"
+                      : ""}
+                  </span>
+                </button>
               ))}
-            </select>
-          </div>
-        </div>
-        <div className="ls-design-card">
-          <div className="ls-setting-row">
-            <div>
-              <strong>默认上下文</strong>
-              <small>仅发送你明确选择的内容。</small>
             </div>
-            <span className="ls-readonly-value">仅所选文本</span>
+            {catalog &&
+              catalog.translationEngine !== undefined &&
+              catalog.translationEngine !== "llm" && (
+                <p className="ls-engine-note">
+                  原文发送至所选翻译服务，不使用大模型
+                  Key。服务暂不可用时，可手动切换引擎。
+                </p>
+              )}
+            {(catalog?.translationEngine ?? "llm") === "llm" && (
+              <>
+                <div className="ls-setting-row">
+                  <div>
+                    <button
+                      className="ls-row-title"
+                      data-editor-target="translation"
+                      onClick={() => openEditor("translation")}
+                    >
+                      翻译模型
+                    </button>
+                    <small>用于划词、段落和整页翻译。</small>
+                  </div>
+                  {catalog ? (
+                    modelSelect(catalog.model, "translation", "翻译模型")
+                  ) : (
+                    <span>读取连接中…</span>
+                  )}
+                </div>
+              </>
+            )}
+            <button
+              className="ls-engine-configure"
+              onClick={() => openEditor("translation")}
+            >
+              配置大模型翻译
+            </button>
           </div>
-          <div className="ls-setting-row">
-            <div>
-              <strong>工具权限</strong>
-              <small>当前 Ask 仅支持所选内容问答。</small>
+        )}
+        {section !== "translation" && (
+          <div className="ls-design-card">
+            <h2>问答模型</h2>
+            <div className="ls-setting-row">
+              <div>
+                <button
+                  className="ls-row-title"
+                  data-editor-target="ask-default"
+                  onClick={() => openEditor("ask-default")}
+                >
+                  Ask 默认模型
+                </button>
+                <small>Pi agent · 用于对话。</small>
+              </div>
+              {askModel && modelSelect(askModel, "ask-default", "Ask 默认模型")}
             </div>
-            <span className="ls-readonly-value">未启用工具操作</span>
+            <div className="ls-setting-row">
+              <div>
+                <strong>思考程度</strong>
+                <small>
+                  {levels.length
+                    ? "仅在模型支持时可选。"
+                    : "此模型未提供可调档位。"}
+                </small>
+              </div>
+              <select
+                aria-label="思考程度"
+                disabled={busy || !levels.length}
+                value={askModel?.thinkingLevel ?? ""}
+                onChange={(event) => {
+                  if (askModel)
+                    void save(
+                      {
+                        ...askModel,
+                        thinkingLevel: (event.target.value ||
+                          undefined) as ModelConfig["thinkingLevel"],
+                      },
+                      "ask-default",
+                    );
+                }}
+              >
+                <option value="">模型默认</option>
+                {levels.map((level) => (
+                  <option key={level} value={level}>
+                    {{
+                      off: "关闭",
+                      minimal: "最低",
+                      low: "低",
+                      medium: "中",
+                      high: "高",
+                      xhigh: "更高",
+                      max: "最高",
+                    }[level] ?? level}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
-        <button
-          className="ls-advanced"
-          onClick={() => openEditor("translation")}
-        >
-          <span aria-hidden>›</span>
-          <span>
-            <strong>高级 · 手动配置兼容模型</strong>
-            <small>自定义端点与模型</small>
-          </span>
-        </button>
+        )}
+        {section !== "translation" && (
+          <div className="ls-design-card">
+            <div className="ls-setting-row">
+              <div>
+                <strong>默认上下文</strong>
+                <small>仅发送你明确选择的内容。</small>
+              </div>
+              <span className="ls-readonly-value">仅所选文本</span>
+            </div>
+            <div className="ls-setting-row">
+              <div>
+                <strong>工具权限</strong>
+                <small>当前 Ask 仅支持所选内容问答。</small>
+              </div>
+              <span className="ls-readonly-value">未启用工具操作</span>
+            </div>
+          </div>
+        )}
+        {!embedded && (
+          <button
+            className="ls-advanced"
+            onClick={() =>
+              openEditor(section === "ask" ? "ask-default" : "translation")
+            }
+          >
+            <span aria-hidden>›</span>
+            <span>
+              <strong>高级 · 手动配置兼容模型</strong>
+              <small>自定义端点与模型</small>
+            </span>
+          </button>
+        )}
         <footer className="ls-design-footer">
-          <span role="status">
-            {busy ? "正在保存…" : notice || "模型更改会自动保存"}
+          <span
+            role={embedded ? undefined : "status"}
+            aria-live={embedded ? "polite" : undefined}
+          >
+            {busy ? "正在保存…" : notice || "更改会自动保存"}
           </span>
           <button
             data-editor-target="account"

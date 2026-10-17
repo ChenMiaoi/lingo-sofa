@@ -10,14 +10,25 @@ import {
   type ModelConfig,
   type ProviderUpdate,
   type Settings,
+  resolveTranslationEngine,
 } from "@lingo-sofa/protocol";
 
 export async function directAccounts(
   settings: Settings,
 ): Promise<AccountState> {
   const saved = await browser.storage.local.get("providerAccounts");
-  if (saved.providerAccounts)
-    return accountStateSchema.parse(saved.providerAccounts);
+  if (saved.providerAccounts) {
+    const state = accountStateSchema.parse(saved.providerAccounts);
+    if (!state.translationEngine) {
+      state.translationEngine = resolveTranslationEngine(
+        settings.translationEngine,
+        Boolean(accountKey(state, state.translation)) ||
+          state.translation.authMode === "subscription",
+      );
+      await browser.storage.local.set({ providerAccounts: state });
+    }
+    return state;
+  }
   const legacy = await browser.storage.session.get("apiKey");
   const initialModel = ["deepseek", "openai-compatible"].includes(
     settings.model.provider,
@@ -37,6 +48,10 @@ export async function directAccounts(
           () => crypto.randomUUID(),
         )
       : initial;
+  state.translationEngine ??= resolveTranslationEngine(
+    settings.translationEngine,
+    Boolean(accountKey(state, state.translation)),
+  );
   await browser.storage.local.set({ providerAccounts: state });
   await browser.storage.session.remove("apiKey");
   return state;
@@ -55,6 +70,7 @@ export function updateDirectAccounts(
     );
     if (
       !allowUnconfigured &&
+      update.target !== "translation-engine" &&
       update.target !== "remove-account" &&
       update.model.authMode !== "subscription" &&
       !accountKey(

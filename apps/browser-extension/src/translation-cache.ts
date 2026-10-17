@@ -87,7 +87,10 @@ export class LocalTranslationCache {
         const input = cacheKey(
           namespace,
           unit,
-          JSON.stringify(settings.model),
+          JSON.stringify({
+            engine: settings.translationEngine,
+            model: settings.model,
+          }),
           settings.glossary,
         );
         const digest = await crypto.subtle.digest(

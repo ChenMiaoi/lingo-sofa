@@ -28,6 +28,10 @@ import {
   type BudgetSnapshot,
 } from "@lingo-sofa/protocol";
 import { TranslationService } from "@lingo-sofa/translation-core";
+import {
+  createWebTranslator,
+  webTranslationOrigins,
+} from "@lingo-sofa/provider-web";
 import { readSettings, records } from "../src/storage.js";
 
 import { pageScope, pageDocumentPrefix } from "../src/page-scope.js";
@@ -126,6 +130,23 @@ export default defineBackground(() => {
   });
   const inFlight = new Map<string, UsageRecord>();
   const service = new TranslationService({
+    translator: (settings) =>
+      createWebTranslator(
+        settings.translationEngine === "google" ? "google" : "bing",
+        async (url, init) => {
+          const engine =
+            settings.translationEngine === "google" ? "google" : "bing";
+          if (
+            !(await browser.permissions.contains({
+              origins: [webTranslationOrigins[engine]],
+            }))
+          )
+            throw new Error(
+              "缺少翻译引擎访问权限，请在设置中重新选择并授权此引擎",
+            );
+          return fetch(url, init);
+        },
+      ),
     onFinish: async (id) => {
       inFlight.delete(id);
       await browser.storage.session.set({ inFlight: [...inFlight.values()] });
@@ -161,7 +182,17 @@ export default defineBackground(() => {
       accessLevel: "TRUSTED_CONTEXTS",
     });
     const settings = await readSettings();
-    await directAccounts(settings);
+    const initialAccounts = await directAccounts(settings);
+    if (
+      settings.mode === "direct" &&
+      settings.translationEngine !== initialAccounts.translationEngine
+    )
+      await browser.storage.local.set({
+        settings: {
+          ...settings,
+          translationEngine: initialAccounts.translationEngine,
+        },
+      });
     if (settings.mode === "bridge") native.start();
     await syncReadingAccess();
     const saved = await records(settings);
@@ -234,6 +265,15 @@ export default defineBackground(() => {
     settings: Settings,
     origin: string,
   ): Promise<Reply> {
+    if (settings.mode === "direct") {
+      const state = await directAccounts(settings);
+      settings = {
+        ...settings,
+        translationEngine: state.translationEngine,
+        model: state.translation,
+        askModel: state.ask,
+      };
+    }
     if (request.kind === "cancel") {
       const transport = transports.get(request.requestId);
       if (transport && transport.scope !== scope)
@@ -433,6 +473,7 @@ export default defineBackground(() => {
         return {
           capabilities: capabilities(active),
           model: supported ? active : settingsSchema.parse({}).model,
+          translationEngine: stored.translationEngine,
           askModel: stored.ask,
           accounts: stored.accounts.map(({ id, name, model, apiKey }) => ({
             id,
@@ -509,17 +550,26 @@ export default defineBackground(() => {
                     info.model.maxOutputTokens,
                 )
               : info.capabilities?.maxOutputTokens,
-          model: info.model.model,
+          model:
+            info.translationEngine && info.translationEngine !== "llm"
+              ? `engine:${info.translationEngine}`
+              : info.model.model,
           providerName:
-            info.providers.find(
-              (provider) => provider.id === info.model.provider,
-            )?.name ??
-            (info.model.provider === "openai-compatible"
-              ? "OpenAI 兼容"
-              : info.model.provider),
-          models: info.providers
-            .find((provider) => provider.id === info.model.provider)
-            ?.models.map((model) => model.id) ?? [info.model.model],
+            info.translationEngine && info.translationEngine !== "llm"
+              ? "免 Key 翻译"
+              : (info.providers.find(
+                  (provider) => provider.id === info.model.provider,
+                )?.name ??
+                (info.model.provider === "openai-compatible"
+                  ? "OpenAI 兼容"
+                  : info.model.provider)),
+          models: [
+            "engine:bing",
+            "engine:google",
+            ...(info.providers
+              .find((provider) => provider.id === info.model.provider)
+              ?.models.map((model) => model.id) ?? [info.model.model]),
+          ],
           readingEnabled:
             (await browser.storage.local.get("readingEnabled"))
               .readingEnabled !== false,
@@ -529,6 +579,39 @@ export default defineBackground(() => {
       }
       if (data.action === "page-model" && topPage) {
         if (typeof data.model !== "string") throw new Error("Invalid model");
+        if (data.model === "engine:bing" || data.model === "engine:google") {
+          const engine =
+            data.model === "engine:google"
+              ? ("google" as const)
+              : ("bing" as const);
+          if (settings.mode === "bridge") {
+            const result = replySchema.parse(
+              await native.request({
+                version: 1,
+                sourceKind: "web",
+                scope: "browser",
+                operation: "provider-update",
+                update: { target: "translation-engine", engine },
+              }),
+            );
+            if (!result.ok) throw new Error(result.error);
+          } else {
+            if (
+              !(await browser.permissions.contains({
+                origins: [webTranslationOrigins[engine]],
+              }))
+            )
+              throw new Error("请先在翻译偏好中选择并授权此引擎");
+            await updateDirectAccounts(settings, {
+              target: "translation-engine",
+              engine,
+            });
+          }
+          const next = { ...settings, translationEngine: engine };
+          await browser.storage.local.set({ settings: next });
+          await notify(next);
+          return { ok: true };
+        }
         const info = await catalog();
         if (
           !info.providers
@@ -555,7 +638,7 @@ export default defineBackground(() => {
           );
           if (!reply.ok) throw new Error(reply.error);
         }
-        const next: Settings = { ...settings, model };
+        const next: Settings = { ...settings, model, translationEngine: "llm" };
         if (settings.mode === "direct") {
           const state = await updateDirectAccounts(settings, { model }, true);
           next.model = state.translation;
@@ -721,7 +804,11 @@ export default defineBackground(() => {
         );
       if (data.action === "provider-update") {
         const update = providerUpdateSchema.parse(data.update);
-        if (data.mode !== "bridge" && update.model.authMode === "subscription")
+        if (
+          data.mode !== "bridge" &&
+          update.target !== "translation-engine" &&
+          update.model.authMode === "subscription"
+        )
           throw new Error("ChatGPT 订阅登录需要选择本地助手");
         if (data.mode === "bridge") {
           const reply = replySchema.parse(
@@ -735,24 +822,35 @@ export default defineBackground(() => {
           );
           if (!reply.ok) throw new Error(reply.error);
           const next = { ...settings, mode: "bridge" as const };
-          if (!update.target || update.target === "translation")
+          if (update.target === "translation-engine")
+            next.translationEngine = update.engine;
+          if (!update.target || update.target === "translation") {
             next.model = update.model;
+            next.translationEngine = "llm";
+          }
           if (update.target === "ask-default") next.askModel = update.model;
           if (
-            update.model.provider !== settings.model.provider ||
-            update.model.endpoint !== settings.model.endpoint
+            update.target !== "translation-engine" &&
+            (update.model.provider !== settings.model.provider ||
+              update.model.endpoint !== settings.model.endpoint)
           )
             await browser.storage.session.remove(["apiKey", "balance"]);
           await browser.storage.local.set({ settings: next });
           await notify(next);
           return { ok: true };
         }
-        resolveModel(update.model);
+        if (update.target !== "translation-engine") resolveModel(update.model);
+        else if (
+          update.engine === "llm" &&
+          !(await directKey(settings, settings.model))
+        )
+          throw new Error("请先添加大模型账户，再选择大模型翻译");
         const state = await updateDirectAccounts(settings, update);
         const next = {
           ...settings,
           mode: "direct" as const,
           model: state.translation,
+          translationEngine: state.translationEngine,
           askModel: state.ask,
         };
         await browser.storage.local.set({ settings: next });
@@ -864,17 +962,23 @@ export default defineBackground(() => {
             )
           )
             next.model.accountId = undefined;
-          const state = await updateDirectAccounts(
-            settings,
-            {
-              model: next.model,
-              ...(typeof data.apiKey === "string" && data.apiKey.trim()
-                ? { apiKey: data.apiKey.trim() }
-                : {}),
-            },
-            true,
-          );
+          const state =
+            JSON.stringify(next.model) !==
+              JSON.stringify(existing.translation) ||
+            (typeof data.apiKey === "string" && data.apiKey.trim())
+              ? await updateDirectAccounts(
+                  settings,
+                  {
+                    model: next.model,
+                    ...(typeof data.apiKey === "string" && data.apiKey.trim()
+                      ? { apiKey: data.apiKey.trim() }
+                      : {}),
+                  },
+                  true,
+                )
+              : existing;
           next.model = state.translation;
+          next.translationEngine = state.translationEngine;
           if (
             state.accounts.length === 1 &&
             !settings.askModel &&

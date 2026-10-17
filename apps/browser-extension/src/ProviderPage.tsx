@@ -8,6 +8,7 @@ import {
   designStyles,
 } from "@lingo-sofa/ui-shared";
 import { colorTheme } from "./appearance.js";
+import { webTranslationOrigins } from "@lingo-sofa/provider-web";
 import { AssistantSetup } from "./AssistantSetup.js";
 import { ReadingAccess } from "./ReadingAccess.js";
 import { ActivityPage } from "./ActivityPage.js";
@@ -46,13 +47,18 @@ export function ProviderPage() {
       configureProvider: async (
         update: import("@lingo-sofa/protocol").ProviderUpdate,
       ) => {
+        const origins =
+          update.target === "translation-engine"
+            ? update.engine === "llm"
+              ? []
+              : [webTranslationOrigins[update.engine]]
+            : [`${new URL(update.model.endpoint).origin}/*`];
         if (
           mode === "direct" &&
-          !(await browser.permissions.request({
-            origins: [`${new URL(update.model.endpoint).origin}/*`],
-          }))
+          origins.length > 0 &&
+          !(await browser.permissions.request({ origins }))
         )
-          throw new Error("需要允许访问所选模型地址");
+          throw new Error("需要允许访问所选翻译服务或模型地址");
         return send({ action: "provider-update", mode, update });
       },
       ...(mode === "bridge"
@@ -260,6 +266,7 @@ function ProductSettings({
               <AISettings
                 key={`${mode}:${connectionRevision}`}
                 client={client}
+                section="ask"
                 onManage={() => {
                   setSection("accounts");
                   history.replaceState(null, "", "#accounts");
@@ -311,6 +318,14 @@ function ProductSettings({
             </header>
             {section === "translation" && (
               <>
+                {ready && (
+                  <AISettings
+                    key={`${mode}:${connectionRevision}`}
+                    client={client}
+                    section="translation"
+                    embedded
+                  />
+                )}
                 <div className="ls-design-card">
                   {row(
                     "目标语言",

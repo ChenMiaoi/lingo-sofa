@@ -58,7 +58,11 @@ test("unifies browser provider settings and the three floating reading controls"
       options.getByRole("heading", { name: "AI 与 Pi", exact: true }),
     ).toBeVisible();
     await options
-      .getByRole("button", { name: "翻译模型", exact: true })
+      .getByRole("navigation", { name: "设置导航" })
+      .getByRole("button", { name: "翻译偏好", exact: true })
+      .click();
+    await options
+      .getByRole("button", { name: "配置大模型翻译", exact: true })
       .click();
     const connection = options.getByRole("region", { name: "连接服务商" });
     await connection
@@ -204,6 +208,10 @@ test("unifies browser provider settings and the three floating reading controls"
       "deepseek-v4-pro",
     );
     await options.reload();
+    await options
+      .getByRole("navigation", { name: "设置导航" })
+      .getByRole("button", { name: "AI 与 Pi", exact: true })
+      .click();
     await expect(
       options.getByRole("heading", { name: "AI 与 Pi", exact: true }),
     ).toBeVisible();

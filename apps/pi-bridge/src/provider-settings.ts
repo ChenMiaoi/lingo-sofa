@@ -1,15 +1,12 @@
 import { readFile, writeFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import {
-  providerUpdateSchema,
-  type ProviderUpdate,
-} from "@lingo-sofa/protocol";
+import { modelUpdateSchema } from "@lingo-sofa/protocol";
 
 // Credentials belong to the Bridge, never Vencord's persisted settings.
 export async function readProviderSettings(directory: string) {
   try {
-    return providerUpdateSchema.parse(
+    return modelUpdateSchema.parse(
       JSON.parse(await readFile(join(directory, "provider.json"), "utf8")),
     );
   } catch (reason) {
@@ -26,7 +23,7 @@ export async function readProviderSettings(directory: string) {
 }
 export async function saveProviderSettings(
   directory: string,
-  value: ProviderUpdate,
+  value: import("zod").infer<typeof modelUpdateSchema>,
 ) {
   const temporary = join(directory, `.provider-${randomUUID()}.json`);
   try {

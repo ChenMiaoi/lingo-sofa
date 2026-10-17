@@ -683,7 +683,8 @@ function ProviderSettingsPanel() {
       <ProviderSettings
         client={client}
         onSaved={(target) => {
-          if (target !== "translation") return;
+          if (target !== "translation" && target !== "translation-engine")
+            return;
           translations.clear();
           settings.store.modelRevision++;
         }}
@@ -765,7 +766,34 @@ function FloatingControls() {
     return () => window.removeEventListener("resize", resize);
   }, []);
   async function switchModel(id: string) {
-    if (!catalog || busy || id === catalog.model.model) return;
+    if (
+      !catalog ||
+      busy ||
+      (id === catalog.model.model &&
+        (!catalog.translationEngine || catalog.translationEngine === "llm"))
+    )
+      return;
+    if (id === "engine:bing" || id === "engine:google") {
+      const engine =
+        id === "engine:google" ? ("google" as const) : ("bing" as const);
+      setBusy(true);
+      try {
+        const reply = await client.configureProvider({
+          target: "translation-engine",
+          engine,
+        });
+        if (!reply.ok) throw new Error(reply.error);
+        setCatalog({ ...catalog, translationEngine: engine });
+        translations.clear();
+        settings.store.modelRevision++;
+        setNotice("翻译引擎已切换，不影响 Ask 会话。");
+      } catch {
+        setNotice("切换失败，请等当前翻译完成后重试。");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const selected = catalog.providers
       .find((provider) => provider.id === catalog.model.provider)
       ?.models.find((model) => model.id === id);
@@ -782,7 +810,7 @@ function FloatingControls() {
       };
       const reply = await client.configureProvider({ model });
       if (!reply.ok) throw new Error(reply.error);
-      setCatalog({ ...catalog, model });
+      setCatalog({ ...catalog, model, translationEngine: "llm" });
       translations.clear();
       settings.store.modelRevision++;
       setNotice("模型已切换，后续翻译使用新模型。");

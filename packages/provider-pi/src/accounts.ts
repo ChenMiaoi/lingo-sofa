@@ -13,6 +13,10 @@ export function planAccountUpdate(
   newId: () => string,
 ): AccountState {
   const next = structuredClone(state);
+  if (update.target === "translation-engine") {
+    next.translationEngine = update.engine;
+    return accountStateSchema.parse(next);
+  }
   let model = { ...update.model };
   if (update.target === "remove-account") {
     if (!model.accountId) throw new Error("Choose an account to remove");
@@ -70,8 +74,10 @@ export function planAccountUpdate(
   }
   if (next.accounts.length > 100) throw new Error("Account limit reached");
   if (update.target === "ask-default") next.ask = model;
-  else if (!update.target || update.target === "translation")
+  else if (!update.target || update.target === "translation") {
     next.translation = model;
+    next.translationEngine = "llm";
+  }
   return accountStateSchema.parse(next);
 }
 export function accountKey(state: AccountState, model: ModelConfig): string {

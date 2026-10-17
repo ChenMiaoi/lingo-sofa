@@ -14,6 +14,7 @@
     "react-dom": "19.3.0",
     "@lingo-sofa/protocol": "0.1.7",
     "@lingo-sofa/provider-pi": "0.1.7",
+    "@lingo-sofa/provider-web": "0.1.7",
     "@lingo-sofa/translation-core": "0.1.7",
     "@lingo-sofa/web-extraction": "0.1.7",
     "@lingo-sofa/ui-shared": "0.1.7",

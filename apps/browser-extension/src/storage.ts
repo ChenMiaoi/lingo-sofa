@@ -7,7 +7,7 @@ import {
 } from "@lingo-sofa/protocol";
 export async function readSettings(): Promise<Settings> {
   const data = await browser.storage.local.get("settings");
-  return settingsSchema.parse(data.settings ?? {});
+  return settingsSchema.parse(data.settings ?? { mode: "direct" });
 }
 export async function records(settings: Settings): Promise<UsageRecord[]> {
   const data = await (

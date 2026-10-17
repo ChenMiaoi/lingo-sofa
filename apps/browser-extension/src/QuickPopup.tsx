@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
-import { providerCatalogSchema, type Settings } from "@lingo-sofa/protocol";
+import {
+  providerCatalogSchema,
+  type Settings,
+  type TranslationEngine,
+} from "@lingo-sofa/protocol";
+import { webTranslationOrigins } from "@lingo-sofa/provider-web";
 import { ReadingAccess } from "./ReadingAccess.js";
 
 async function request(message: unknown) {
@@ -13,6 +18,7 @@ async function request(message: unknown) {
 export function QuickPopup() {
   const [settings, setSettings] = useState<Settings>();
   const [modelName, setModelName] = useState("读取翻译服务…");
+  const [engine, setEngine] = useState<TranslationEngine>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -23,7 +29,14 @@ export function QuickPopup() {
         const catalog = providerCatalogSchema.parse(
           await request({ action: "provider-catalog" }),
         );
-        setModelName(catalog.model.model);
+        setEngine(catalog.translationEngine ?? "llm");
+        setModelName(
+          catalog.translationEngine === "bing"
+            ? "必应翻译 · 免 Key"
+            : catalog.translationEngine === "google"
+              ? "谷歌翻译 · 免 Key"
+              : catalog.model.model,
+        );
       })
       .catch(() => setError("无法读取翻译服务，请打开设置检查连接。"));
   }, []);
@@ -40,7 +53,19 @@ export function QuickPopup() {
     }
   }
   async function command(value: string) {
+    // Start optional network authorization within the originating toolbar click.
+    const permission =
+      settings?.mode === "direct" &&
+      engine &&
+      engine !== "llm" &&
+      ["page", "selection", "controls"].includes(value)
+        ? browser.permissions.request({
+            origins: [webTranslationOrigins[engine]],
+          })
+        : Promise.resolve(true);
     await act(async () => {
+      if (!(await permission))
+        throw new Error("需要允许访问所选翻译服务，才能开始翻译");
       await request({ action: "page", command: value });
       setNotice(
         value === "stop"
@@ -106,7 +131,7 @@ export function QuickPopup() {
       </button>
       <button
         className="quick-primary"
-        disabled={busy}
+        disabled={busy || !engine}
         onClick={() => void command("page")}
       >
         翻译页面 <span aria-hidden="true">→</span>

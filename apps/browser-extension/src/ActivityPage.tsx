@@ -454,12 +454,16 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                               </span>
                               {record.billingMode === "subscription" &&
                                 " · ChatGPT 订阅"}
+                              {record.billingMode === "free" &&
+                                " · 免 Key 翻译"}
                             </small>
                           </td>
                           <td>
-                            {record.usage
-                              ? `${record.usage.input + record.usage.cacheRead + record.usage.cacheWrite} / ${record.usage.output}`
-                              : "未知"}
+                            {record.billingMode === "free"
+                              ? `${record.characters ?? 0} 字符`
+                              : record.usage
+                                ? `${record.usage.input + record.usage.cacheRead + record.usage.cacheWrite} / ${record.usage.output}`
+                                : "未知"}
                             {record.usage?.reasoning !== undefined && (
                               <small>
                                 思考 {record.usage.reasoning}（Output 子集）
@@ -467,9 +471,11 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                             )}
                           </td>
                           <td>
-                            {record.usage
-                              ? `${record.usage.cacheRead} / ${record.usage.cacheWrite}`
-                              : "未知"}
+                            {record.billingMode === "free"
+                              ? "不适用"
+                              : record.usage
+                                ? `${record.usage.cacheRead} / ${record.usage.cacheWrite}`
+                                : "未知"}
                           </td>
                           <td>
                             {record.firstTextMs === null
@@ -480,18 +486,20 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                           <td>
                             {formatSpeed(record.tps)}
                             <small>{formatCost(apiCost(record))}</small>
-                            <small>
-                              {formatPricing(record.pricing)}{" "}
-                              {record.pricing?.sourceUrl && (
-                                <a
-                                  href={record.pricing.sourceUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  价格来源
-                                </a>
-                              )}
-                            </small>
+                            {record.billingMode !== "free" && (
+                              <small>
+                                {formatPricing(record.pricing)}{" "}
+                                {record.pricing?.sourceUrl && (
+                                  <a
+                                    href={record.pricing.sourceUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    价格来源
+                                  </a>
+                                )}
+                              </small>
+                            )}
                           </td>
                         </tr>
                       ))}

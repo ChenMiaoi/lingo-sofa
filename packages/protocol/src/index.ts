@@ -121,7 +121,16 @@ export const storedAccountSchema = providerAccountSchema.extend({
   apiKey: z.string().min(1).max(4096).optional(),
 });
 export type StoredAccount = z.infer<typeof storedAccountSchema>;
+export const translationEngineSchema = z.enum(["bing", "google", "llm"]);
+export type TranslationEngine = z.infer<typeof translationEngineSchema>;
+export function resolveTranslationEngine(
+  selected: TranslationEngine | undefined,
+  authenticated: boolean,
+): TranslationEngine {
+  return selected ?? (authenticated ? "llm" : "bing");
+}
 export const accountStateSchema = z.strictObject({
+  translationEngine: translationEngineSchema.optional(),
   accounts: z.array(storedAccountSchema).max(100),
   translation: modelConfigSchema,
   ask: modelConfigSchema,
@@ -138,6 +147,7 @@ export function accountMatches(
   );
 }
 export const settingsSchema = z.strictObject({
+  translationEngine: translationEngineSchema.optional(),
   askModel: modelConfigSchema.optional(),
   targetLanguage: z.string().min(1).max(64).default("简体中文"),
   mode: z.enum(["direct", "bridge"]).default("bridge"),
@@ -232,7 +242,8 @@ export interface Usage {
   };
 }
 export interface Metrics {
-  billingMode?: "api" | "subscription" | undefined;
+  billingMode?: "api" | "subscription" | "free" | undefined;
+  characters?: number | undefined;
   usage: Usage | null;
   costKnown: boolean;
   durationMs: number;
@@ -263,7 +274,8 @@ export interface UsageRecord extends Metrics {
   purpose?: "translation" | "ask" | "compaction" | undefined;
 }
 export interface TranslationBilling {
-  billingMode?: "api" | "subscription" | undefined;
+  billingMode?: "api" | "subscription" | "free" | undefined;
+  characters?: number | undefined;
   source: "request" | "cache";
   batchSize: number;
   tokens: number | null;
@@ -307,6 +319,13 @@ export interface ModelClient {
     onText?: (text: string) => void,
   ): Promise<ModelReply>;
 }
+export interface TranslationEngineClient {
+  translate(
+    units: readonly TranslationUnit[],
+    terms: readonly { source: string; target: string }[],
+    signal: AbortSignal,
+  ): Promise<{ results: TranslationResult[]; metrics: Metrics }>;
+}
 
 const count = z.number().int().nonnegative();
 const money = z.number().nonnegative();
@@ -343,7 +362,8 @@ export const usageSchema = z.strictObject({
   }),
 });
 export const metricsSchema = z.strictObject({
-  billingMode: z.enum(["api", "subscription"]).optional(),
+  billingMode: z.enum(["api", "subscription", "free"]).optional(),
+  characters: count.optional(),
   usage: usageSchema.nullable(),
   costKnown: z.boolean(),
   durationMs: z.number().nonnegative(),
@@ -355,7 +375,8 @@ export const metricsSchema = z.strictObject({
 });
 export const translationBillingSchema = z
   .strictObject({
-    billingMode: z.enum(["api", "subscription"]).optional(),
+    billingMode: z.enum(["api", "subscription", "free"]).optional(),
+    characters: count.optional(),
     source: z.enum(["request", "cache"]),
     batchSize: z.number().int().min(1).max(16),
     tokens: count.nullable(),
@@ -429,7 +450,7 @@ export const replySchema = z.discriminatedUnion("ok", [
   z.strictObject({ ok: z.literal(false), error: z.string().max(2_000) }),
 ]);
 
-export const providerUpdateSchema = z.strictObject({
+export const modelUpdateSchema = z.strictObject({
   target: z
     .enum(["translation", "ask-default", "account", "remove-account"])
     .optional(),
@@ -438,6 +459,13 @@ export const providerUpdateSchema = z.strictObject({
   model: modelConfigSchema,
   apiKey: z.string().trim().min(1).max(4096).optional(),
 });
+export const providerUpdateSchema = z.union([
+  z.strictObject({
+    target: z.literal("translation-engine"),
+    engine: translationEngineSchema,
+  }),
+  modelUpdateSchema,
+]);
 export type ProviderUpdate = z.infer<typeof providerUpdateSchema>;
 export const oauthRequestSchema = z.strictObject({
   action: z.enum(["start", "status", "cancel", "logout"]),
@@ -459,6 +487,7 @@ export const oauthStatusSchema = z.strictObject({
 });
 export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
 export const providerCatalogSchema = z.strictObject({
+  translationEngine: translationEngineSchema.optional(),
   accounts: z.array(providerAccountSchema).default([]),
   askModel: modelConfigSchema.optional(),
   oauth: oauthStatusSchema.optional(),

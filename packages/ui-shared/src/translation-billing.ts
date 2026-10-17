@@ -16,6 +16,12 @@ export function formatTranslationBilling(billing?: TranslationBilling): {
       text: "缓存命中 · 本次 0 Tokens · ¥0",
       title: "复用已有译文，本次未调用模型；不代表此前翻译免费。",
     };
+  if (billing.billingMode === "free")
+    return {
+      text: `免 Key 翻译${billing.characters === undefined ? "" : ` · ${billing.characters} 字符`} · ¥0`,
+      title:
+        "使用所选在线翻译引擎，不消耗大模型 Tokens。字符数按本批原文计算。",
+    };
   const tokens =
     billing.tokens === null
       ? "Token 用量未知"

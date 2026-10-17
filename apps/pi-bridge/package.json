@@ -7,6 +7,7 @@
     "@earendil-works/pi-coding-agent": "1.2.0",
     "@lingo-sofa/protocol": "0.1.7",
     "@lingo-sofa/provider-pi": "0.1.7",
+    "@lingo-sofa/provider-web": "0.1.7",
     "@lingo-sofa/translation-core": "0.1.7",
     "zod": "4.6.7",
     "@lingo-sofa/local-runtime": "0.1.7"

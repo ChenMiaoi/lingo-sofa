@@ -326,10 +326,24 @@ ${themeStyles(":host")}
           model.replaceChildren();
           for (const id of [...new Set([info.model, ...info.models])]) {
             const option = document.createElement("option");
-            option.textContent = id;
+            option.textContent =
+              id === "engine:bing"
+                ? "必应翻译 · 免 Key"
+                : id === "engine:google"
+                  ? "谷歌翻译 · 免 Key"
+                  : id;
             model.append(option);
           }
           model.value = info.model;
+          model.setAttribute(
+            "aria-label",
+            info.model.startsWith("engine:") ? "翻译引擎" : "模型",
+          );
+          const heading = shadow.querySelector(".field-heading")?.firstChild;
+          if (heading)
+            heading.textContent = info.model.startsWith("engine:")
+              ? "翻译引擎"
+              : "模型";
           automatic.checked = info.automatic;
           language.value = info.targetLanguage;
           shadow.querySelector<HTMLElement>(".provider")!.textContent =
@@ -359,7 +373,7 @@ ${themeStyles(":host")}
     void actions
       .model(model.value)
       .then(() => {
-        notice.textContent = "模型已切换";
+        notice.textContent = "翻译引擎 / 模型已切换";
       })
       .catch(() => {
         notice.textContent = "切换失败，请等当前翻译完成后重试。";

@@ -93,7 +93,10 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
       connection.getByRole("navigation", { name: "AI 配置导航" }),
     ).toHaveCount(0);
     await connection.getByRole("button", { name: "完成", exact: true }).click();
-    await page.getByRole("button", { name: "翻译模型", exact: true }).click();
+    await page.getByRole("button", { name: "翻译偏好", exact: true }).click();
+    await page
+      .getByRole("button", { name: "配置大模型翻译", exact: true })
+      .click();
     await connection
       .getByLabel("已配置供应商", { exact: true })
       .selectOption(work.id);
@@ -104,6 +107,10 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     await connection.getByRole("button", { name: "保存配置" }).click();
     await expect(connection.getByRole("status")).toContainText("不影响 Ask");
     await connection.getByRole("button", { name: "完成", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "设置导航" })
+      .getByRole("button", { name: "AI 与 Pi", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Ask 默认模型", exact: true })
       .click();
@@ -178,7 +185,9 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
       (await context.waitForEvent("serviceworker"));
     const restoredId = new URL(restoredWorker.url()).host;
     const restoredPage = await context.newPage();
-    await restoredPage.goto(`chrome-extension://${restoredId}/options.html`);
+    await restoredPage.goto(
+      `chrome-extension://${restoredId}/options.html#translation`,
+    );
     await expect(
       restoredPage.getByLabel("翻译模型", { exact: true }),
     ).toHaveValue(`${work.id}:fixture`);

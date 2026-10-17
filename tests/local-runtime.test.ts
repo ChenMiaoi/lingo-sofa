@@ -180,6 +180,8 @@ it("launches a single daemon concurrently from two hosts, recovers a dead instan
   const directory = await mkdtemp(join(tmpdir(), "lingo-bootstrap-"));
   const configured = await config(directory);
   configured.settings.dailyTokens = 100;
+  // Exercise unavailable model credentials explicitly; keyless translation is now usable.
+  configured.settings.translationEngine = "llm";
   await writeFile(join(directory, "config.json"), JSON.stringify(configured));
   const unknown = [
     {
