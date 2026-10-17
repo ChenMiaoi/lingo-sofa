@@ -210,7 +210,12 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
     await expect(page.getByRole("alert")).toContainText("请填写每一项");
     await page.getByLabel("译词 1", { exact: true }).fill("内核");
     await nav.getByRole("button", { name: "翻译偏好", exact: true }).click();
-    await nav.getByRole("button", { name: "术语表", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "术语表有未保存更改 · 返回保存" }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "术语表有未保存更改 · 返回保存" })
+      .click();
     await expect(page.getByLabel("原词 1", { exact: true })).toHaveValue(
       "kernel",
     );

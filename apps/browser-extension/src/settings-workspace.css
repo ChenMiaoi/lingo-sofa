@@ -1,0 +1,204 @@
+main.ls-product-settings {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-rows: 64px minmax(0, 1fr);
+  max-width: none;
+  min-height: 0;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  background: var(--ls-canvas);
+  color: var(--ls-text);
+  border-radius: 0;
+  overflow: clip;
+}
+.ls-settings-topbar {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--ls-border);
+  background: var(--ls-surface);
+  font-size: 12px;
+}
+.ls-settings-topbar a {
+  color: var(--ls-muted);
+  text-decoration: none;
+}
+.ls-settings-topbar .ls-settings-wordmark {
+  font-weight: 650;
+  font-size: 17px;
+  color: var(--ls-text);
+}
+.ls-settings-wordmark span {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 12px;
+  color: var(--ls-muted);
+}
+.ls-product-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px 20px;
+  background: transparent;
+  border-right: 1px solid var(--ls-border);
+}
+.ls-product-settings .ls-settings-search {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border: 1px solid var(--ls-border);
+  border-radius: 8px;
+  background: var(--ls-surface);
+  color: var(--ls-text);
+  margin: 0 0 20px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ls-product-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ls-product-sidebar nav button {
+  min-height: 44px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  padding: 12px;
+  color: var(--ls-muted);
+  font-size: 13px;
+}
+.ls-product-sidebar nav button[aria-current="page"] {
+  background: var(--ls-tint);
+  color: var(--ls-accent);
+  font-weight: 500;
+}
+.ls-product-sidebar footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 60px;
+  color: var(--ls-muted);
+  font-size: 12px;
+}
+.ls-product-sidebar footer a {
+  color: var(--ls-muted);
+  text-decoration: none;
+}
+.ls-search-empty {
+  color: var(--ls-muted);
+  font-size: 12px;
+}
+.ls-product-content {
+  padding: 36px 48px;
+  max-width: none;
+  overflow-y: auto;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ls-product-content .ls-design-heading {
+  margin-bottom: 0;
+}
+.ls-product-content .ls-design-card p {
+  font-size: 12px;
+  color: var(--ls-muted);
+}
+.ls-bilingual-preview {
+  background: var(--ls-tint);
+  border: 1px solid var(--ls-border);
+  border-radius: 14px;
+  padding: 24px;
+}
+.ls-bilingual-preview > p {
+  font-size: 18px;
+  margin: 14px 0;
+  line-height: 27px;
+}
+.ls-bilingual-preview > p + p {
+  font-size: 16px;
+  color: var(--ls-accent);
+  line-height: 24px;
+}
+.ls-bilingual-preview small {
+  font-size: 12px;
+  color: var(--ls-muted);
+}
+.ls-info-note {
+  padding: 16px;
+  background: var(--ls-subtle);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--ls-muted);
+  margin: 0;
+}
+.ls-muted {
+  color: var(--ls-muted);
+}
+.ls-product-settings .ls-setting-row select {
+  appearance: none;
+  background-image: url("/brand/figma/chevron.svg");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.ls-product-settings kbd {
+  padding: 8px 12px;
+  border: 1px solid var(--ls-border);
+  border-radius: 8px;
+  background: var(--ls-subtle);
+  font-size: 12px;
+}
+@media (min-width: 1120px) {
+  body.options-page:has(.ls-product-settings) {
+    padding: 0;
+    background: var(--ls-canvas);
+  }
+}
+@media (max-width: 700px) {
+  main.ls-product-settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 64px auto 1fr;
+    height: auto;
+    border-radius: 0;
+    min-height: 100dvh;
+  }
+  .ls-product-sidebar {
+    padding: 20px;
+    gap: 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--ls-border);
+  }
+  .ls-product-settings .ls-settings-search {
+    margin: 0;
+  }
+  .ls-product-sidebar nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .ls-product-sidebar nav button {
+    padding: 8px 10px;
+    min-height: 36px;
+  }
+  .ls-product-sidebar footer {
+    display: none;
+  }
+  .ls-product-content {
+    padding: 24px 20px;
+  }
+  .ls-product-brand {
+    font-size: 17px;
+  }
+}
