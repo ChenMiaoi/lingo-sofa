@@ -12,14 +12,42 @@
 
 <p align="center">
   <a href="https://github.com/ChenMiaoi/lingo-sofa/actions/workflows/ci.yml"><img src="https://github.com/ChenMiaoi/lingo-sofa/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
+  <a href="https://github.com/ChenMiaoi/lingo-sofa/releases/latest"><img src="https://img.shields.io/github/v/release/ChenMiaoi/lingo-sofa" alt="最新发布版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="许可证：GPL-3.0-or-later"></a>
 </p>
 
 LingoSofa 为网页和 Discord 提供原位双语翻译与上下文问答。保留原文，在旁边阅读译文，直接围绕选中的内容提问。两个客户端可以共用电脑上的一个本地助手和同一组模型账户。
 
-[开始使用](#开始使用) · [下载版本](https://github.com/ChenMiaoi/lingo-sofa/releases) · [文档](#文档) · [反馈问题](https://github.com/ChenMiaoi/lingo-sofa/issues)
+[效果预览](#效果预览) · [开始使用](#开始使用) · [下载版本](https://github.com/ChenMiaoi/lingo-sofa/releases) · [文档](#文档) · [反馈问题](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
 > **开发预览版。** 已在 macOS 上完成真实浏览器、Discord 和模型供应商验证。Release CI 面向五种系统/芯片组合构建，但不代表每个平台都已完成客户端验收。当前安装包尚未签名，具体状态见 [兼容性清单](docs/compatibility.md) 和 [发布准备](docs/release-readiness.md)。
+
+## 效果预览
+
+**双语阅读，保留原文。** 译文紧随原文，阅读控制随手可用。
+
+<p align="center">
+  <img src="docs/screenshots/bilingual-reading.png" width="960" alt="LingoSofa 在英文文章下方显示中文译文，旁边展开阅读悬浮菜单">
+</p>
+
+<details>
+<summary>展开查看 Ask 问答与翻译设置</summary>
+
+**就地提问，读懂上下文。** 选中一句话，在文章旁边的对话中询问它的含义。
+
+<p align="center">
+  <img src="docs/screenshots/contextual-ask.png" width="960" alt="LingoSofa Ask 在选中文章旁解释 goes a long way 的含义">
+</p>
+
+**按需选择翻译方式。** 切换免 Key 或大模型翻译，选择目标语言，预览双语排版。
+
+<p align="center">
+  <img src="docs/screenshots/translation-settings.png" width="960" alt="LingoSofa 翻译设置，包含必应、谷歌与大模型引擎、目标语言和双语效果预览">
+</p>
+
+</details>
+
+截图来自当前浏览器扩展，文章为演示内容，译文和回答由本地模拟服务提供。
 
 ## 功能
 

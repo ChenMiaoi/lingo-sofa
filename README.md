@@ -12,14 +12,42 @@
 
 <p align="center">
   <a href="https://github.com/ChenMiaoi/lingo-sofa/actions/workflows/ci.yml"><img src="https://github.com/ChenMiaoi/lingo-sofa/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/ChenMiaoi/lingo-sofa/releases/latest"><img src="https://img.shields.io/github/v/release/ChenMiaoi/lingo-sofa" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
 </p>
 
 LingoSofa brings inline bilingual translation and contextual AI chat to webpages and Discord. Keep the original text in view, read the translation alongside it, and ask questions about the content you select. Both clients can share one local assistant and the same model accounts.
 
-[Get started](#get-started) · [Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
+[Preview](#preview) · [Get started](#get-started) · [Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
 > **Development preview.** The project has been tested with a real browser, Discord and model provider on macOS. Release CI targets five OS/CPU combinations; that does not mean every platform has completed client acceptance. Packages are currently unsigned. See [compatibility](docs/compatibility.md) and [release readiness](docs/release-readiness.md) for details.
+
+## Preview
+
+**Read in two languages.** Keep the original text and its translation together, with reading controls close at hand.
+
+<p align="center">
+  <img src="docs/screenshots/bilingual-reading.png" width="960" alt="LingoSofa translating an English article into inline Chinese, with the floating reading menu open">
+</p>
+
+<details>
+<summary>See contextual Ask and translation settings</summary>
+
+**Ask where you read.** Select a sentence and ask about its meaning in a conversation beside the article.
+
+<p align="center">
+  <img src="docs/screenshots/contextual-ask.png" width="960" alt="LingoSofa Ask explaining the phrase goes a long way next to the selected article text">
+</p>
+
+**Choose how you translate.** Switch between free and model translation, choose a target language, and preview the bilingual layout.
+
+<p align="center">
+  <img src="docs/screenshots/translation-settings.png" width="960" alt="LingoSofa translation settings with Bing, Google and model engines, target language and bilingual preview">
+</p>
+
+</details>
+
+Screenshots show the current browser extension with demo text and locally simulated translations and replies.
 
 ## Features
 
