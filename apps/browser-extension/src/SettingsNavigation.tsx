@@ -40,7 +40,7 @@ export function SettingsNavigation({
   content: RefObject<HTMLDivElement | null>;
 }) {
   const [query, setQuery] = useState("");
-  const [target, setTarget] = useState<string>();
+  const [target, setTarget] = useState<{ title: string }>();
   const needle = query.trim().toLocaleLowerCase();
   const results = settingsIndex.filter(([id, title, keywords]) =>
     `${sections.find(([key]) => key === id)?.[1]} ${title} ${keywords}`
@@ -56,7 +56,8 @@ export function SettingsNavigation({
         ...root.querySelectorAll<HTMLElement>("h1,h2,strong,summary,button"),
       ].find(
         (node) =>
-          node.textContent?.trim() === target && !node.closest("[hidden]"),
+          node.textContent?.trim() === target.title &&
+          !node.closest("[hidden]"),
       );
       if (!label) return;
       highlighted =
@@ -96,7 +97,7 @@ export function SettingsNavigation({
               key={`${id}:${title}`}
               onClick={() => {
                 onSelect(id);
-                setTarget(title);
+                setTarget({ title });
                 setQuery("");
               }}
             >

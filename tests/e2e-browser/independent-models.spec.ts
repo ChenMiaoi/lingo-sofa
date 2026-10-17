@@ -174,9 +174,12 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     await expect(page.getByRole("status")).toHaveText("外观已保存");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.getByLabel("搜索设置").fill("隐私");
-    await expect(page.getByRole("navigation").getByRole("button")).toHaveCount(
-      1,
-    );
+    const searchResults = page.getByRole("navigation", {
+      name: "设置搜索结果",
+    });
+    await expect(searchResults.getByRole("button")).toHaveCount(4);
+    await expect(searchResults).toContainText("本地译文缓存");
+    await expect(searchResults).toContainText("清理数据");
     await page.getByLabel("搜索设置").fill("");
     await context.close();
     context = await launch();

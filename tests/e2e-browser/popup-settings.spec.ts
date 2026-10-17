@@ -213,6 +213,14 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await expect(
       settings.getByRole("region", { name: "本地译文缓存" }),
     ).toHaveClass(/ls-search-highlight/);
+    await settings.getByLabel("搜索设置").fill("缓存");
+    await settings
+      .getByRole("navigation", { name: "设置搜索结果" })
+      .getByRole("button", { name: /本地译文缓存/ })
+      .click();
+    await expect(
+      settings.getByRole("region", { name: "本地译文缓存" }),
+    ).toBeFocused();
     await settings.getByLabel("搜索设置").fill("主题");
     await settings
       .getByRole("navigation", { name: "设置搜索结果" })
