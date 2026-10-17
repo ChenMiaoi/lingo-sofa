@@ -17,21 +17,25 @@ function render(text: string, codes: string[] = []): HTMLElement {
 }
 it("converts only displayed USD cost into CNY using a sourced dated snapshot", () => {
   expect(usdCnySnapshot.rate).toBe(6.7249);
-  expect(formatCost(1)).toBe("≈ ¥6.724900");
-  expect(formatCost(0.0001596)).toBe("≈ ¥0.001073");
+  expect(formatCost(1)).toBe("¥6.724900");
+  expect(formatCost(0.0001596)).toBe("¥0.001073");
   expect(formatCost(null)).toBe("未知");
-  expect(formatCost(0)).toBe("≈ ¥0.000000");
-  expect(formatCost(0.00000001)).toBe("≈ < ¥0.000001");
+  expect(formatCost(0)).toBe("¥0.000000");
+  expect(formatCost(0.00000001)).toBe("< ¥0.000001");
   const billing = {
     source: "request" as const,
     batchSize: 1,
     tokens: 265,
     cost: 0.0001596,
   };
-  expect(formatTranslationBilling(billing).text).toBe(
-    "265 Tokens · ≈ ¥0.001073",
-  );
+  expect(formatTranslationBilling(billing).text).toBe("265 Tokens · ¥0.001073");
   expect(formatTranslationBilling(billing).title).toContain("USD");
+  expect(formatTranslationBilling(billing).title).toContain(
+    "费用按 API 实际用量与请求单价计算",
+  );
+  expect(formatTranslationBilling(billing).title).not.toMatch(
+    /估算|不代表.*实扣/,
+  );
   expect(formatExchangeRate()).toContain("2026-10-14");
   expect(formatExchangeRate()).toContain("https://www.safe.gov.cn/");
   expect(billing.cost).toBe(0.0001596);

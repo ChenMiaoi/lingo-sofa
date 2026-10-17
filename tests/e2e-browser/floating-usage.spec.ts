@@ -369,7 +369,9 @@ test("reports whole-page progress, bills batches once and opens cumulative per-m
       await expect(
         usage.getByText("请求次数", { exact: true }).locator(".."),
       ).toContainText("1");
-      await expect(usage).toContainText("≈ ¥");
+      await expect(usage.locator(".usage-total strong")).toHaveText(
+        "¥0.000256",
+      );
       for (const scheme of ["light", "dark"] as const) {
         await page.emulateMedia({ colorScheme: scheme });
         await usage.screenshot({
@@ -453,18 +455,41 @@ test("shows translation failures, allows restore and retry, and never displays u
     await progress.getByRole("button", { name: "恢复原文" }).click();
     await expect(progress).toContainText("已恢复原文");
     await expect(page.locator("[data-lingo-sofa=error]")).toHaveCount(0);
+    await page.getByRole("button", { name: "用量与费用", exact: true }).click();
+    const usage = page.getByRole("region", { name: "全部用量与费用" });
+    await expect(usage.locator(".usage-total strong")).toHaveText("待计费");
+    await expect(usage).toContainText("缺少用量");
+    await usage.getByRole("button", { name: "返回快捷菜单" }).click();
     options.status = 0;
     await page.getByRole("button", { name: "翻译整页", exact: true }).click();
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
     expect(model.requests.length).toBeGreaterThan(1);
     await page.getByRole("button", { name: "用量与费用", exact: true }).click();
-    const usage = page.getByRole("region", { name: "全部用量与费用" });
     await expect(usage).toBeVisible();
-    await expect(usage).toContainText("用量未知");
-    await expect(usage.locator(".usage-total strong")).toHaveText("未知");
+    await expect(usage).toContainText("缺少用量");
+    await expect(usage.locator(".usage-total strong")).toHaveText("¥0.000256");
+    await expect(usage.getByLabel("分模型用量")).toContainText("¥0.000256");
+    await expect(usage).not.toContainText("总额尚不完整");
+    await expect(usage).not.toContainText("≈");
+    await mkdir(".cache/ui", { recursive: true });
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await usage.screenshot({
+        path: `.cache/ui/billing-recorded-${colorScheme}.png`,
+      });
+    }
     await page.keyboard.press("Escape");
     const settings = await context.newPage();
-    await settings.goto(`chrome-extension://${id}/options.html`);
+    await settings.goto(`chrome-extension://${id}/options.html#usage`);
+    await expect(settings.locator(".ls-cost-metric strong")).toHaveText(
+      "¥0.000256",
+    );
+    await expect(
+      settings.getByRole("table", { name: "分模型消耗" }),
+    ).toContainText("¥0.000256");
+    await expect(
+      settings.locator(".ls-info-note").filter({ hasText: "待计费" }),
+    ).toBeVisible();
     await settings.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;

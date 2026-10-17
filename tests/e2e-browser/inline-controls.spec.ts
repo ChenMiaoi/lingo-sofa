@@ -98,7 +98,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
         .evaluate((node) => getComputedStyle(node).borderBlockStartWidth),
     ).toBe("1px");
     await expect(page.locator("#first .lingo-sofa-inline-usage")).toHaveText(
-      "44 Tokens · ≈ ¥0.000000",
+      "44 Tokens · ¥0.000000",
     );
     await expect(
       page.locator("#first [data-lingo-sofa=translation] math"),

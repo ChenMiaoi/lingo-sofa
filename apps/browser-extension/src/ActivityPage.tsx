@@ -8,6 +8,7 @@ import { summarizeAvailableUsage } from "./page-usage-data.js";
 import { period, apiCost } from "@lingo-sofa/translation-core";
 import {
   formatCost,
+  formatUsageBilling,
   formatTokens,
   formatSpeed,
   formatPricing,
@@ -107,6 +108,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
       ? summarizeAvailableUsage(state.usage, "direct")
       : undefined);
   const totals = summary?.totals;
+  const billing = totals ? formatUsageBilling(totals) : undefined;
   const filter = (
     label: string,
     value: string,
@@ -256,7 +258,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
             <div className="ls-cost-metric">
               <span>累计 API 费用 · 人民币</span>
               <strong title={formatExchangeRate()}>
-                {formatCost(unavailable ? null : (totals?.cost ?? null))}
+                {unavailable ? "暂不可用" : (billing?.amount ?? "正在读取…")}
               </strong>
               <small>输入、输出与缓存分别按单价累计</small>
             </div>
@@ -289,28 +291,30 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.models.map((model) => (
-                      <tr key={JSON.stringify([model.provider, model.model])}>
-                        <td>
-                          <strong>{model.model}</strong>
-                          <small>{model.provider}</small>
-                        </td>
-                        <td>{formatTokens(model.input)}</td>
-                        <td>{formatTokens(model.output)}</td>
-                        <td>
-                          {formatTokens(model.tokens)}
-                          <small>{model.requests} 次请求</small>
-                        </td>
-                        <td>
-                          {formatCost(model.cost)}
-                          <small>
-                            {model.cost === null
-                              ? `已知费用 ${formatCost(model.knownCost)}；${model.unknown + model.unpriced} 次尚不完整`
-                              : `$${model.cost.toFixed(6)} USD`}
-                          </small>
-                        </td>
-                      </tr>
-                    ))}
+                    {summary.models.map((model) => {
+                      const modelBilling = formatUsageBilling(model);
+                      return (
+                        <tr key={JSON.stringify([model.provider, model.model])}>
+                          <td>
+                            <strong>{model.model}</strong>
+                            <small>{model.provider}</small>
+                          </td>
+                          <td>{formatTokens(model.input)}</td>
+                          <td>{formatTokens(model.output)}</td>
+                          <td>
+                            {formatTokens(model.tokens)}
+                            <small>{model.requests} 次请求</small>
+                          </td>
+                          <td>
+                            {modelBilling.amount}
+                            <small>
+                              {modelBilling.pending ||
+                                `$${(model.cost ?? model.knownCost).toFixed(6)} USD`}
+                            </small>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -318,11 +322,8 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
               <EmptyState filtered={false} unavailable={unavailable} />
             )}
           </div>
-          {Boolean(totals && (totals.unknown || totals.unpriced)) && (
-            <p className="ls-info-note">
-              已知费用 {formatCost(totals!.knownCost)}；{totals!.unknown}{" "}
-              次用量未知，{totals!.unpriced} 次缺少单价，总额尚不完整。
-            </p>
+          {billing?.pending && (
+            <p className="ls-info-note">{billing.pending}</p>
           )}
           <div className="ls-activity-secondary">
             <div className="ls-design-card">
@@ -385,8 +386,8 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
             <summary>费用与统计如何计算</summary>
             <p>
               {formatExchangeRate()}
-              。人民币按汇率快照折算，非实时牌价。订阅调用展示 API
-              等值，不代表账单实扣；价格未知不视作免费。TPS
+              。费用按 API 实际用量与每次请求的价格快照计算；订阅调用按 API
+              等值记账，缺少用量或单价的请求单独列为待计费。TPS
               为客户端观测平均单请求吞吐。
             </p>
             <p>

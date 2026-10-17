@@ -19,7 +19,7 @@ export function PricingPreferences({ model }: { model: ModelConfig }) {
       <summary>直连模型的自定义计价</summary>
       <p>
         当前模型：{model.model}。单位为 USD / 百万
-        tokens；全部留空使用官方或目录价格。只影响后续请求的费用估算。
+        tokens；全部留空使用官方或目录价格。只影响后续请求的费用计算。
       </p>
       <form
         onSubmit={(event) => {

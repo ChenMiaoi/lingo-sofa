@@ -135,7 +135,7 @@ it("labels shared batch usage and cached requests clearly and rejects invalid bi
     tokens: 100,
     cost: 0.000048,
   });
-  expect(value.text).toBe("同批 3 段合计 · 100 Tokens · ≈ ¥0.000323");
+  expect(value.text).toBe("同批 3 段合计 · 100 Tokens · ¥0.000323");
   expect(value.title).toContain("不能逐段累加");
   expect(
     formatTranslationBilling({
@@ -181,7 +181,7 @@ it("keeps ID-aligned billing through batching and the inline DOM lifecycle", asy
   expect(document.querySelectorAll(".lingo-sofa-inline-usage")).toHaveLength(2);
   expect(
     document.querySelector("#a .lingo-sofa-inline-usage")?.textContent,
-  ).toBe("同批 2 段合计 · 100 Tokens · ≈ ¥0.000323");
+  ).toBe("同批 2 段合计 · 100 Tokens · ¥0.000323");
   expect(page.trackedCount).toBe(2);
   page.stop();
   expect(document.querySelector(".lingo-sofa-inline-usage")).toBeNull();
@@ -215,7 +215,7 @@ it("retains billing in a Discord message state and clears it when edited", async
   expect(app.get(message)).toBeUndefined();
   app.clear();
 });
-it("shows subscription usage as API-equivalent CNY without claiming a subscription charge", async () => {
+it("records subscription usage as API-equivalent CNY from measured tokens and prices", async () => {
   const { measure } = await import("@lingo-sofa/provider-pi");
   const { resolvePricing } = await import("@lingo-sofa/provider-pi");
   const model = settingsSchema.parse({
@@ -264,8 +264,9 @@ it("shows subscription usage as API-equivalent CNY without claiming a subscripti
     cost: measured.usage!.cost.total,
     pricing,
   });
-  expect(display.text).toContain("110 Tokens · API 等值 ≈ ¥");
-  expect(display.title).toContain("不代表订阅账单实扣");
+  expect(display.text).toContain("110 Tokens · API 等值 ¥");
+  expect(display.title).toContain("按实际 Tokens 与 API 单价计入 API 等值费用");
+  expect(display.title).not.toMatch(/估算|不代表.*实扣/);
   expect(
     formatTranslationBilling({
       source: "request",

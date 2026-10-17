@@ -1,5 +1,5 @@
 import {
-  formatCost,
+  formatUsageBilling,
   formatExchangeRate,
   formatTokens,
 } from "@lingo-sofa/ui-shared";
@@ -59,8 +59,9 @@ export function createPageUsage(
         return;
       content.hidden = false;
       hasData = true;
+      const billing = formatUsageBilling(usage.totals);
       panel.querySelector<HTMLElement>(".usage-total strong")!.textContent =
-        formatCost(usage.totals.cost);
+        billing.amount;
       panel.querySelector<HTMLElement>(".usage-total")!.title =
         formatExchangeRate();
       metric("tokens", formatTokens(usage.totals.tokens));
@@ -82,19 +83,17 @@ export function createPageUsage(
         const cost = document.createElement("span");
         const detail = document.createElement("small");
         name.textContent = model.model;
-        cost.textContent = formatCost(model.cost);
-        detail.textContent = `${model.provider} · ${formatTokens(model.tokens)} tokens · ${model.requests} 次请求`;
+        const modelBilling = formatUsageBilling(model);
+        cost.textContent = modelBilling.amount;
+        detail.textContent = `${model.provider} · ${formatTokens(model.tokens)} tokens · ${model.requests} 次请求${modelBilling.pending ? ` · ${modelBilling.pending}` : ""}`;
         row.append(name, cost, detail);
         rows.append(row);
       }
       panel.querySelector<HTMLElement>(".usage-total small")!.textContent =
-        usage.totals.cost === null
-          ? `已知费用 ${formatCost(usage.totals.knownCost)}，总额尚不完整`
-          : `API 原值 $${usage.totals.cost.toFixed(6)} · 按请求单价计算`;
+        "输入、输出与缓存分别按请求单价计费";
       panel.querySelector<HTMLElement>(".usage-meta")!.textContent =
-        usage.totals.unknown || usage.totals.unpriced
-          ? `${usage.totals.unknown} 次用量未知，${usage.totals.unpriced} 次缺少单价；未知部分不计作免费。`
-          : "输入、输出与缓存分别按 API 单价计算；订阅调用按 API 等值折算。本地译文缓存命中不产生新费用。";
+        billing.pending ||
+        "费用按实际 API 用量与请求单价计算；订阅调用按 API 等值记账。本地译文缓存命中不产生新费用。";
       message.setAttribute("role", "status");
       message.textContent = usage.totals.requests
         ? ""

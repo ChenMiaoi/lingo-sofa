@@ -6,6 +6,7 @@ import {
 } from "@lingo-sofa/translation-core";
 import { usageRecordSchema, usageSummarySchema } from "@lingo-sofa/protocol";
 import { summarizeAvailableUsage } from "../apps/browser-extension/src/page-usage-data.js";
+import { formatUsageBilling } from "@lingo-sofa/ui-shared";
 
 const scope = "web:12:https://example.test:document:page-digest";
 const record = usageRecordSchema.parse({
@@ -89,6 +90,7 @@ describe("all-client model usage", () => {
   it("uses each request's API price snapshot and preserves unknown/partial cost", () => {
     const priced = {
       ...record,
+      costKnown: false,
       pricing: {
         source: "official" as const,
         period: "fixed" as const,
@@ -116,8 +118,43 @@ describe("all-client model usage", () => {
       unpriced: 1,
     });
     expect(summary.totals.knownCost).toBeCloseTo(0.0000202);
+    expect(formatUsageBilling(summary.totals)).toEqual({
+      amount: "¥0.000136",
+      pending:
+        "待计费 2 次（1 次缺少用量，1 次缺少单价），补齐后计入累计费用。",
+    });
+    expect(summary.totals.cost).toBeNull();
     expect(priced.usage!.cost.total).toBe(0.003);
     expect(mergeUsageSummaries(summarizeModels([]), summary)).toEqual(summary);
+  });
+  it("distinguishes pending billing from priced zero and an empty ledger", () => {
+    const pending = summarizeModels([
+      { ...record, usage: null, costKnown: false },
+    ]);
+    expect(formatUsageBilling(pending.totals).amount).toBe("待计费");
+    expect(
+      formatUsageBilling(
+        summarizeModels([{ ...record, costKnown: false }]).totals,
+      ).amount,
+    ).toBe("待计费");
+    const zero = {
+      ...record,
+      requestId: crypto.randomUUID(),
+      usage: {
+        ...record.usage!,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    };
+    expect(
+      formatUsageBilling(
+        summarizeModels([zero, { ...record, usage: null, costKnown: false }])
+          .totals,
+      ).amount,
+    ).toBe("¥0.000000");
+    expect(formatUsageBilling(summarizeModels([]).totals)).toEqual({
+      amount: "¥0.000000",
+      pending: "",
+    });
   });
   it("keeps providers distinct and reports an old assistant instead of claiming a complete total", () => {
     expect(
