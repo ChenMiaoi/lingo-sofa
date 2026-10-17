@@ -1,14 +1,14 @@
 {
   "name": "@lingo-sofa/provider-web",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@lingo-sofa/protocol": "0.1.7",
-    "@lingo-sofa/translation-core": "0.1.7",
+    "@lingo-sofa/protocol": "0.1.8",
+    "@lingo-sofa/translation-core": "0.1.8",
     "marked": "18.0.11"
   },
   "license": "GPL-3.0-or-later"

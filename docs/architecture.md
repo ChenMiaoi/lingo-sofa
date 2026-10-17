@@ -1,18 +1,22 @@
 # 架构与实现
 
-总体设计见 [技术方案](lingo-sofa-plan.md)。当前协议版本为 1，各应用版本为 0.1.0。协议或 Bridge 配置 schema 改动后需重新执行 `package:native` 更新 native executable，旧产物会拒绝不兼容配置。
+总体设计见 [技术方案](lingo-sofa-plan.md)。当前协议版本为 1，应用和共享包的版本在各 workspace 的 `package.json` 同步管理。协议或 Bridge 配置 schema 改动后需重新执行 `package:native` 更新 native executable，旧产物会拒绝不兼容配置。
 
 ## 依赖方向
 
 ```text
 browser-extension → web-extraction / translation-core / provider-pi/browser / protocol / ui-shared
+browser-extension → provider-web → translation-core / protocol
 Discord plugin    → translation-core / protocol / ui-shared → authenticated loopback Bridge
 Discord native / Native Host → local-runtime → installed Node Bridge
 Pi Bridge         → translation-core / provider-pi/node / protocol / constrained Pi SDK
+Pi Bridge         → provider-web → translation-core / protocol
 translation-core  → protocol / glossary
 ```
 
 共享核心不导入 DOM、Discord、浏览器或 Node 专属实现。宿主提供模型客户端、凭证、持久化检查点与统计回调。`web-extraction` 只处理网页 DOM；Discord 使用自身消息状态和宿主 React，不捆绑另一份 React。
+
+v0.1.8 起，翻译引擎与 Ask 模型独立配置。`provider-web` 通过宿主注入的网络接口接入必应和谷歌免 Key 翻译，复用共享队列、缓存和结果协议，不创建模型会话。无模型凭证时默认使用必应；已有模型配置与手动选择会保留。配置迁移、权限及计量边界见 [翻译引擎](translation-engines.md)。
 
 ## 网页生命周期
 
