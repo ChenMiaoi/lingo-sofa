@@ -1,3 +1,4 @@
+import { pollWhileVisible } from "./visible-polling.js";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
@@ -51,30 +52,28 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
   const [limit, setLimit] = useState(50);
   const [balance, setBalance] = useState("未查询");
   const [querying, setQuerying] = useState(false);
-  useEffect(() => {
-    let active = true;
-    async function refresh() {
-      try {
-        const reply = await browser.runtime.sendMessage({
-          action: "state",
-          includeUsageSummary: section === "usage",
-        });
-        if (reply?.ok === false) throw new Error(reply.error);
-        if (active) {
+  useEffect(
+    () =>
+      pollWhileVisible(
+        async () => {
+          const reply = await browser.runtime.sendMessage({
+            action: "state",
+            includeUsageSummary: section === "usage",
+          });
+          if (reply?.ok === false) throw new Error(reply.error);
+          return reply as ActivityState;
+        },
+        (reply) => {
           setState(reply);
           setRefreshError("");
-        }
-      } catch {
-        if (active) setRefreshError("无法更新用量，当前显示上次读取的数据。");
-      }
-    }
-    void refresh();
-    const timer = setInterval(() => void refresh(), 2_000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [section]);
+        },
+        () =>
+          setRefreshError(
+            "无法更新用量，已读取的数据会保留；页面可见时自动重试。",
+          ),
+      ),
+    [section],
+  );
   const settings = state?.executionSettings ?? state?.settings;
   const bridgeError = state?.bridgeError;
   const unavailable =
@@ -155,7 +154,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
       {refreshError && <p role="alert">{refreshError}</p>}
       {bridgeError && <p role="alert">{bridgeError}</p>}
       {state?.summaryError && <p role="alert">{state.summaryError}</p>}
-      {!state && !error && <p role="status">正在读取用量…</p>}
+      {!state && !refreshError && <p role="status">正在读取用量…</p>}
       {historyPage && (
         <div className="ls-activity-toolbar" aria-label="筛选用量记录">
           {filter(
