@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { browser } from "wxt/browser";
 import { importGlossary, exportGlossary } from "./glossary-files.js";
 import { settingsSchema } from "@lingo-sofa/protocol";
@@ -18,6 +18,19 @@ export function GlossaryPage({
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [invalid, setInvalid] = useState<Set<string>>(new Set());
+  const [focusTarget, setFocusTarget] = useState<string>();
+  const inputs = useRef(new Map<string, HTMLInputElement>());
+  const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!focusTarget) return;
+    const input = inputs.current.get(focusTarget);
+    if (input) {
+      input.focus();
+      input.scrollIntoView({ block: "nearest" });
+      setFocusTarget(undefined);
+    }
+  }, [focusTarget, terms, query]);
   useEffect(() => {
     void browser.runtime
       .sendMessage({ action: "state", localOnly: true })
@@ -46,24 +59,50 @@ export function GlossaryPage({
     setDirty(true);
     setNotice("");
     setError("");
+    setInvalid(new Set());
+  }
+  function addTerm() {
+    if (!ready || busy || terms.length >= 200) return;
+    const term = { id: crypto.randomUUID(), source: "", target: "" };
+    setQuery("");
+    setTerms([...terms, term]);
+    changed();
+    setFocusTarget(`${term.id}:source`);
   }
   return (
     <section className="ls-activity" aria-label="术语表管理">
       <header className="ls-design-heading">
-        <span className="ls-overline">GLOSSARY</span>
         <h1>术语表</h1>
         <p>为专业词汇约定译法，让每一次翻译保持一致。</p>
       </header>
       <form
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            (event.ctrlKey || event.metaKey) &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            if (!busy) event.currentTarget.requestSubmit();
+          }
+        }}
         onSubmit={(event) => {
           event.preventDefault();
+          if (!ready || busy) return;
           setError("");
           setNotice("");
           const glossary = terms.map(({ source, target }) => ({
             source: source.trim(),
             target: target.trim(),
           }));
-          if (glossary.some((term) => !term.source || !term.target)) {
+          const empty = terms.flatMap((term) => [
+            ...(!term.source.trim() ? [`${term.id}:source`] : []),
+            ...(!term.target.trim() ? [`${term.id}:target`] : []),
+          ]);
+          if (empty.length) {
+            setInvalid(new Set(empty));
+            setQuery("");
+            setFocusTarget(empty[0]);
             setError("请填写每一项的原词与译词，或删除空白项。");
             return;
           }
@@ -71,6 +110,16 @@ export function GlossaryPage({
             new Set(glossary.map((term) => term.source)).size !==
             glossary.length
           ) {
+            const seen = new Set<string>();
+            const duplicate = terms.find((term) => {
+              const value = term.source.trim();
+              if (seen.has(value)) return true;
+              seen.add(value);
+              return false;
+            })!;
+            setInvalid(new Set([`${duplicate.id}:source`]));
+            setQuery("");
+            setFocusTarget(`${duplicate.id}:source`);
             setError("原词不能重复，请合并重复的术语。");
             return;
           }
@@ -110,14 +159,7 @@ export function GlossaryPage({
             <button
               type="button"
               disabled={!ready || busy || terms.length >= 200}
-              onClick={() => {
-                setQuery("");
-                setTerms([
-                  ...terms,
-                  { id: crypto.randomUUID(), source: "", target: "" },
-                ]);
-                changed();
-              }}
+              onClick={addTerm}
             >
               ＋ 添加术语
             </button>
@@ -130,9 +172,17 @@ export function GlossaryPage({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <label>
-              导入 JSON / TSV
+            <div className="ls-glossary-import">
+              <button
+                type="button"
+                disabled={!ready || busy}
+                onClick={() => fileInput.current?.click()}
+              >
+                导入 JSON / TSV
+              </button>
               <input
+                ref={fileInput}
+                className="ls-glossary-file-input"
                 type="file"
                 aria-label="导入术语文件"
                 accept=".json,.tsv,application/json,text/tab-separated-values"
@@ -173,7 +223,7 @@ export function GlossaryPage({
                     .finally(() => setBusy(false));
                 }}
               />
-            </label>
+            </div>
             <button
               type="button"
               disabled={!ready || busy || !terms.length}
@@ -210,6 +260,15 @@ export function GlossaryPage({
             导入会合并已有术语；译法冲突时保留原草稿。TSV
             每行用制表符分隔原词与译词，不含标题行。
           </p>
+          {error && (
+            <p
+              className="ls-glossary-feedback"
+              id="ls-glossary-error"
+              role="alert"
+            >
+              {error}
+            </p>
+          )}
           {!terms.length && (
             <div className="ls-activity-empty">
               <span aria-hidden="true">Aa</span>
@@ -234,11 +293,35 @@ export function GlossaryPage({
                 .map(({ term, index }) => (
                   <div className="ls-glossary-row" key={term.id}>
                     <input
+                      ref={(input) => {
+                        const key = `${term.id}:source`;
+                        if (input) inputs.current.set(key, input);
+                        else inputs.current.delete(key);
+                      }}
+                      aria-invalid={
+                        invalid.has(`${term.id}:source`) || undefined
+                      }
+                      aria-describedby={
+                        invalid.has(`${term.id}:source`)
+                          ? "ls-glossary-error"
+                          : undefined
+                      }
                       aria-label={`原词 ${index + 1}`}
                       placeholder="例如 kernel"
                       maxLength={100}
                       value={term.source}
                       disabled={busy}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          !event.ctrlKey &&
+                          !event.metaKey &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          setFocusTarget(`${term.id}:target`);
+                        }
+                      }}
                       onChange={(event) => {
                         setTerms(
                           terms.map((t) =>
@@ -251,11 +334,42 @@ export function GlossaryPage({
                       }}
                     />
                     <input
+                      ref={(input) => {
+                        const key = `${term.id}:target`;
+                        if (input) inputs.current.set(key, input);
+                        else inputs.current.delete(key);
+                      }}
+                      aria-invalid={
+                        invalid.has(`${term.id}:target`) || undefined
+                      }
+                      aria-describedby={
+                        invalid.has(`${term.id}:target`)
+                          ? "ls-glossary-error"
+                          : undefined
+                      }
                       aria-label={`译词 ${index + 1}`}
                       placeholder="例如 内核"
                       maxLength={100}
                       value={term.target}
                       disabled={busy}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          !event.ctrlKey &&
+                          !event.metaKey &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          if (!term.source.trim() || !term.target.trim()) {
+                            setFocusTarget(
+                              `${term.id}:${term.source.trim() ? "target" : "source"}`,
+                            );
+                          } else if (terms[index + 1]) {
+                            setQuery("");
+                            setFocusTarget(`${terms[index + 1]!.id}:source`);
+                          } else addTerm();
+                        }
+                      }}
                       onChange={(event) => {
                         setTerms(
                           terms.map((t) =>
@@ -291,6 +405,7 @@ export function GlossaryPage({
           <footer className="ls-glossary-footer">
             <span>
               {dirty ? "有未保存的更改" : "最多 200 项 · 保存在此浏览器"}
+              <small>Enter 下一项 · Ctrl / ⌘ Enter 保存</small>
             </span>
             <button
               type="submit"
@@ -301,7 +416,6 @@ export function GlossaryPage({
             </button>
           </footer>
         </div>
-        {error && <p role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}
       </form>
       <p className="ls-info-note">

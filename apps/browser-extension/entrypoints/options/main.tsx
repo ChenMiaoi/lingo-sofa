@@ -1,7 +1,6 @@
 import { installDocumentAppearance } from "../../src/appearance.js";
 import { createRoot } from "react-dom/client";
 import { ProviderPage } from "../../src/ProviderPage.js";
-import "../popup/style.css";
 document.body.classList.add("options-page");
 installDocumentAppearance(document);
 // Keep bookmarked activity links within the unified settings workspace.
@@ -12,3 +11,4 @@ if (url.searchParams.get("view") === "activity") {
   history.replaceState(null, "", url);
 }
 createRoot(document.getElementById("root")!).render(<ProviderPage />);
+import "../../src/base.css";

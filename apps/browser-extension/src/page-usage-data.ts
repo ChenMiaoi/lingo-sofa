@@ -15,11 +15,20 @@ export function summarizeAvailableUsage(
   mode: "direct" | "bridge",
   bridgeSummary?: UsageSummary,
 ): PageUsageSnapshot {
+  return mergeAvailableUsage(
+    summarizeModels(records.filter((record) => record.mode === "direct")),
+    mode,
+    bridgeSummary,
+  );
+}
+
+export function mergeAvailableUsage(
+  local: UsageSummary,
+  mode: "direct" | "bridge",
+  bridgeSummary?: UsageSummary,
+): PageUsageSnapshot {
   if (mode === "bridge" && !bridgeSummary)
     throw new Error("请更新本地助手，以读取全部客户端的用量汇总。");
-  const local = summarizeModels(
-    records.filter((record) => record.mode === "direct"),
-  );
   return {
     mode,
     coverage: bridgeSummary ? "all-clients" : "browser",

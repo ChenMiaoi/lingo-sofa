@@ -11,9 +11,10 @@ test("guides first website access without enabling translation and supports retr
 import {createRoot} from "react-dom/client";
 import {ReadingAccess} from "./apps/browser-extension/src/ReadingAccess.tsx";
 window.access={allow:false,granted:false,requests:[],messages:[]};
+window.saved={};
 window.permissionListeners={added:new Set(),removed:new Set()};
 const event=listeners=>({addListener:listener=>listeners.add(listener),removeListener:listener=>listeners.delete(listener)});
-window.browser={permissions:{onAdded:event(window.permissionListeners.added),onRemoved:event(window.permissionListeners.removed),contains:async()=>window.access.granted,request:async(value)=>{window.access.requests.push(value);window.access.granted=window.access.allow;return window.access.allow;}},runtime:{sendMessage:async(value)=>{window.access.messages.push(value);return {ok:true};}}};
+window.browser={storage:{local:{get:async key=>({[key]:window.saved[key]}),set:async value=>{Object.assign(window.saved,value);}}},permissions:{onAdded:event(window.permissionListeners.added),onRemoved:event(window.permissionListeners.removed),contains:async()=>window.access.granted,request:async(value)=>{window.access.requests.push(value);window.access.granted=window.access.allow;return window.access.allow;}},runtime:{sendMessage:async(value)=>{window.access.messages.push(value);return {ok:true};}}};
 createRoot(document.getElementById("root")).render(React.createElement(ReadingAccess));`,
       resolveDir: process.cwd(),
       loader: "js",
@@ -39,10 +40,14 @@ createRoot(document.getElementById("root")).render(React.createElement(ReadingAc
       },
     ],
   });
-  const css = await readFile(
-    "apps/browser-extension/entrypoints/popup/style.css",
-    "utf8",
-  );
+  const css = (
+    await Promise.all(
+      [
+        "apps/browser-extension/src/base.css",
+        "apps/browser-extension/src/settings-workspace.css",
+      ].map((path) => readFile(path, "utf8")),
+    )
+  ).join("\n");
   await page.setContent(
     `<style>${css}</style><body class="options-page"><main><div id="root"></div></main></body>`,
   );

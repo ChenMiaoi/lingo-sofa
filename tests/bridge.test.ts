@@ -249,6 +249,10 @@ it("authenticates loopback clients and uses isolated tool-free Pi SDK sessions",
       },
     });
     expect(aggregate).not.toHaveProperty("usage");
+    expect(aggregate).toMatchObject({
+      queue: { running: 0, pending: 0 },
+      cacheStats: expect.any(Object),
+    });
     expect(JSON.stringify(aggregate)).not.toContain("account:two");
     await post({
       version: 1,

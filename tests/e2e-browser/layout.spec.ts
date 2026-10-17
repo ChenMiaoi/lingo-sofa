@@ -34,6 +34,18 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(
         page.getByRole("heading", { name: "用量与费用", exact: true }),
       ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "设置网页悬浮球" }),
+      ).toHaveCount(0);
+      await expect(page.locator(".ls-activity-heading")).toContainText(
+        "本浏览器的累计消耗",
+      );
+      await expect(page.locator(".ls-activity-heading")).not.toContainText(
+        "全部客户端",
+      );
+      await expect(
+        page.getByRole("region", { name: "网页悬浮入口授权" }),
+      ).toHaveCount(0);
       await expect(page).toHaveURL(/options.html#usage$/);
       await page.keyboard.press("Tab");
       await expect(page.getByRole("link", { name: /LingoSofa/ })).toBeFocused();
@@ -78,21 +90,44 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(
         page.getByRole("heading", { name: "还没有请求记录" }),
       ).toBeVisible();
+      await expect(page.locator('[aria-label="筛选用量记录"]')).toHaveCount(0);
       await mkdir(".cache/ui", { recursive: true });
       for (const width of [1200, 760, 392]) {
         await page.setViewportSize({ width, height: 900 });
-        for (const section of [
-          "用量与费用",
-          "请求历史",
-          "术语表",
-          "隐私与数据",
-        ]) {
-          await nav.getByRole("button", { name: section, exact: true }).click();
+        if (width <= 700) {
+          await expect(page.getByLabel("搜索设置")).not.toBeVisible();
+          await page.getByRole("button", { name: "搜索", exact: true }).click();
+          await expect(page.getByLabel("搜索设置")).toBeFocused();
+          await page.getByLabel("搜索设置").press("Escape");
+          await expect(
+            page.getByRole("button", { name: "搜索", exact: true }),
+          ).toBeFocused();
+        }
+        for (const [id, section] of [
+          ["usage", "用量与费用"],
+          ["history", "请求历史"],
+          ["glossary", "术语表"],
+          ["privacy", "隐私与数据"],
+        ] as const) {
+          if (width <= 700) {
+            await page.getByLabel("设置栏目").selectOption(id);
+          } else {
+            await nav
+              .getByRole("button", { name: section, exact: true })
+              .click();
+          }
           expect(
             await page.evaluate(
               () => document.documentElement.scrollWidth <= innerWidth,
             ),
           ).toBe(true);
+          if (width <= 700) {
+            expect(
+              (await page
+                .getByRole("heading", { name: section, exact: true })
+                .boundingBox())!.y,
+            ).toBeLessThan(180);
+          }
           await page.screenshot({
             path: `.cache/ui/settings-${section}-${colorScheme}-${width}.png`,
           });

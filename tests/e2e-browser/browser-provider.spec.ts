@@ -215,7 +215,10 @@ test("unifies browser provider settings and the three floating reading controls"
     await expect(
       options.getByRole("heading", { name: "问答设置", exact: true }),
     ).toBeVisible();
-    await options.getByText("连接方式", { exact: true }).click();
+    await options
+      .getByRole("navigation", { name: "设置导航" })
+      .getByRole("button", { name: "连接方式", exact: true })
+      .click();
     for (const theme of ["light", "dark"] as const) {
       await options.emulateMedia({ colorScheme: theme });
       await options.setViewportSize({ width: 400, height: 800 });

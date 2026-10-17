@@ -1,4 +1,5 @@
 import * as React from "react";
+import "./assistant-setup.css";
 import { browser } from "wxt/browser";
 import { assistantConnectionSchema } from "@lingo-sofa/protocol";
 import { assistantDownloads } from "@lingo-sofa/local-runtime/release";
@@ -107,10 +108,7 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
       </section>
     );
   return (
-    <section
-      aria-label="本地助手安装"
-      className="settings-card assistant-setup"
-    >
+    <section aria-label="本地助手安装" className="assistant-setup">
       <header className="assistant-heading">
         <div>
           <span className="assistant-eyebrow">本机连接</span>

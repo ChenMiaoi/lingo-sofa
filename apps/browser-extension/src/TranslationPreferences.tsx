@@ -17,42 +17,53 @@ export function TranslationPreferences({
   return (
     <>
       {ready && <AISettings client={client} section="translation" embedded />}
-      <div className="ls-design-card">
-        {row(
-          "目标语言",
-          "原文语言自动识别。",
-          <select
-            aria-label="目标语言"
-            value={settings?.targetLanguage ?? "简体中文"}
-            disabled={busy || !settings}
-            onChange={(event) =>
-              void update({ targetLanguage: event.target.value })
-            }
-          >
-            {Array.from(
-              new Set([
-                settings?.targetLanguage ?? "简体中文",
-                "简体中文",
-                "繁體中文",
-                "English",
-                "日本語",
-                "한국어",
-                "Français",
-                "Deutsch",
-                "Español",
-              ]),
-            ).map((language) => (
-              <option key={language}>{language}</option>
-            ))}
-          </select>,
-        )}
-        {row(
-          "显示方式",
-          "适用于单行、段落与整页翻译。",
-          <span className="ls-readonly-value">双语 · 译文在下</span>,
-        )}
+      <div className="ls-reading-settings">
+        <div className="ls-design-card">
+          {row(
+            "目标语言",
+            "原文语言自动识别。",
+            <select
+              aria-label="目标语言"
+              value={settings?.targetLanguage ?? "简体中文"}
+              disabled={busy || !settings}
+              onChange={(event) =>
+                void update({ targetLanguage: event.target.value })
+              }
+            >
+              {Array.from(
+                new Set([
+                  settings?.targetLanguage ?? "简体中文",
+                  "简体中文",
+                  "繁體中文",
+                  "English",
+                  "日本語",
+                  "한국어",
+                  "Français",
+                  "Deutsch",
+                  "Español",
+                ]),
+              ).map((language) => (
+                <option key={language}>{language}</option>
+              ))}
+            </select>,
+          )}
+          {row(
+            "显示方式",
+            "适用于单行、段落与整页翻译。",
+            <span className="ls-readonly-value">双语 · 译文在下</span>,
+          )}
+        </div>
+        <BilingualPreview language={settings?.targetLanguage ?? "简体中文"} />
       </div>
-      <BilingualPreview language={settings?.targetLanguage ?? "简体中文"} />
+      <div className="ls-reading-start">
+        <div>
+          <strong>试试双语阅读</strong>
+          <p>在网页中点击工具栏的 LingoSofa，再选择“翻译页面”。</p>
+        </div>
+        <a href="https://example.com" target="_blank" rel="noreferrer">
+          打开示例网页 ↗
+        </a>
+      </div>
       <div className="ls-design-card">
         <h2>网站规则</h2>
         <p>在网页的 LingoSofa 面板中，可为当前网站开启自动翻译。</p>

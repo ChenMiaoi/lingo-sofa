@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 export const sections = [
   ["translation", "翻译偏好"],
   ["intelligence", "问答设置"],
@@ -11,6 +11,16 @@ export const sections = [
   ["appearance", "外观"],
   ["privacy", "隐私与数据"],
 ] as const;
+
+const sectionGroups = [
+  ["阅读", ["translation", "shortcuts"]],
+  ["模型与连接", ["intelligence", "accounts", "connection"]],
+  ["数据", ["usage", "glossary", "history"]],
+  ["应用", ["appearance", "privacy"]],
+] as const;
+
+const sectionLabel = (id: string) =>
+  sections.find(([key]) => key === id)?.[1] ?? id;
 
 const settingsIndex = [
   ["translation", "翻译引擎", "必应 谷歌 免费 bing google 模型"],
@@ -41,10 +51,16 @@ export function SettingsNavigation({
   content: RefObject<HTMLDivElement | null>;
 }) {
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const search = useRef<HTMLInputElement>(null);
+  const searchToggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (searchOpen) search.current?.focus();
+  }, [searchOpen]);
   const [target, setTarget] = useState<{ title: string }>();
   const needle = query.trim().toLocaleLowerCase();
   const results = settingsIndex.filter(([id, title, keywords]) =>
-    `${sections.find(([key]) => key === id)?.[1]} ${title} ${keywords}`
+    `${sectionLabel(id)} ${title} ${keywords}`
       .toLocaleLowerCase()
       .includes(needle),
   );
@@ -83,14 +99,40 @@ export function SettingsNavigation({
   }, [target, section, content]);
   return (
     <>
-      <input
-        className="ls-settings-search"
-        type="search"
-        aria-label="搜索设置"
-        placeholder="搜索设置，如语言、缓存"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
+      <button
+        ref={searchToggle}
+        className="ls-settings-search-toggle"
+        aria-label="搜索"
+        aria-expanded={searchOpen}
+        aria-controls="ls-settings-search-panel"
+        onClick={() => {
+          setSearchOpen(!searchOpen);
+          if (searchOpen) setQuery("");
+        }}
+      >
+        ⌕
+      </button>
+      <div
+        id="ls-settings-search-panel"
+        className={`ls-settings-search-box${searchOpen ? " ls-search-open" : ""}`}
+      >
+        <input
+          ref={search}
+          className="ls-settings-search"
+          type="search"
+          aria-label="搜索设置"
+          placeholder="搜索设置，如语言、缓存"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setQuery("");
+              setSearchOpen(false);
+              searchToggle.current?.focus();
+            }
+          }}
+        />
+      </div>
       {needle ? (
         <nav aria-label="设置搜索结果">
           {results.map(([id, title]) => (
@@ -100,10 +142,11 @@ export function SettingsNavigation({
                 onSelect(id);
                 setTarget({ title });
                 setQuery("");
+                setSearchOpen(false);
               }}
             >
               <strong>{title}</strong>
-              <small>{sections.find(([key]) => key === id)?.[1]}</small>
+              <small>{sectionLabel(id)}</small>
             </button>
           ))}
           {!results.length && (
@@ -113,20 +156,50 @@ export function SettingsNavigation({
           )}
         </nav>
       ) : (
-        <nav aria-label="设置导航">
-          {sections.map(([id, label]) => (
-            <button
-              key={id}
-              aria-current={section === id ? "page" : undefined}
-              onClick={() => {
-                setTarget(undefined);
-                onSelect(id);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        <>
+          <nav className="ls-settings-desktop-nav" aria-label="设置导航">
+            {sectionGroups.map(([group, ids]) => (
+              <div className="ls-settings-nav-group" key={group}>
+                <span>{group}</span>
+                {ids.map((id) => (
+                  <button
+                    key={id}
+                    aria-current={section === id ? "page" : undefined}
+                    onClick={() => {
+                      setTarget(undefined);
+                      onSelect(id);
+                    }}
+                  >
+                    {sectionLabel(id)}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <nav className="ls-settings-mobile-nav" aria-label="设置导航">
+            <label>
+              <span>设置栏目</span>
+              <select
+                aria-label="设置栏目"
+                value={section}
+                onChange={(event) => {
+                  setTarget(undefined);
+                  onSelect(event.target.value);
+                }}
+              >
+                {sectionGroups.map(([group, ids]) => (
+                  <optgroup key={group} label={group}>
+                    {ids.map((id) => (
+                      <option key={id} value={id}>
+                        {sectionLabel(id)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          </nav>
+        </>
       )}
     </>
   );

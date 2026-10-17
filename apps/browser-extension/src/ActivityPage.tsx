@@ -5,15 +5,12 @@ import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import type { Settings, UsageRecord } from "@lingo-sofa/protocol";
 import { PricingPreferences } from "./PricingPreferences.js";
+import { RequestHistory, requestStatuses } from "./RequestHistory.js";
 import type { PageUsageSnapshot } from "./page-usage-data.js";
 import { summarizeAvailableUsage } from "./page-usage-data.js";
-import { apiCost } from "@lingo-sofa/translation-core";
 import {
-  formatCost,
   formatUsageBilling,
-  formatTokens,
-  formatSpeed,
-  formatPricing,
+  formatUsageTokens,
   formatExchangeRate,
 } from "@lingo-sofa/ui-shared";
 
@@ -35,12 +32,6 @@ interface ActivityState {
     ratio: number | null;
   };
 }
-const statuses = {
-  success: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  unknown: "结果未知",
-};
 export function ActivityPage({ section }: { section: "usage" | "history" }) {
   const [state, setState] = useState<ActivityState>();
   const [error, setError] = useState("");
@@ -51,6 +42,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
   const [model, setModel] = useState("");
   const [scope, setScope] = useState("");
   const [status, setStatus] = useState("");
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const [balance, setBalance] = useState("未查询");
   const [querying, setQuerying] = useState(false);
@@ -98,6 +90,22 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
   const page = state?.historyPage;
   const records = bridgeError ? [] : (page?.records ?? []);
   const total = page?.total ?? 0;
+  const noHistory =
+    section === "history" && !unavailable && page?.allCount === 0;
+  const extraFilterCount = [source, provider, model, scope].filter(
+    Boolean,
+  ).length;
+  const filtersActive =
+    range !== "all" || Boolean(status) || extraFilterCount > 0;
+  const resetFilters = () => {
+    setRange("all");
+    setSource("");
+    setProvider("");
+    setModel("");
+    setScope("");
+    setStatus("");
+    setOffset(0);
+  };
   const pageOffset = page?.offset ?? 0;
   const timeZone = settings?.timeZone ?? "Asia/Shanghai";
   const summary =
@@ -135,14 +143,15 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
     >
       <header className="ls-design-heading ls-activity-heading">
         <div>
-          <span className="ls-overline">
-            {historyPage ? "ACTIVITY" : "OVERVIEW"}
-          </span>
           <h1>{historyPage ? "请求历史" : "用量与费用"}</h1>
           <p>
             {historyPage
               ? "回看翻译与问答的请求状态、耗时和消耗。这里不保存正文。"
-              : "全部客户端的累计消耗，按模型汇总并按 API 单价计算。"}
+              : summary?.coverage === "all-clients"
+                ? "全部客户端的累计消耗，按模型汇总并按 API 单价计算。"
+                : summary
+                  ? "本浏览器的累计消耗，按模型汇总并按 API 单价计算。"
+                  : "按模型查看翻译与问答的累计消耗。"}
           </p>
         </div>
         <span className="ls-status-chip">
@@ -154,118 +163,166 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
       {bridgeError && <p role="alert">{bridgeError}</p>}
       {state?.summaryError && <p role="alert">{state.summaryError}</p>}
       {!state && !refreshError && <p role="status">正在读取用量…</p>}
-      {historyPage && (
-        <div className="ls-activity-toolbar" aria-label="筛选用量记录">
-          {filter(
-            "查看范围",
-            range,
-            setRange,
-            <>
-              <option value="all">全部可用记录</option>
-              <option value="day">今日</option>
-              <option value="month">本月</option>
-            </>,
+      {noHistory && (
+        <div className="ls-design-card ls-history-first-run">
+          <EmptyState filtered={false} unavailable={false} />
+          <a href="#translation">查看翻译偏好 →</a>
+          {filtersActive && (
+            <button type="button" onClick={resetFilters}>
+              清除筛选
+            </button>
           )}
-          {filter(
-            "来源",
-            source,
-            setSource,
-            <>
-              <option value="">全部来源</option>
-              <option value="web">浏览器</option>
-              <option value="discord">Discord</option>
-            </>,
-          )}
-          {filter(
-            "供应商",
-            provider,
-            setProvider,
-            <>
-              <option value="">全部供应商</option>
-              {(page?.providers ?? []).map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </>,
-          )}
-          {filter(
-            "模型",
-            model,
-            setModel,
-            <>
-              <option value="">全部模型</option>
-              {(page?.models ?? []).map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </>,
-          )}
-          {historyPage &&
-            filter(
+        </div>
+      )}
+      {historyPage && state && !unavailable && !noHistory && (
+        <div className="ls-activity-filters" aria-label="筛选用量记录">
+          <div className="ls-activity-primary-filters">
+            {filter(
+              "查看范围",
+              range,
+              setRange,
+              <>
+                <option value="all">全部可用记录</option>
+                <option value="day">今日</option>
+                <option value="month">本月</option>
+              </>,
+            )}
+            {filter(
               "请求状态",
               status,
               setStatus,
               <>
                 <option value="">全部状态</option>
-                {Object.entries(statuses).map(([id, label]) => (
+                {Object.entries(requestStatuses).map(([id, label]) => (
                   <option key={id} value={id}>
                     {label}
                   </option>
                 ))}
               </>,
             )}
-          {historyPage &&
-            filter(
-              "页面 / 频道范围",
-              scope,
-              setScope,
-              <>
-                <option value="">全部范围</option>
-                {(page?.scopes ?? []).map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </>,
+            <button
+              type="button"
+              aria-expanded={moreFiltersOpen}
+              onClick={() => setMoreFiltersOpen((open) => !open)}
+            >
+              更多筛选{extraFilterCount ? ` · ${extraFilterCount}` : ""}
+            </button>
+            {filtersActive && (
+              <button type="button" onClick={resetFilters}>
+                清除筛选
+              </button>
             )}
+          </div>
+          {moreFiltersOpen && (
+            <div className="ls-activity-toolbar" id="ls-history-extra-filters">
+              {filter(
+                "来源",
+                source,
+                setSource,
+                <>
+                  <option value="">全部来源</option>
+                  <option value="web">浏览器</option>
+                  <option value="discord">Discord</option>
+                </>,
+              )}
+              {filter(
+                "供应商",
+                provider,
+                setProvider,
+                <>
+                  <option value="">全部供应商</option>
+                  {(page?.providers ?? []).map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
+                </>,
+              )}
+              {filter(
+                "模型",
+                model,
+                setModel,
+                <>
+                  <option value="">全部模型</option>
+                  {(page?.models ?? []).map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </>,
+              )}
+              {filter(
+                "页面 / 频道范围",
+                scope,
+                setScope,
+                <>
+                  <option value="">全部范围</option>
+                  {(page?.scopes ?? []).map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </>,
+              )}
+            </div>
+          )}
         </div>
       )}
-      <p className="ls-activity-caption">
-        {unavailable
-          ? "用量暂不可用"
-          : `${historyPage ? total : (totals?.requests ?? 0)} 次请求 · ${historyPage ? "请求明细" : summary?.coverage === "all-clients" ? "全部客户端" : "本浏览器直连"}`}{" "}
-        ·{" "}
-        {settings?.persistUsage
-          ? `本地保留 ${settings.retentionDays} 天`
-          : "仅当前会话"}{" "}
-        · {timeZone}
-      </p>
+      {!noHistory && state && (
+        <p className="ls-activity-caption">
+          {unavailable
+            ? "用量暂不可用"
+            : `${historyPage ? total : (totals?.requests ?? 0)} 次请求 · ${historyPage ? "请求明细" : summary?.coverage === "all-clients" ? "全部客户端" : "本浏览器直连"}`}{" "}
+          ·{" "}
+          {settings?.persistUsage
+            ? `本地保留 ${settings.retentionDays} 天`
+            : "仅当前会话"}{" "}
+          · {timeZone}
+        </p>
+      )}
       {!historyPage && (
         <>
           <div className="ls-activity-metrics" aria-label="用量摘要">
+            <div className="ls-cost-metric">
+              <span>累计 API 费用 · 人民币</span>
+              <strong title={formatExchangeRate()}>
+                {unavailable ? "暂不可用" : (billing?.amount ?? "正在读取…")}
+              </strong>
+              <small>
+                {billing?.pending
+                  ? billing.amount === "待计费"
+                    ? "等待用量或单价"
+                    : "已知费用；另有请求待计费"
+                  : "按每次请求的价格计算"}
+              </small>
+            </div>
+            <div>
+              <span>总 Tokens</span>
+              <strong>
+                {formatUsageTokens(
+                  unavailable ? null : (totals?.tokens ?? null),
+                  totals?.unknown,
+                )}
+              </strong>
+              <small>
+                {totals?.unknown
+                  ? `${totals.unknown} 次请求用量未知`
+                  : `${summary?.models.length ?? 0} 个模型的累计消耗`}
+              </small>
+            </div>
             <div>
               <span>输入 tokens</span>
               <strong>
-                {formatTokens(unavailable ? null : (totals?.input ?? null))}
+                {formatUsageTokens(
+                  unavailable ? null : (totals?.input ?? null),
+                  totals?.unknown,
+                )}
               </strong>
               <small>包含模型缓存读写</small>
             </div>
             <div>
               <span>输出 tokens</span>
               <strong>
-                {formatTokens(unavailable ? null : (totals?.output ?? null))}
+                {formatUsageTokens(
+                  unavailable ? null : (totals?.output ?? null),
+                  totals?.unknown,
+                )}
               </strong>
               <small>模型生成的内容</small>
-            </div>
-            <div className="ls-cost-metric">
-              <span>累计 API 费用 · 人民币</span>
-              <strong title={formatExchangeRate()}>
-                {unavailable ? "暂不可用" : (billing?.amount ?? "正在读取…")}
-              </strong>
-              <small>输入、输出与缓存分别按单价累计</small>
-            </div>
-            <div>
-              <span>总 Tokens</span>
-              <strong>
-                {formatTokens(unavailable ? null : (totals?.tokens ?? null))}
-              </strong>
-              <small>{summary?.models.length ?? 0} 个模型的累计消耗</small>
             </div>
           </div>
           <div className="ls-design-card ls-trend-card">
@@ -297,10 +354,14 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                             <strong>{model.model}</strong>
                             <small>{model.provider}</small>
                           </td>
-                          <td>{formatTokens(model.input)}</td>
-                          <td>{formatTokens(model.output)}</td>
                           <td>
-                            {formatTokens(model.tokens)}
+                            {formatUsageTokens(model.input, model.unknown)}
+                          </td>
+                          <td>
+                            {formatUsageTokens(model.output, model.unknown)}
+                          </td>
+                          <td>
+                            {formatUsageTokens(model.tokens, model.unknown)}
                             <small>{model.requests} 次请求</small>
                           </td>
                           <td>
@@ -326,12 +387,21 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
           <div className="ls-activity-secondary">
             <div className="ls-design-card">
               <h2>运行与缓存</h2>
-              <p>当前模型：{unavailable ? "未知" : settings?.model.model}</p>
+              <p>
+                当前翻译：
+                {unavailable
+                  ? "未知"
+                  : settings?.translationEngine === "bing"
+                    ? "必应翻译"
+                    : settings?.translationEngine === "google"
+                      ? "谷歌翻译"
+                      : settings?.model.model}
+              </p>
               <dl>
                 <div>
                   <dt>排队 / 运行</dt>
                   <dd>
-                    {unavailable
+                    {unavailable || !state?.queue
                       ? "未知"
                       : `${state?.queue?.pending ?? 0} / ${state?.queue?.running ?? 0}`}
                   </dd>
@@ -339,7 +409,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
                 <div>
                   <dt>当前会话缓存</dt>
                   <dd>
-                    {unavailable
+                    {unavailable || !state?.cacheStats
                       ? "未知"
                       : `${state?.cacheStats?.hits ?? 0} / ${state?.cacheStats?.lookups ?? 0} 段命中`}
                   </dd>
@@ -402,7 +472,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
           )}
         </>
       )}
-      {historyPage && (
+      {historyPage && state && !noHistory && (
         <div className="ls-design-card ls-history-card">
           <div className="ls-card-heading">
             <h2>
@@ -412,91 +482,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
           </div>
           {total ? (
             <>
-              <div className="ls-table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>时间 / 来源</th>
-                      <th>模型 / 状态</th>
-                      <th>Input / Output</th>
-                      <th>缓存读 / 写</th>
-                      <th>首译文 / 耗时</th>
-                      <th>TPS / 费用</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.map((record) => (
-                      <tr key={record.requestId}>
-                        <td>
-                          {new Date(record.timestamp).toLocaleString("zh-CN", {
-                            timeZone,
-                          })}
-                          <small>
-                            {record.sourceKind === "web" ? "浏览器" : "Discord"}{" "}
-                            · {record.provider}
-                          </small>
-                        </td>
-                        <td>
-                          <strong>{record.model}</strong>
-                          <small>
-                            <span
-                              className={`ls-request-status ls-request-${record.status}`}
-                            >
-                              {statuses[record.status]}
-                            </span>
-                            {record.billingMode === "subscription" &&
-                              " · ChatGPT 订阅"}
-                            {record.billingMode === "free" && " · 免 Key 翻译"}
-                          </small>
-                        </td>
-                        <td>
-                          {record.billingMode === "free"
-                            ? `${record.characters ?? 0} 字符`
-                            : record.usage
-                              ? `${record.usage.input + record.usage.cacheRead + record.usage.cacheWrite} / ${record.usage.output}`
-                              : "未知"}
-                          {record.usage?.reasoning !== undefined && (
-                            <small>
-                              思考 {record.usage.reasoning}（Output 子集）
-                            </small>
-                          )}
-                        </td>
-                        <td>
-                          {record.billingMode === "free"
-                            ? "不适用"
-                            : record.usage
-                              ? `${record.usage.cacheRead} / ${record.usage.cacheWrite}`
-                              : "未知"}
-                        </td>
-                        <td>
-                          {record.firstTextMs === null
-                            ? "不可用"
-                            : `${Math.round(record.firstTextMs)}ms`}{" "}
-                          / {Math.round(record.durationMs)}ms
-                        </td>
-                        <td>
-                          {formatSpeed(record.tps)}
-                          <small>{formatCost(apiCost(record))}</small>
-                          {record.billingMode !== "free" && (
-                            <small>
-                              {formatPricing(record.pricing)}{" "}
-                              {record.pricing?.sourceUrl && (
-                                <a
-                                  href={record.pricing.sourceUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  价格来源
-                                </a>
-                              )}
-                            </small>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <RequestHistory records={records} timeZone={timeZone} />
               <div className="ls-history-footer">
                 <span>
                   显示 {pageOffset + 1}–{pageOffset + records.length} / {total}{" "}
@@ -548,7 +534,7 @@ function EmptyState({
       </h3>
       <p>
         {unavailable
-          ? "连接恢复后会自动更新，可在 AI 与 Pi 中检查连接。"
+          ? "连接恢复后会自动更新，可在连接方式中检查本地助手。"
           : filtered
             ? "试试调整时间、来源或模型筛选。"
             : "在网页中翻译或提问后，用量与请求状态会显示在这里。"}

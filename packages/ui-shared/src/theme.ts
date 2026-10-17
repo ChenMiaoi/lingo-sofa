@@ -6,7 +6,7 @@ const palettes = {
     subtle: "#f0f1f3",
     border: "#e3e4e8",
     text: "#24262b",
-    muted: "#737780",
+    muted: "#62666f",
     accent: "#286856",
     tint: "#eaf3ee",
     "on-accent": "#ffffff",

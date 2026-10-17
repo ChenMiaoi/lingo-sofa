@@ -5,15 +5,27 @@ import { readingOrigins } from "./site-access.js";
 export function ReadingAccess({
   compact = false,
   detailed = true,
+  prominent = true,
 }: {
   compact?: boolean;
   detailed?: boolean;
+  prominent?: boolean;
 }) {
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState<boolean>();
   const [expanded, setExpanded] = useState(detailed);
+  const [opened, setOpened] = useState(false);
   const [needed, setNeeded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (compact) return;
+    void browser.storage.local
+      .get("readingAccessPromptDismissed")
+      .then((value) =>
+        setDismissed(value.readingAccessPromptDismissed === true),
+      )
+      .catch(() => setDismissed(false));
+  }, [compact]);
   useEffect(() => {
     const refresh = () => {
       void browser.permissions
@@ -41,11 +53,15 @@ export function ReadingAccess({
         让悬浮球自动显示 ↗
       </a>
     );
-  if (dismissed)
+  if (dismissed === undefined) return null;
+  if (!detailed && !opened && (dismissed || !prominent))
     return (
       <button
         className="reading-access-restore"
-        onClick={() => setDismissed(false)}
+        onClick={() => {
+          setOpened(true);
+          setExpanded(false);
+        }}
       >
         设置网页悬浮球
       </button>
@@ -103,7 +119,19 @@ export function ReadingAccess({
       </button>
       {!expanded && <button onClick={() => setExpanded(true)}>了解权限</button>}
       {!detailed && (
-        <button disabled={busy} onClick={() => setDismissed(true)}>
+        <button
+          disabled={busy}
+          onClick={() => {
+            void browser.storage.local
+              .set({ readingAccessPromptDismissed: true })
+              .then(() => {
+                setDismissed(true);
+                setOpened(false);
+                setError("");
+              })
+              .catch(() => setError("无法保存此选择，请重试。"));
+          }}
+        >
           稍后
         </button>
       )}

@@ -3,10 +3,11 @@ import {
   summarizeModels,
   mergeUsageSummaries,
   apiCost,
+  UsageLedger,
 } from "@lingo-sofa/translation-core";
 import { usageRecordSchema, usageSummarySchema } from "@lingo-sofa/protocol";
 import { summarizeAvailableUsage } from "../apps/browser-extension/src/page-usage-data.js";
-import { formatUsageBilling } from "@lingo-sofa/ui-shared";
+import { formatUsageBilling, formatUsageTokens } from "@lingo-sofa/ui-shared";
 
 const scope = "web:12:https://example.test:document:page-digest";
 const record = usageRecordSchema.parse({
@@ -40,6 +41,49 @@ const record = usageRecordSchema.parse({
   tps: 5,
 });
 describe("all-client model usage", () => {
+  it("shows unknown and partially measured tokens separately from a measured zero", () => {
+    expect(formatUsageTokens(0, 1)).toBe("未知");
+    expect(formatUsageTokens(17, 1)).toBe("17 + 未知");
+    expect(formatUsageTokens(0, 0)).toBe("0");
+    expect(formatUsageTokens(null, 0)).toBe("未知");
+    const partial = summarizeModels([
+      record,
+      { ...record, requestId: "unknown", usage: null },
+    ]);
+    expect(
+      formatUsageTokens(partial.totals.tokens, partial.totals.unknown),
+    ).toBe("17 + 未知");
+  });
+  it("refreshes cached model totals after restoring, settling, pruning and clearing records", () => {
+    const ledger = new UsageLedger();
+    expect(ledger.summary().totals.requests).toBe(0);
+    ledger.restore([record]);
+    expect(ledger.summary("direct").totals.tokens).toBe(17);
+    ledger.settle({
+      ...record,
+      requestId: "bridge",
+      mode: "bridge",
+      timestamp: 2 * 86_400_000,
+    });
+    expect(ledger.summary().totals.requests).toBe(2);
+    expect(ledger.summary("bridge").totals.tokens).toBe(17);
+    expect(ledger.summary("direct").totals.tokens).toBe(17);
+    const snapshot = ledger.summary();
+    snapshot.totals.tokens = 999;
+    snapshot.models[0]!.requests = 999;
+    expect(ledger.summary().totals.tokens).toBe(34);
+    expect(ledger.summary().models[0]!.requests).toBe(2);
+    ledger.restore([{ ...record, usage: null }]);
+    expect(ledger.summary("direct").totals.unknown).toBe(1);
+    ledger.prune(2 * 86_400_000, 1);
+    expect(ledger.summary().totals.requests).toBe(1);
+    expect(ledger.summary("direct").totals.requests).toBe(0);
+    ledger.clearScope(record.scope);
+    expect(ledger.summary().totals.requests).toBe(0);
+    ledger.restore([record]);
+    ledger.clear();
+    expect(ledger.summary().totals.requests).toBe(0);
+  });
   it("merges every page and client by provider/model without exposing request metadata", () => {
     const discord = {
       ...record,

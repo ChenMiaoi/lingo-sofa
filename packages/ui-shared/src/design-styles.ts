@@ -6,7 +6,7 @@ export const designStyles =
   ) +
   `
 .ls-intelligence,.ls-product-settings,.ls-ask{
-color:var(--ls-text);font:14px/1.6 Inter,"Noto Sans SC",system-ui,sans-serif}
+color:var(--ls-text);font:14px/1.6 Inter,"Noto Sans SC","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif}
 .ls-intelligence *,.ls-product-settings *,.ls-ask *{box-sizing:border-box}
 .ls-intelligence{display:flex;flex-direction:column;gap:14px;min-width:0}
 .ls-design-heading{margin:0 0 0;padding:0}.ls-design-heading .ls-overline,.ls-overline{color:var(--ls-accent);opacity:1;font:600 11px/17px Inter,system-ui,sans-serif;letter-spacing:0}

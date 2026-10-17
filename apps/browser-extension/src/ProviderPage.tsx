@@ -127,9 +127,9 @@ function ProductSettings({
   const { notice, failure, busy, setNotice } = preferences;
   const [glossaryDirty, setGlossaryDirty] = useState(false);
   return (
-    <main className="ls-product-settings settings-workspace">
+    <main className="ls-product-settings">
       <style>{designStyles}</style>
-      <header className="ls-settings-topbar workspace-header">
+      <header className="ls-settings-topbar">
         <a href="options.html" className="ls-settings-wordmark">
           LingoSofa <span>设置 · v{browser.runtime.getManifest().version}</span>
         </a>
@@ -154,11 +154,35 @@ function ProductSettings({
         className={`ls-product-content${section === "usage" || section === "history" ? " ls-content-wide" : ""}`}
         ref={content}
       >
-        <ReadingAccess
-          detailed={
-            new URLSearchParams(location.search).get("setup") === "reading"
-          }
-        />
+        {(section === "translation" ||
+          new URLSearchParams(location.search).get("setup") === "reading") && (
+          <div className="ls-reading-access">
+            <ReadingAccess
+              detailed={
+                new URLSearchParams(location.search).get("setup") === "reading"
+              }
+              prominent={section === "translation"}
+            />
+          </div>
+        )}
+        {["translation", "intelligence", "accounts"].includes(section) &&
+          preferences.settings && (
+            <div className="ls-configuration-context">
+              <span>
+                当前使用：
+                {preferences.settings.mode === "bridge"
+                  ? "本地助手"
+                  : "模型直连"}
+              </span>
+              {mode !== preferences.settings.mode && (
+                <strong>
+                  正在配置：{mode === "bridge" ? "本地助手" : "模型直连"} ·
+                  保存后生效
+                </strong>
+              )}
+              <a href="#connection">管理连接</a>
+            </div>
+          )}
         {glossaryDirty && section !== "glossary" && (
           <button
             className="ls-draft-reminder"
@@ -213,8 +237,10 @@ function ProductSettings({
         ) : section === "connection" ? (
           <ConnectionPreferences
             mode={mode}
+            activeMode={preferences.settings?.mode}
             setMode={setMode}
             onConnected={connected}
+            client={client}
           />
         ) : section === "usage" || section === "history" ? (
           <ActivityPage key={section} section={section} />

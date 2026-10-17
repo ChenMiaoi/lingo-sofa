@@ -34,22 +34,46 @@ export function period(
 export class UsageLedger {
   private records = new Map<string, UsageRecord>();
   private inFlight = new Set<string>();
+  private summaries = new Map<string, UsageSummary>();
   restore(records: readonly UsageRecord[]): void {
     for (const record of records) this.records.set(record.requestId, record);
+    if (records.length) this.summaries.clear();
   }
   list(): UsageRecord[] {
     return [...this.records.values()];
   }
+  summary(mode?: UsageRecord["mode"]): UsageSummary {
+    const key = mode ?? "all";
+    let summary = this.summaries.get(key);
+    if (!summary) {
+      summary = summarizeModels(
+        this.list().filter((record) => !mode || record.mode === mode),
+      );
+      this.summaries.set(key, summary);
+    }
+    // Callers own their snapshot; editing one must not poison the cached totals.
+    return {
+      totals: { ...summary.totals },
+      models: summary.models.map((model) => ({ ...model })),
+    };
+  }
   clear(): void {
     this.records.clear();
+    this.summaries.clear();
   }
   clearScope(scope: string): void {
     for (const [id, record] of this.records)
-      if (record.scope === scope) this.records.delete(id);
+      if (record.scope === scope) {
+        this.records.delete(id);
+        this.summaries.clear();
+      }
   }
   prune(now: number, days: number): void {
     for (const [id, record] of this.records)
-      if (record.timestamp < now - days * 86_400_000) this.records.delete(id);
+      if (record.timestamp < now - days * 86_400_000) {
+        this.records.delete(id);
+        this.summaries.clear();
+      }
   }
   begin(id: string): void {
     if (this.inFlight.has(id) || this.records.has(id))
@@ -59,6 +83,7 @@ export class UsageLedger {
   settle(record: UsageRecord): void {
     this.inFlight.delete(record.requestId);
     this.records.set(record.requestId, record);
+    this.summaries.clear();
   }
   release(id: string): void {
     this.inFlight.delete(id);

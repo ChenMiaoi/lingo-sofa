@@ -81,10 +81,7 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await expect(
       setup.getByRole("region", { name: "网页悬浮入口授权" }),
     ).toHaveCount(1);
-    await setup
-      .getByRole("navigation", { name: "设置导航" })
-      .getByRole("button", { name: "供应商", exact: true })
-      .click();
+    await setup.getByLabel("设置栏目").selectOption("accounts");
     await expect(
       setup.getByRole("heading", { name: "供应商", exact: true }),
     ).toBeVisible();
@@ -118,6 +115,10 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await expect(
       settings.getByRole("region", { name: "网页悬浮入口授权" }),
     ).toHaveCount(0);
+    await settings.reload();
+    await expect(
+      settings.getByRole("region", { name: "网页悬浮入口授权" }),
+    ).toHaveCount(0);
     await settings
       .getByRole("button", { name: "设置网页悬浮球", exact: true })
       .click();
@@ -146,6 +147,13 @@ test("keeps the popup compact, saves language and opens full settings in a separ
         height: node.getBoundingClientRect().height,
       }));
       expect(layout.width).toBe(1440);
+      const heading = await settings
+        .locator(".ls-product-content > .ls-design-heading")
+        .boundingBox();
+      const reading = await settings
+        .locator(".ls-reading-settings")
+        .boundingBox();
+      expect(heading!.x).toBeCloseTo(reading!.x, 0);
       expect(
         await settings
           .locator(".ls-bilingual-preview")

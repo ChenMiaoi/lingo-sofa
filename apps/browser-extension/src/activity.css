@@ -1,12 +1,8 @@
 .ls-activity {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
   min-width: 0;
-}
-.ls-product-content > * {
-  flex-shrink: 0;
-  max-width: 1120px;
 }
 .ls-activity-heading,
 .ls-card-heading,
@@ -24,10 +20,50 @@
 .ls-activity a {
   color: var(--ls-accent);
   text-decoration: none;
-  font-size: 12px;
+  font-size: 13px;
 }
 .ls-activity a:hover {
   text-decoration: underline;
+}
+.ls-activity-filters {
+  padding: 18px 20px;
+  border: 1px solid var(--ls-border);
+  border-radius: 12px;
+  background: var(--ls-surface);
+}
+.ls-activity-primary-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto auto;
+  align-items: end;
+  gap: 16px;
+}
+.ls-activity-primary-filters label,
+.ls-activity-toolbar {
+  min-width: 0;
+}
+.ls-activity-primary-filters label {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ls-muted);
+}
+.ls-activity-primary-filters select {
+  width: 100%;
+  margin-top: 8px;
+  color: var(--ls-text);
+  border-color: var(--ls-border);
+  background: var(--ls-canvas);
+}
+.ls-activity-primary-filters button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+.ls-activity-filters .ls-activity-toolbar {
+  padding: 16px 0 0;
+  margin-top: 16px;
+  border: 0;
+  border-top: 1px solid var(--ls-border);
+  border-radius: 0;
+  background: transparent;
 }
 .ls-activity-toolbar {
   display: grid;
@@ -40,7 +76,7 @@
 }
 .ls-activity-toolbar label {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ls-muted);
 }
 .ls-activity-toolbar select {
@@ -52,7 +88,7 @@
 .ls-activity-caption {
   margin: -12px 0 -8px;
   color: var(--ls-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .ls-activity-metrics {
   display: grid;
@@ -74,13 +110,13 @@
   display: block;
   font-size: clamp(20px, 2vw, 28px);
   font-weight: 650;
-  letter-spacing: -0.8px;
+  letter-spacing: -0.4px;
   margin: 12px 0 6px;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 .ls-activity-metrics small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ls-muted);
 }
 .ls-activity-metrics .ls-cost-metric {
@@ -141,8 +177,17 @@
   margin: 16px 0 6px;
 }
 .ls-activity-empty p {
-  font-size: 12px;
+  font-size: 13px;
   margin: 0;
+}
+.ls-history-first-run {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 20px;
+}
+.ls-history-first-run .ls-activity-empty {
+  padding: 8px 16px 20px;
 }
 .ls-table-scroll {
   overflow-x: auto;
@@ -214,6 +259,86 @@
   color: var(--ls-muted);
   font-size: 12px;
 }
+.ls-request-action {
+  text-align: right;
+}
+.ls-product-settings .ls-request-action button {
+  padding: 4px 8px;
+  min-height: 32px;
+  font-size: 12px;
+  color: var(--ls-accent);
+  background: transparent;
+  border-color: transparent;
+}
+.ls-request-detail-row {
+  background: var(--ls-canvas);
+}
+.ls-activity .ls-request-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 24px;
+  margin: 0;
+  white-space: normal;
+}
+.ls-activity .ls-request-details > div {
+  display: block;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.ls-request-details dd {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.ls-request-pricing {
+  grid-column: 1/-1;
+}
+@media (max-width: 1100px) {
+  .ls-request-list table,
+  .ls-request-list tbody {
+    display: block;
+  }
+  .ls-request-list thead {
+    display: none;
+  }
+  .ls-request-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--ls-border);
+  }
+  .ls-request-list td {
+    display: block;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ls-request-row td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--ls-muted);
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  .ls-request-row .ls-request-model {
+    order: -1;
+    grid-column: 1/-1;
+  }
+  .ls-request-action {
+    align-self: end;
+  }
+  .ls-request-detail-row {
+    display: block;
+    padding: 16px;
+    border-radius: 8px;
+  }
+  .ls-request-list .ls-request-model strong {
+    font-size: 14px;
+  }
+}
 .ls-activity .ls-billing-help {
   margin: 0;
 }
@@ -246,6 +371,12 @@
   padding: 0;
   color: var(--ls-muted);
   font-size: 20px;
+}
+.ls-glossary-row input[aria-invalid="true"] {
+  border-color: var(--ls-error);
+}
+.ls-glossary-feedback:empty {
+  display: none;
 }
 .ls-glossary-footer {
   margin-top: 24px;
@@ -291,11 +422,11 @@
   .ls-activity-toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .ls-activity-primary-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 700px) {
-  .ls-activity {
-    gap: 20px;
-  }
   .ls-activity-secondary {
     grid-template-columns: 1fr;
   }
@@ -323,80 +454,6 @@
   }
 }
 
-.ls-product-settings .permission-banner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 16px;
-  margin: 0;
-  font-size: 13px;
-}
-.permission-banner strong {
-  flex: 1;
-  min-width: 160px;
-}
-.permission-banner [role="alert"] {
-  flex-basis: 100%;
-}
-.ls-product-settings .reading-access-restore {
-  align-self: flex-start;
-  border: 0;
-  background: transparent;
-  color: var(--ls-muted);
-  padding: 0;
-  min-height: 28px;
-  font-size: 12px;
-}
-
-.ls-search-highlight {
-  outline: 2px solid var(--ls-accent);
-  outline-offset: 4px;
-  scroll-margin: 24px;
-}
-.ls-product-sidebar nav button small {
-  display: block;
-  margin-top: 4px;
-  color: var(--ls-muted);
-  font-size: 12px;
-}
-
-.ls-product-content > * {
-  width: 100%;
-  max-width: 960px;
-  margin-inline: auto;
-  flex-shrink: 0;
-}
-.ls-product-content.ls-content-wide > * {
-  max-width: 1440px;
-}
-.ls-product-content .reading-access-restore {
-  width: auto;
-  margin-left: 0;
-}
-.ls-product-settings .ls-design-card p {
-  font-size: 13px;
-  line-height: 1.7;
-}
-@media (max-width: 700px) {
-  .ls-product-sidebar nav[aria-label="设置导航"] {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding: 4px;
-  }
-  .ls-product-sidebar nav[aria-label="设置导航"] button {
-    flex-shrink: 0;
-  }
-  .ls-product-sidebar nav[aria-label="设置搜索结果"] {
-    flex-direction: column;
-  }
-}
-
-.ls-product-content > .ls-design-heading,
-.ls-product-content > .permission-banner {
-  margin-inline: auto;
-}
-
 .ls-glossary-footer {
   position: sticky;
   bottom: 0;
@@ -416,14 +473,23 @@
   flex: 1;
   min-width: 180px;
 }
-.ls-glossary-tools label {
-  font-size: 12px;
-  max-width: 100%;
+.ls-glossary-tools .ls-glossary-file-input {
+  display: none;
 }
-.ls-glossary-tools input[type="file"] {
-  max-width: 240px;
-  display: block;
-  margin-top: 6px;
+@media (max-width: 700px) {
+  .ls-glossary-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ls-glossary-tools > input {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+  }
+  .ls-glossary-import button,
+  .ls-glossary-tools > button {
+    width: 100%;
+  }
 }
 .ls-product-settings .ls-draft-reminder {
   border-color: var(--ls-accent);

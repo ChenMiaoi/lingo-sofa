@@ -177,6 +177,14 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
     await expect(perModel).toContainText("fixture-flash");
     await expect(perModel).toContainText("fixture-pro");
     await expect(
+      perModel
+        .getByRole("row")
+        .filter({ hasText: "fixture-pro" })
+        .getByRole("cell")
+        .nth(1),
+    ).toHaveText("未知");
+    await expect(page.getByLabel("用量摘要")).toContainText("303 + 未知");
+    await expect(
       page.getByRole("button", { name: "翻译页面", exact: true }),
     ).toHaveCount(0);
     await expect(page.locator('a[href*="view=activity"]')).toHaveCount(0);
@@ -192,8 +200,35 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
       nav.getByRole("button", { name: "请求历史", exact: true }),
     ).toHaveAttribute("aria-current", "page");
     await expect(page.locator("tbody tr")).toHaveCount(2);
+    const measured = page
+      .locator(".ls-request-row")
+      .filter({ hasText: "fixture-flash" });
+    await expect(page.getByLabel("请求技术明细")).toHaveCount(0);
+    await measured
+      .getByRole("button", { name: "查看明细", exact: true })
+      .click();
+    await expect(page.getByLabel("请求技术明细")).toContainText("223 / 80");
+    await measured
+      .getByRole("button", { name: "收起明细", exact: true })
+      .click();
+    await page.setViewportSize({ width: 392, height: 900 });
+    await expect(measured).toBeVisible();
+    expect(
+      await measured.evaluate((row) => getComputedStyle(row).display),
+    ).toBe("grid");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({ path: ".cache/ui/history-populated-narrow.png" });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole("button", { name: "更多筛选" }).click();
     await page.getByLabel("来源", { exact: true }).selectOption("discord");
     await expect(page.locator("tbody tr")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /更多筛选/ })).toContainText(
+      "· 1",
+    );
     await expect(page.locator("tbody")).toContainText("结果未知");
     await page.getByLabel("请求状态").selectOption("success");
     await expect(
@@ -205,10 +240,21 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
     await page.screenshot({ path: ".cache/ui/history-populated-dark.png" });
     await nav.getByRole("button", { name: "术语表", exact: true }).click();
     await page.getByRole("button", { name: "＋ 添加术语" }).click();
+    await expect(page.getByLabel("原词 1", { exact: true })).toBeFocused();
     await page.getByLabel("原词 1", { exact: true }).fill("kernel");
+    await page.getByLabel("原词 1", { exact: true }).press("Enter");
+    await expect(page.getByLabel("译词 1", { exact: true })).toBeFocused();
     await page.getByRole("button", { name: "保存术语表" }).click();
     await expect(page.getByRole("alert")).toContainText("请填写每一项");
+    await expect(page.getByLabel("译词 1", { exact: true })).toBeFocused();
+    await expect(page.getByLabel("译词 1", { exact: true })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
     await page.getByLabel("译词 1", { exact: true }).fill("内核");
+    await page.getByLabel("译词 1", { exact: true }).press("Enter");
+    await expect(page.getByLabel("原词 2", { exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "删除术语 2", exact: true }).click();
     await nav.getByRole("button", { name: "翻译偏好", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "术语表有未保存更改 · 返回保存" }),
@@ -326,6 +372,7 @@ test("unifies activity navigation, filters requests, preserves glossary edits an
     ).toBeDisabled();
     await page.getByRole("button", { name: "上一页", exact: true }).click();
     await expect(page.locator("tbody tr")).toHaveCount(50);
+    await page.getByRole("button", { name: "更多筛选" }).click();
     await page.getByLabel("来源", { exact: true }).selectOption("discord");
     await expect(page.locator("tbody tr")).toHaveCount(0);
   } finally {

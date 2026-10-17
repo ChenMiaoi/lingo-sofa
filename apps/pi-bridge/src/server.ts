@@ -7,10 +7,7 @@ import { timingSafeEqual } from "node:crypto";
 import { resolveModel, listModels } from "@lingo-sofa/provider-pi/node";
 import { capabilities } from "@lingo-sofa/provider-pi";
 import { createWebTranslator } from "@lingo-sofa/provider-web";
-import {
-  TranslationService,
-  summarizeModels,
-} from "@lingo-sofa/translation-core";
+import { TranslationService } from "@lingo-sofa/translation-core";
 import {
   oauthRequestSchema,
   providerUpdateSchema,
@@ -523,8 +520,13 @@ export function createBridge(
         service.ledger.prune(Date.now(), config.settings.retentionDays);
         reply(200, {
           ok: true,
-          usageSummary: summarizeModels(service.ledger.list()),
+          usageSummary: service.ledger.summary(),
           settings: config.settings,
+          queue: {
+            running: service.queue.runningCount,
+            pending: service.queue.pendingCount,
+          },
+          cacheStats: service.cacheStats(),
         });
         return;
       }

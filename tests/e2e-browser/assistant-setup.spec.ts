@@ -56,16 +56,37 @@ test("guides browser installation with its own extension ID and hides the guide 
             installed: boolean | null;
             version?: string;
           };
+          connectionFixture: { fail: boolean; updates: unknown[] };
         };
         state.assistantFixture = { connected: false, installed: null };
+        state.connectionFixture = { fail: true, updates: [] };
         const original = state.chrome.runtime.sendMessage.bind(
           state.chrome.runtime,
         );
-        state.chrome.runtime.sendMessage = ((message: { action?: string }) => {
+        state.chrome.runtime.sendMessage = ((message: {
+          action?: string;
+          mode?: string;
+          update?: unknown;
+        }) => {
           if (message.action === "assistant-status")
             return Promise.resolve(state.assistantFixture);
           if (message.action === "provider-catalog")
             return Promise.resolve(catalog);
+          if (message.action === "provider-update") {
+            state.connectionFixture.updates.push(message.update);
+            if (state.connectionFixture.fail)
+              return Promise.resolve({
+                ok: false,
+                error: "fixture switch failure",
+              });
+            return original({ action: "state", localOnly: true }).then(
+              (current) =>
+                original({
+                  action: "save",
+                  settings: { ...current.settings, mode: message.mode },
+                }),
+            );
+          }
           return original(message);
         }) as typeof original;
       },
@@ -77,7 +98,10 @@ test("guides browser installation with its own extension ID and hides the guide 
       page.getByRole("region", { name: "本地助手安装" }),
     ).toHaveCount(0);
     // The UI mode toggle exposes onboarding before persisting the selection.
-    await page.getByText("连接方式", { exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "设置导航" })
+      .getByRole("button", { name: "连接方式", exact: true })
+      .click();
     await page.getByRole("button", { name: "本地助手", exact: true }).click();
     const setup = page.getByRole("region", { name: "本地助手安装" });
     await expect(setup).toBeVisible();
@@ -203,6 +227,65 @@ test("guides browser installation with its own extension ID and hides the guide 
     await expect(
       page.getByRole("region", { name: "本地助手状态" }),
     ).toContainText("本地助手已连接", { timeout: 6_000 });
+    const connection = page.getByRole("region", { name: "连接配置位置" });
+    await expect(connection.getByRole("status")).toHaveText(
+      "当前使用：模型直连",
+    );
+    await expect(connection).toContainText("正在配置本地助手，尚未切换");
+    const originalSettings = await page.evaluate(
+      async () =>
+        (
+          await (
+            globalThis as typeof globalThis & { chrome: ExtensionApi }
+          ).chrome.runtime.sendMessage({ action: "state", localOnly: true })
+        ).settings,
+    );
+    await connection
+      .getByRole("button", { name: "使用本地助手", exact: true })
+      .click();
+    await expect(connection.getByRole("alert")).toContainText(
+      "fixture switch failure",
+    );
+    await expect(connection.getByRole("status")).toHaveText(
+      "当前使用：模型直连",
+    );
+    await page.evaluate(() => {
+      (
+        globalThis as typeof globalThis & {
+          connectionFixture: { fail: boolean };
+        }
+      ).connectionFixture.fail = false;
+    });
+    await connection
+      .getByRole("button", { name: "使用本地助手", exact: true })
+      .click();
+    await expect(connection.getByRole("status")).toHaveText(
+      "当前使用：本地助手",
+    );
+    await expect(
+      connection.getByRole("button", { name: "使用本地助手", exact: true }),
+    ).toHaveCount(0);
+    const activated = await page.evaluate(
+      async () =>
+        (
+          await (
+            globalThis as typeof globalThis & { chrome: ExtensionApi }
+          ).chrome.runtime.sendMessage({ action: "state", localOnly: true })
+        ).settings,
+    );
+    expect(activated).toEqual({ ...originalSettings, mode: "bridge" });
+    await connection
+      .getByRole("button", { name: "模型直连", exact: true })
+      .click();
+    await expect(connection.getByRole("status")).toHaveText(
+      "当前使用：本地助手",
+    );
+    await connection
+      .getByRole("button", { name: "使用模型直连", exact: true })
+      .click();
+    await expect(connection.getByRole("status")).toHaveText(
+      "当前使用：模型直连",
+    );
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

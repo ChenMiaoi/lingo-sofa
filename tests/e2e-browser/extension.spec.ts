@@ -356,7 +356,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     expect(credentialCache).toEqual({});
     await options.reload();
     await expect(options.getByRole("alert")).toContainText(
-      "Bridge 用量暂不可用",
+      "本地助手用量暂不可用",
     );
     await expect(
       options.getByText("输入 tokens", { exact: true }).locator(".."),

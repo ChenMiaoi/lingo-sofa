@@ -134,7 +134,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     await connection.getByRole("button", { name: "完成", exact: true }).click();
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
-      await expect(page.locator(".workspace-header")).toHaveCount(1);
+      await expect(page.locator(".ls-settings-topbar")).toHaveCount(1);
       await page.evaluate(
         () =>
           new Promise<void>((resolve) =>
@@ -149,7 +149,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
       ).toBeLessThanOrEqual(390);
-      await expect(page.locator(".workspace-header")).toHaveCount(1);
+      await expect(page.locator(".ls-settings-topbar")).toHaveCount(1);
       await page.evaluate(
         () =>
           new Promise<void>((resolve) =>

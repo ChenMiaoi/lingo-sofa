@@ -1,7 +1,7 @@
 import {
   formatUsageBilling,
   formatExchangeRate,
-  formatTokens,
+  formatUsageTokens,
 } from "@lingo-sofa/ui-shared";
 import type { PageUsageSnapshot } from "./page-usage-data.js";
 
@@ -64,11 +64,14 @@ export function createPageUsage(
         billing.amount;
       panel.querySelector<HTMLElement>(".usage-total")!.title =
         formatExchangeRate();
-      metric("tokens", formatTokens(usage.totals.tokens));
+      metric(
+        "tokens",
+        formatUsageTokens(usage.totals.tokens, usage.totals.unknown),
+      );
       metric("requests", String(usage.totals.requests));
       metric(
         "inout",
-        `${formatTokens(usage.totals.input)} / ${formatTokens(usage.totals.output)}`,
+        `${formatUsageTokens(usage.totals.input, usage.totals.unknown)} / ${formatUsageTokens(usage.totals.output, usage.totals.unknown)}`,
       );
       metric("models", String(usage.models.length));
       panel.querySelector<HTMLElement>(".usage-scope")!.textContent =
@@ -85,7 +88,7 @@ export function createPageUsage(
         name.textContent = model.model;
         const modelBilling = formatUsageBilling(model);
         cost.textContent = modelBilling.amount;
-        detail.textContent = `${model.provider} · ${formatTokens(model.tokens)} tokens · ${model.requests} 次请求${modelBilling.pending ? ` · ${modelBilling.pending}` : ""}`;
+        detail.textContent = `${model.provider} · ${formatUsageTokens(model.tokens, model.unknown)} tokens · ${model.requests} 次请求${modelBilling.pending ? ` · ${modelBilling.pending}` : ""}`;
         row.append(name, cost, detail);
         rows.append(row);
       }

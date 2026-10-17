@@ -1,6 +1,10 @@
 export function formatTokens(value: number | null): string {
   return value === null ? "未知" : new Intl.NumberFormat("zh-CN").format(value);
 }
+export function formatUsageTokens(value: number | null, unknown = 0): string {
+  if (value === null || (unknown > 0 && value === 0)) return "未知";
+  return `${formatTokens(value)}${unknown > 0 ? " + 未知" : ""}`;
+}
 export {
   formatCost,
   formatUsageBilling,

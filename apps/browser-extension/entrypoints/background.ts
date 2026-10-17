@@ -36,7 +36,7 @@ import {
 import { readSettings, records } from "../src/storage.js";
 
 import { pageScope, pageDocumentPrefix } from "../src/page-scope.js";
-import { summarizeAvailableUsage } from "../src/page-usage-data.js";
+import { mergeAvailableUsage } from "../src/page-usage-data.js";
 import {
   parseFloatingPatch,
   readFloatingPreferences,
@@ -241,14 +241,14 @@ export default defineBackground(() => {
       const result = await bridge({ kind: "usage" }, "browser:summary");
       if (!result.ok || !result.usageSummary)
         throw new Error("请更新本地助手，以读取全部客户端的用量汇总。");
-      return summarizeAvailableUsage(
-        service.ledger.list(),
+      return mergeAvailableUsage(
+        service.ledger.summary("direct"),
         settings.mode,
         result.usageSummary,
       );
     } catch (error) {
       if (settings.mode === "bridge") throw error;
-      return summarizeAvailableUsage(service.ledger.list(), "direct");
+      return mergeAvailableUsage(service.ledger.summary("direct"), "direct");
     }
   }
   const transports = new Map<
@@ -866,6 +866,10 @@ export default defineBackground(() => {
         return { ok: true };
       }
       if (data.action === "state") {
+        const summaryOnly =
+          "includeUsageSummary" in data &&
+          data.includeUsageSummary === true &&
+          data.historyQuery === undefined;
         let bridgeUsage: UsageRecord[] = [];
         let budgets: BudgetSnapshot[] | undefined;
         let shareBudget = false;
@@ -873,8 +877,9 @@ export default defineBackground(() => {
         let usageSummary;
         let summaryError;
         let executionSettings = settings;
-        let cacheStats = service.cacheStats();
-        let queue = {
+        let cacheStats: ReturnType<typeof service.cacheStats> | undefined =
+          service.cacheStats();
+        let queue: { running: number; pending: number } | undefined = {
           running: service.queue.runningCount,
           pending: service.queue.pendingCount,
         };
@@ -884,25 +889,34 @@ export default defineBackground(() => {
           !("localOnly" in data && data.localOnly === true)
         ) {
           try {
-            const result = await bridge({ kind: "usage" }, "browser");
+            const result = await bridge(
+              { kind: "usage" },
+              summaryOnly ? "browser:summary" : "browser",
+            );
             if (!result.ok) throw new Error(result.error);
+            if (summaryOnly)
+              usageSummary = mergeAvailableUsage(
+                service.ledger.summary("direct"),
+                settings.mode,
+                result.usageSummary,
+              );
             bridgeUsage = result.usage ?? [];
             sharedUsage = result.sharedUsage ?? false;
             budgets = result.budgets;
             shareBudget = result.shareBudget ?? false;
             executionSettings = result.settings ?? settings;
-            queue = result.queue ?? { running: 0, pending: 0 };
-            cacheStats = result.cacheStats ?? {
-              hits: 0,
-              lookups: 0,
-              ratio: null,
-            };
-          } catch {
-            bridgeError = "Bridge 用量暂不可用；不会显示为零消耗";
+            queue = result.queue;
+            cacheStats = result.cacheStats;
+          } catch (error) {
+            bridgeError =
+              error instanceof Error && error.message.includes("更新本地助手")
+                ? error.message
+                : "本地助手用量暂不可用；不会显示为零消耗";
           }
         }
         if (
           !bridgeError &&
+          !usageSummary &&
           "includeUsageSummary" in data &&
           data.includeUsageSummary === true
         ) {
@@ -913,7 +927,7 @@ export default defineBackground(() => {
               error instanceof Error ? error.message : "无法读取全部用量";
           }
         }
-        const usage = service.ledger.list();
+        const usage = summaryOnly ? [] : service.ledger.list();
         const page =
           data.historyQuery === undefined
             ? undefined
