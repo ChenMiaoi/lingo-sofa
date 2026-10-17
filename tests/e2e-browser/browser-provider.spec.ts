@@ -55,7 +55,7 @@ test("unifies browser provider settings and the three floating reading controls"
     await options.goto(`chrome-extension://${id}/options.html`);
 
     await expect(
-      options.getByRole("heading", { name: "AI 与 Pi", exact: true }),
+      options.getByRole("heading", { name: "翻译偏好", exact: true }),
     ).toBeVisible();
     await options
       .getByRole("navigation", { name: "设置导航" })
@@ -210,10 +210,10 @@ test("unifies browser provider settings and the three floating reading controls"
     await options.reload();
     await options
       .getByRole("navigation", { name: "设置导航" })
-      .getByRole("button", { name: "AI 与 Pi", exact: true })
+      .getByRole("button", { name: "问答设置", exact: true })
       .click();
     await expect(
-      options.getByRole("heading", { name: "AI 与 Pi", exact: true }),
+      options.getByRole("heading", { name: "问答设置", exact: true }),
     ).toBeVisible();
     await options.getByText("连接方式", { exact: true }).click();
     for (const theme of ["light", "dark"] as const) {

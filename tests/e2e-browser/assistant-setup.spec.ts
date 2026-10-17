@@ -71,8 +71,8 @@ test("guides browser installation with its own extension ID and hides the guide 
       },
       { catalog: fixtureCatalog },
     );
-    await page.goto(`chrome-extension://${id}/options.html`);
-    await expect(page.getByRole("heading", { name: "AI 与 Pi" })).toBeVisible();
+    await page.goto(`chrome-extension://${id}/options.html#intelligence`);
+    await expect(page.getByRole("heading", { name: "问答设置" })).toBeVisible();
     await expect(
       page.getByRole("region", { name: "本地助手安装" }),
     ).toHaveCount(0);

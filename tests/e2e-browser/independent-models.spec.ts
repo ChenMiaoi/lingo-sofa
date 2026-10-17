@@ -109,7 +109,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     await connection.getByRole("button", { name: "完成", exact: true }).click();
     await page
       .getByRole("navigation", { name: "设置导航" })
-      .getByRole("button", { name: "AI 与 Pi", exact: true })
+      .getByRole("button", { name: "问答设置", exact: true })
       .click();
     await page
       .getByRole("button", { name: "Ask 默认模型", exact: true })

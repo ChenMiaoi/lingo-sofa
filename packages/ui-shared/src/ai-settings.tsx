@@ -220,7 +220,7 @@ export function createAISettings(getReact: () => HostReact) {
       return (
         <section
           className="ls-intelligence"
-          aria-label="AI 与 Pi"
+          aria-label="问答设置"
           ref={container}
         >
           <style>{aiWorkspaceStyles}</style>
@@ -252,13 +252,13 @@ export function createAISettings(getReact: () => HostReact) {
     return (
       <section
         className="ls-intelligence"
-        aria-label="AI 与 Pi"
+        aria-label="问答设置"
         ref={container}
       >
         <style>{aiWorkspaceStyles}</style>
         {!embedded && (
           <header className="ls-design-heading">
-            <h1>{section === "all" ? "翻译与问答" : "AI 与 Pi"}</h1>
+            <h1>{section === "all" ? "翻译与问答" : "问答设置"}</h1>
             <p>
               {section === "all"
                 ? "选择翻译引擎，单独配置 Ask 模型与对话行为。"

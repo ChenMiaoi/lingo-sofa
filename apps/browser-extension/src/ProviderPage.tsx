@@ -83,7 +83,7 @@ export function ProviderPage() {
 
 const sections = [
   ["translation", "翻译偏好"],
-  ["intelligence", "AI 与 Pi"],
+  ["intelligence", "问答设置"],
   ["accounts", "供应商"],
   ["usage", "用量与费用"],
   ["glossary", "术语表"],
@@ -107,7 +107,7 @@ function ProductSettings({
 }) {
   const [section, setSection] = useState<string>(() => {
     const value = location.hash.slice(1);
-    return sections.some(([id]) => id === value) ? value : "intelligence";
+    return sections.some(([id]) => id === value) ? value : "translation";
   });
   const content = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -116,9 +116,7 @@ function ProductSettings({
   useEffect(() => {
     const changed = () => {
       const value = location.hash.slice(1);
-      setSection(
-        sections.some(([id]) => id === value) ? value : "intelligence",
-      );
+      setSection(sections.some(([id]) => id === value) ? value : "translation");
     };
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);

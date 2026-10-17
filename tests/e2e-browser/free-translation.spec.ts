@@ -146,7 +146,7 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
     ).toContainText(live ? /你好|您好/u : "必应测试译文");
     await page
       .getByRole("navigation", { name: "设置导航" })
-      .getByRole("button", { name: "AI 与 Pi", exact: true })
+      .getByRole("button", { name: "问答设置", exact: true })
       .click();
     await expect(
       page.getByLabel("Ask 默认模型", { exact: true }),

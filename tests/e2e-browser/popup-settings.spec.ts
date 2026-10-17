@@ -99,6 +99,9 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await popup.getByRole("button", { name: "设置 ↗", exact: true }).click();
     const settings = await opened;
     await settings.waitForURL(`chrome-extension://${id}/options.html`);
+    await expect(
+      settings.getByRole("heading", { name: "翻译偏好", exact: true }),
+    ).toBeVisible();
     await settings.setViewportSize({ width: 1440, height: 1000 });
     await expect(
       settings.getByRole("navigation", { name: "设置导航" }),
