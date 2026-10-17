@@ -1,6 +1,6 @@
 {
   "name": "@lingo-sofa/translation-core",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,8 +9,8 @@
     "./math": "./src/math.ts"
   },
   "dependencies": {
-    "@lingo-sofa/glossary": "0.1.9",
-    "@lingo-sofa/protocol": "0.1.9",
+    "@lingo-sofa/glossary": "0.1.10",
+    "@lingo-sofa/protocol": "0.1.10",
     "marked": "18.0.11"
   },
   "license": "GPL-3.0-or-later"
