@@ -322,9 +322,10 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       2,
     );
     expect(model.requests).toHaveLength(beforeReload);
+    await expect(page.locator(".lingo-sofa-inline-usage")).toHaveCount(0);
     await expect(
-      page.locator(".lingo-sofa-inline-usage").first(),
-    ).toContainText("缓存命中");
+      page.locator("[data-lingo-sofa=translation]").first(),
+    ).toHaveAttribute("title", /缓存命中/);
 
     const changed = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })

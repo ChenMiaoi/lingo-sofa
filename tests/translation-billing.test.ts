@@ -159,7 +159,7 @@ it("labels shared batch usage and cached requests clearly and rejects invalid bi
     }).success,
   ).toBe(false);
 });
-it("keeps ID-aligned billing through batching and the inline DOM lifecycle", async () => {
+it("keeps ID-aligned batch usage in tooltips without repeating it beneath whole-page paragraphs", async () => {
   const billing = {
     source: "request" as const,
     batchSize: 2,
@@ -178,14 +178,69 @@ it("keeps ID-aligned billing through batching and the inline DOM lifecycle", asy
   });
   page.start();
   await new Promise((r) => setTimeout(r, 30));
-  expect(document.querySelectorAll(".lingo-sofa-inline-usage")).toHaveLength(2);
+  expect(document.querySelectorAll(".lingo-sofa-inline-usage")).toHaveLength(0);
   expect(
-    document.querySelector("#a .lingo-sofa-inline-usage")?.textContent,
-  ).toBe("同批 2 段合计 · 100 Tokens · ¥0.000323");
+    document.querySelector<HTMLElement>("#a [data-lingo-sofa=translation]")
+      ?.title,
+  ).toContain("同批 2 段合计 · 100 Tokens · ¥0.000323");
+  expect(
+    document.querySelector("#a [data-lingo-sofa=translation]")?.textContent,
+  ).toBe("译 A");
   expect(page.trackedCount).toBe(2);
   page.stop();
   expect(document.querySelector(".lingo-sofa-inline-usage")).toBeNull();
 });
+it.each([false, true])(
+  "retains manual billing and removes it on promotion without retranslating completed or pending content (pending=%s)",
+  async (pending) => {
+    document.body.innerHTML = '<p id="a">A</p>';
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requests = 0;
+    const page = new PageTranslator(document, {
+      targetLanguage: "中文",
+      observeVisibility: false,
+      manual: true,
+      translate: async () => {
+        requests++;
+        if (pending) await gate;
+        return {
+          text: "译 A",
+          billing: {
+            source: "request",
+            batchSize: 1,
+            tokens: 100,
+            cost: 0.000048,
+          },
+        };
+      },
+    });
+    try {
+      page.translateElement(document.querySelector<HTMLElement>("#a")!);
+      if (!pending) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(
+          document.querySelector(".lingo-sofa-inline-usage")?.textContent,
+        ).toContain("100 Tokens");
+      }
+      page.translatePage();
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(requests).toBe(1);
+      expect(document.querySelector(".lingo-sofa-inline-usage")).toBeNull();
+      const translation = document.querySelector<HTMLElement>(
+        "#a [data-lingo-sofa=translation]",
+      )!;
+      expect(translation.textContent).toBe("译 A");
+      expect(translation.title).toContain("100 Tokens");
+      expect(page.progress.completed).toBe(1);
+    } finally {
+      page.stop();
+    }
+  },
+);
 it("retains billing in a Discord message state and clears it when edited", async () => {
   const billing = {
     source: "request" as const,

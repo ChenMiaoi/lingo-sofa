@@ -358,6 +358,16 @@ test("reports whole-page progress, bills batches once and opens cumulative per-m
       await expect(progress).toContainText("已完成 3 / 4 段");
       const calls = model.requests.length;
       expect(calls).toBe(1);
+      await expect(page.locator(".lingo-sofa-inline-usage")).toHaveCount(0);
+      await expect(
+        page.locator("[data-lingo-sofa=translation]").first(),
+      ).toHaveAttribute("title", /Tokens/);
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.screenshot({
+          path: `.cache/ui/whole-page-clean-${scheme}.png`,
+        });
+      }
       await page
         .getByRole("button", { name: "用量与费用", exact: true })
         .click();

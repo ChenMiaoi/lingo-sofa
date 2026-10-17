@@ -85,7 +85,12 @@ it("renders forum prefixes as text, keeps compact usage in tooltips and restores
     ).toHaveLength(0);
     expect(
       document.querySelector("article .lingo-sofa-inline-usage"),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(
+      document.querySelector<HTMLElement>(
+        "article [data-lingo-sofa=translation]",
+      )!.title,
+    ).toContain("100 Tokens");
     expect(
       document.querySelector<HTMLElement>("th [data-lingo-sofa]")!.style
         .display,

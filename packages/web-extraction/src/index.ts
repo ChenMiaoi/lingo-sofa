@@ -178,6 +178,7 @@ export function renderBlockTranslation(
   translation:
     string | { text: string; billing?: TranslationBilling | undefined },
   targetLanguage: string,
+  billingDisplay: "inline" | "tooltip" = "inline",
 ): HTMLElement {
   const node = block.element.ownerDocument.createElement("span");
   node.setAttribute(TRANSLATION_ATTRIBUTE, "translation");
@@ -195,10 +196,10 @@ export function renderBlockTranslation(
     { breaks: false, inline: compact, links: block.links },
   );
   if (typeof translation !== "string") {
-    if (compact) {
-      const billing = formatTranslationBilling(translation.billing);
-      node.title = `${billing.text}\n${billing.title}`;
-    } else appendTranslationBilling(node, translation.billing);
+    const billing = formatTranslationBilling(translation.billing);
+    node.title = `${billing.text}\n${billing.title}`;
+    if (!compact && billingDisplay === "inline")
+      appendTranslationBilling(node, translation.billing);
   }
   return node;
 }
@@ -338,6 +339,11 @@ export class PageTranslator {
   }
   translatePage(): void {
     this.manual = false;
+    // Keep completed manual translations when promoting to whole-page reading.
+    for (const state of this.states.values())
+      state.result
+        ?.querySelector(":scope > .lingo-sofa-inline-usage")
+        ?.remove();
     if (this.stopped) this.start();
     else {
       this.scan(this.document);
@@ -465,6 +471,7 @@ export class PageTranslator {
           block,
           text,
           this.options.targetLanguage,
+          this.manual ? "inline" : "tooltip",
         );
         element.append(node);
         state.result = node;

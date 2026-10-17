@@ -240,12 +240,13 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     ).toBeVisible();
     await automatic.check();
     await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    await expect(page.locator(".lingo-sofa-inline-usage")).toHaveCount(0);
     await expect(
-      page.locator("#second .lingo-sofa-inline-usage"),
-    ).toContainText("同批 2 段合计");
-    await expect(page.locator("#first .lingo-sofa-inline-usage")).toContainText(
-      "缓存命中",
-    );
+      page.locator("#second [data-lingo-sofa=translation]"),
+    ).toHaveAttribute("title", /同批 2 段合计/);
+    await expect(
+      page.locator("#first [data-lingo-sofa=translation]"),
+    ).toHaveAttribute("title", /缓存命中/);
     await expect(page.getByText("更多操作", { exact: true })).toHaveCount(0);
     await expect(page.locator("pre code")).toHaveText("const untouched = 1;");
     await expect(page.getByRole("textbox")).toHaveValue("draft");

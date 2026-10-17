@@ -182,7 +182,10 @@ for (const source of ["fixture", "public"] as const) {
         await expect(titles.nth(2)).toContainText("[LoadStoreVectorizer]");
         await expect(
           page.locator("article .lingo-sofa-inline-usage"),
-        ).toBeVisible();
+        ).toHaveCount(0);
+        await expect(
+          page.locator("article [data-lingo-sofa=translation]").first(),
+        ).toHaveAttribute("title", /Tokens/);
         expect(JSON.stringify(model.requests)).not.toContain("infrastructure");
       }
       await mkdir(".cache/ui", { recursive: true });
