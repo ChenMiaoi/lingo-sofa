@@ -155,7 +155,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
           </p>
         </div>
         <span className="ls-status-chip">
-          {state?.settings.mode === "direct" ? "模型直连" : "本地助手"}
+          {state?.settings.mode === "direct" ? "免 Key 翻译" : "共享本地助手"}
         </span>
       </header>
       {error && <p role="alert">{error}</p>}
@@ -266,7 +266,7 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
         <p className="ls-activity-caption">
           {unavailable
             ? "用量暂不可用"
-            : `${historyPage ? total : (totals?.requests ?? 0)} 次请求 · ${historyPage ? "请求明细" : summary?.coverage === "all-clients" ? "全部客户端" : "本浏览器直连"}`}{" "}
+            : `${historyPage ? total : (totals?.requests ?? 0)} 次请求 · ${historyPage ? "请求明细" : summary?.coverage === "all-clients" ? "全部客户端" : "本浏览器"}`}{" "}
           ·{" "}
           {settings?.persistUsage
             ? `本地保留 ${settings.retentionDays} 天`
@@ -460,16 +460,17 @@ export function ActivityPage({ section }: { section: "usage" | "history" }) {
             </p>
             <p>
               {summary?.coverage === "all-clients"
-                ? "汇总本地助手全部客户端与本浏览器直连记录；请求明细仍遵循原有隔离设置。"
-                : "当前为模型直连模式，仅汇总本浏览器记录；切换本地助手后可合并全部客户端。"}
+                ? "汇总本地助手全部客户端与浏览器本地记录；请求明细仍遵循原有隔离设置。"
+                : "当前显示本浏览器记录；连接共享助手后可合并全部客户端。"}
             </p>
           </details>
-          {state?.settings.mode === "direct" && (
-            <PricingPreferences
-              key={`${state.settings.model.accountId}:${state.settings.model.provider}:${state.settings.model.model}:${state.settings.model.endpoint}`}
-              model={state.settings.model}
-            />
-          )}
+          {state?.executionSettings?.translationEngine === "llm" &&
+            !state.bridgeError && (
+              <PricingPreferences
+                key={JSON.stringify(state.executionSettings.model)}
+                model={state.executionSettings.model}
+              />
+            )}
         </>
       )}
       {historyPage && state && !noHistory && (

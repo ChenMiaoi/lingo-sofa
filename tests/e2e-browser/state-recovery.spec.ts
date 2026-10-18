@@ -1,4 +1,8 @@
 import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
+import {
   test,
   expect,
   chromium,
@@ -10,7 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { AccountState, Settings, UsageRecord } from "@lingo-sofa/protocol";
+import type { Settings, UsageRecord } from "@lingo-sofa/protocol";
 import { modelServer } from "../fixtures/model-server.js";
 
 type ExtensionApi = typeof import("wxt/browser").browser;
@@ -46,6 +50,7 @@ async function fixture(
     await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
       recursive: true,
     });
+    await prepareTestExtension(extension);
     const manifest = JSON.parse(
       await readFile(join(extension, "manifest.json"), "utf8"),
     );
@@ -65,6 +70,7 @@ async function fixture(
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    const assistant = await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     const open = async (url: string) => {
       const page = await context!.newPage();
@@ -106,6 +112,10 @@ async function fixture(
       restart: async () => {
         await context!.close();
         context = await launch();
+        const restoredWorker =
+          context.serviceWorkers()[0] ??
+          (await context.waitForEvent("serviceworker"));
+        await assistant.attach(restoredWorker);
         return open(`chrome-extension://${id}/options.html`);
       },
     });
@@ -292,64 +302,51 @@ test("merges preference edits from two settings pages and restores both after re
   });
 });
 
-test("returns from the assistant to the browser's saved model account without changing either configuration", async () => {
+test("keeps one shared account source even when a legacy caller requests direct mode", async () => {
   await fixture(async ({ options, restart, model }) => {
-    const direct = await options.evaluate(async () => {
+    const shared = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
-      const saved = await api.runtime.sendMessage({
+      const catalog = await api.runtime.sendMessage({
         action: "provider-catalog",
-        mode: "direct",
       });
-      // This is the local snapshot written after selecting an assistant-only account.
-      const reply = await api.runtime.sendMessage({
-        action: "save",
-        patch: {
-          mode: "bridge",
-          model: {
-            ...saved.model,
-            accountId: crypto.randomUUID(),
-            model: "assistant-only-model",
-            endpoint: "https://assistant-only.test/v1",
-          },
+      await api.storage.local.set({
+        providerAccounts: {
+          accounts: catalog.accounts.map(
+            (account: { id: string; name: string; model: unknown }) => ({
+              ...account,
+              apiKey: "stale-browser-fixture-key",
+            }),
+          ),
+          translation: catalog.model,
+          ask: catalog.askModel,
+          translationEngine: "llm",
         },
       });
-      if (!reply.ok) throw Error(reply.error);
-      return saved;
+      return catalog;
     });
-    await options.goto(`${options.url()}#connection`);
+    await options.goto(options.url() + "#connection");
     await options.reload();
-    const status = options.locator(".ls-active-connection");
-    await expect(status).toHaveText("当前使用：本地助手");
-    await options
-      .getByRole("button", { name: "模型直连", exact: true })
-      .click();
-    await options
-      .getByRole("button", { name: "使用模型直连", exact: true })
-      .click();
-    await expect(status).toHaveText("当前使用：模型直连");
+    await expect(
+      options.getByRole("button", { name: "模型直连", exact: true }),
+    ).toHaveCount(0);
     const reopened = await restart();
     const restored = await reopened.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
       return {
-        settings: (
-          await api.runtime.sendMessage({ action: "state", localOnly: true })
-        ).settings,
+        state: await api.runtime.sendMessage({
+          action: "state",
+          localOnly: true,
+        }),
         catalog: await api.runtime.sendMessage({
           action: "provider-catalog",
           mode: "direct",
         }),
       };
     });
-    expect(restored.settings.mode).toBe("direct");
-    expect(restored.catalog).toMatchObject({
-      model: direct.model,
-      askModel: direct.askModel,
-      accounts: direct.accounts,
-      keyConfigured: true,
-      translationEngine: "llm",
-    });
+    expect(restored.state.settings.mode).toBe("bridge");
+    expect(restored.catalog).toEqual(shared);
     expect(model.requests).toHaveLength(0);
   });
 });
@@ -379,12 +376,6 @@ test("removes an unused retired supplier without requesting access to its old en
         },
       });
       if (!reply.ok) throw Error(reply.error);
-      const { providerAccounts } =
-        await api.storage.local.get("providerAccounts");
-      // A removed catalog provider must not prevent deleting an old unused account.
-      (providerAccounts as AccountState).accounts.at(-1)!.model.provider =
-        "retired-provider";
-      await api.storage.local.set({ providerAccounts });
     });
     await options.addInitScript(() => {
       const host = globalThis as typeof globalThis & {

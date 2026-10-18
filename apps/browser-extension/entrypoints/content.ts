@@ -327,8 +327,10 @@ export default defineContentScript({
           action: "open-options",
           section: "usage",
         }),
-      ask: () => {
-        askSelection();
+      ask: async () => {
+        const revision = pageCommandRevision;
+        await readingReady;
+        if (revision === pageCommandRevision) askSelection();
       },
       settings: () => send({ action: "open-options" }),
       enabled: async (enabled) => {
@@ -338,8 +340,17 @@ export default defineContentScript({
         });
         if (!reply.ok) throw new Error(reply.error);
       },
-      paragraph: (element) => {
-        if (!readingEnabled) return;
+      paragraph: async (element) => {
+        const revision = pageCommandRevision;
+        await readingReady;
+        await configurationReady;
+        if (
+          revision !== pageCommandRevision ||
+          ctx.isInvalid ||
+          !readingEnabled ||
+          !element.isConnected
+        )
+          return;
         if (!translator) start(targetLanguage, false, true);
         translator?.translateElement(element);
       },

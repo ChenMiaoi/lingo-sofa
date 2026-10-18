@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -72,6 +76,7 @@ test("keeps whole-page reading spacious, stacked and within narrow source column
     await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
       recursive: true,
     });
+    await prepareTestExtension(extension);
     const manifest = JSON.parse(
       await readFile(join(extension, "manifest.json"), "utf8"),
     );
@@ -92,6 +97,7 @@ test("keeps whole-page reading spacious, stacked and within narrow source column
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    await connectTestAssistant(worker, context);
     const settings = await context.newPage();
     await settings.goto(
       `chrome-extension://${new URL(worker.url()).host}/options.html`,

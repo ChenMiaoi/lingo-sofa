@@ -51,9 +51,17 @@ export function SettingsNavigation({
     if (!target || !root) return;
     let highlighted: HTMLElement | undefined;
     const locate = () => {
-      const label = [
-        ...root.querySelectorAll<HTMLElement>(`[data-setting="${target.id}"]`),
-      ].find((node) => !node.closest("[hidden]"));
+      const label =
+        [
+          ...root.querySelectorAll<HTMLElement>(
+            `[data-setting="${target.id}"]`,
+          ),
+        ].find((node) => !node.closest("[hidden]")) ??
+        (target.id === "account-name"
+          ? root.querySelector<HTMLElement>(
+              '[data-setting="providers"]:not([hidden])',
+            )
+          : undefined);
       if (!label) return;
       highlighted = label;
       if (highlighted instanceof HTMLDetailsElement) highlighted.open = true;

@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium, type Page } from "@playwright/test";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -189,6 +193,7 @@ for (const site of pages) {
         extension,
         { recursive: true },
       );
+      await prepareTestExtension(extension);
       const manifest = JSON.parse(
         await readFile(join(extension, "manifest.json"), "utf8"),
       );
@@ -216,6 +221,7 @@ for (const site of pages) {
       const worker =
         context.serviceWorkers()[0] ??
         (await context.waitForEvent("serviceworker"));
+      await connectTestAssistant(worker, context);
       const settings = await context.newPage();
       await settings.goto(
         `chrome-extension://${new URL(worker.url()).host}/options.html`,

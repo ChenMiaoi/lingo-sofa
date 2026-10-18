@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, cp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,6 +24,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
     recursive: true,
   });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   ) as { host_permissions?: string[] };
@@ -50,6 +55,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    const assistant = await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html?view=activity`);
@@ -146,13 +152,11 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
       return (await api.runtime.sendMessage({ action: "state" })) as {
-        usage: { usage: { totalTokens: number } }[];
-        hasKey: boolean;
+        bridgeUsage: { usage: { totalTokens: number } }[];
       };
     });
-    expect(usage.hasKey).toBe(true);
-    expect(usage.usage).toHaveLength(2);
-    expect(usage.usage[0]!.usage.totalTokens).toBe(44);
+    expect(usage.bridgeUsage).toHaveLength(2);
+    expect(usage.bridgeUsage[0]!.usage.totalTokens).toBe(44);
     const migrations = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
@@ -168,13 +172,12 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
         });
         const state = await api.runtime.sendMessage({
           action: "state",
-          localOnly: true,
         });
         const persistent = (await api.storage.local.get("usage")).usage;
         const session = (await api.storage.session.get("usage")).usage;
         results.push({
           ok: saved.ok,
-          records: state.usage.length,
+          records: state.bridgeUsage.length,
           persistent: Array.isArray(persistent) ? persistent.length : 0,
           session: Array.isArray(session) ? session.length : 0,
         });
@@ -182,21 +185,22 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
       return results;
     });
     expect(migrations).toEqual([
-      { ok: true, records: 2, persistent: 2, session: 0 },
-      { ok: true, records: 2, persistent: 0, session: 2 },
+      { ok: true, records: 2, persistent: 0, session: 0 },
+      { ok: true, records: 2, persistent: 0, session: 0 },
     ]);
     const interruptedId = crypto.randomUUID();
     await options.evaluate(async (requestId) => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
       const saved = (await api.runtime.sendMessage({ action: "state" })) as {
-        usage: Record<string, unknown>[];
+        bridgeUsage: Record<string, unknown>[];
       };
       await api.storage.session.set({
         inFlight: [
           {
-            ...saved.usage[0],
+            ...saved.bridgeUsage[0],
             requestId,
+            mode: "direct",
             status: "unknown",
             usage: null,
             costKnown: false,
@@ -208,16 +212,30 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     const devtools = await context.newCDPSession(options);
     await devtools.send("ServiceWorker.enable");
     await devtools.send("ServiceWorker.stopAllWorkers");
-    const restored = await options.evaluate(async () => {
+    let restored = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;
       return (await api.runtime.sendMessage({ action: "state" })) as {
         usage: { requestId: string; status: string }[];
-        hasKey: boolean;
+        bridgeUsage: unknown[];
       };
     });
-    expect(restored.hasKey).toBe(true);
-    expect(restored.usage).toHaveLength(3);
+    const replacement = context
+      .serviceWorkers()
+      .find((candidate) => candidate.url().includes(id))!;
+    await assistant.attach(replacement, true);
+    await expect
+      .poll(async () => {
+        restored = await options.evaluate(async () =>
+          (
+            globalThis as typeof globalThis & { chrome: ExtensionApi }
+          ).chrome.runtime.sendMessage({ action: "state" }),
+        );
+        return restored.bridgeUsage.length;
+      })
+      .toBe(2);
+    expect(restored.bridgeUsage).toHaveLength(2);
+    expect(restored.usage).toHaveLength(1);
     expect(
       restored.usage.find((record) => record.requestId === interruptedId)
         ?.status,
@@ -334,7 +352,7 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
         settings: { model: Record<string, unknown> };
         usage: unknown[];
       };
-      await api.runtime.sendMessage({
+      const rejected = await api.runtime.sendMessage({
         action: "save",
         settings: {
           ...state.settings,
@@ -345,19 +363,27 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
           },
         },
       });
-      return (await api.runtime.sendMessage({ action: "state" })) as {
-        hasKey: boolean;
-        usage: unknown[];
+      await api.runtime.sendMessage({
+        action: "save",
+        patch: { autoOrigins: [] },
+      });
+      await api.runtime.sendMessage({ action: "page-enabled", enabled: false });
+      return {
+        rejected,
+        catalog: await api.runtime.sendMessage({ action: "provider-catalog" }),
+        state: await api.runtime.sendMessage({ action: "state" }),
       };
     });
-    expect(changed.hasKey).toBe(false);
+    expect(changed.rejected.ok).toBe(false);
+    expect(changed.catalog.keyConfigured).toBe(true);
+    expect(changed.catalog.model.endpoint).toBe(model.endpoint);
     await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(1);
     await expect(
       page.locator(
         "[data-lingo-sofa=translation],[data-lingo-sofa=error],[data-lingo-sofa=selection]",
       ),
     ).toHaveCount(0);
-    expect(changed.usage).toHaveLength(4);
+    expect(changed.state.bridgeUsage).toHaveLength(3);
     expect(
       await options.evaluate(
         () =>
@@ -388,15 +414,16 @@ test("loads MV3, translates through Pi, restores DOM and keeps secrets out of co
     });
     expect(credentialCache).toEqual({});
     await options.reload();
-    await expect(options.getByRole("alert")).toContainText(
-      "本地助手用量暂不可用",
+    await expect(options.locator(".ls-activity-heading")).toContainText(
+      "全部客户端",
     );
-    await expect(
-      options.getByText("输入 tokens", { exact: true }).locator(".."),
-    ).toContainText("未知");
-    await expect(
-      options.getByText("输出 tokens", { exact: true }).locator(".."),
-    ).toContainText("未知");
+    expect(
+      await options.evaluate(async () =>
+        (
+          globalThis as typeof globalThis & { chrome: ExtensionApi }
+        ).chrome.storage.local.get("providerAccounts"),
+      ),
+    ).toEqual({});
   } finally {
     await context.close();
     await model.close();

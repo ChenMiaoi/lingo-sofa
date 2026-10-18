@@ -58,6 +58,31 @@ it("does not retry failed requests and preserves error accounting", async () => 
     await server.close();
   }
 });
+it("identifies rejected model credentials without exposing provider details or retrying", async () => {
+  const server = await modelServer({ status: 401 });
+  try {
+    const config = modelConfigSchema.parse({
+      provider: "openai-compatible",
+      endpoint: server.endpoint,
+      model: "fixture",
+    });
+    const error = await createPiClient(config, "fixture-private-key")
+      .complete("system", "Synthetic hello", new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(ModelFailure);
+    expect((error as ModelFailure).message).toContain("拒绝账户认证（401）");
+    expect((error as ModelFailure).message).toContain("API Key");
+    expect((error as ModelFailure).message).toContain("服务地址");
+    expect((error as ModelFailure).message).not.toContain(
+      "fixture-private-key",
+    );
+    expect((error as ModelFailure).message).not.toContain(server.endpoint);
+    expect((error as ModelFailure).metrics.usage).toBeNull();
+    expect(server.requests).toHaveLength(1);
+  } finally {
+    await server.close();
+  }
+});
 it("propagates cancellation to the provider", async () => {
   const server = await modelServer({ delay: 5_000 });
   try {
@@ -139,7 +164,7 @@ it("reports upstream service overload without retrying", async () => {
     await server.close();
   }
 });
-it("shows safe subscription quota and re-login guidance without returning raw provider details", async () => {
+it("shows safe account guidance without returning raw provider details", async () => {
   const { failureMessage } = await import("@lingo-sofa/provider-pi");
   const base = {
     role: "assistant" as const,
@@ -170,4 +195,15 @@ it("shows safe subscription quota and re-login guidance without returning raw pr
   });
   expect(login).toContain("重新登录");
   expect(login).not.toContain("private-refresh-token");
+  for (const errorMessage of [
+    "401 Authentication Fails private-api-key https://private-provider.test/account",
+    "invalid_api_key private-api-key https://private-provider.test/account",
+    "Incorrect API key provided: private-api-key https://private-provider.test/account",
+  ]) {
+    const denied = failureMessage({ ...base, errorMessage });
+    expect(denied).toContain("拒绝账户认证（401）");
+    expect(denied).toContain("API Key");
+    expect(denied).not.toContain("private-api-key");
+    expect(denied).not.toContain("private-provider.test");
+  }
 });

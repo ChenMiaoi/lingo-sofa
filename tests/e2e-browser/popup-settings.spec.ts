@@ -1,12 +1,17 @@
 import { test, expect, chromium } from "@playwright/test";
-import { mkdtemp, rm, readFile, mkdir } from "node:fs/promises";
+import { prepareTestExtension } from "./shared-assistant-fixture.js";
+import { mkdtemp, rm, readFile, mkdir, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 type ExtensionApi = typeof import("wxt/browser").browser;
 
 test("keeps the popup compact, saves language and opens full settings in a separate tab", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-popup-"));
-  const extension = resolve("apps/browser-extension/.output/chrome-mv3");
+  const extension = join(directory, "extension");
+  await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
+    recursive: true,
+  });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   );
@@ -87,8 +92,9 @@ test("keeps the popup compact, saves language and opens full settings in a separ
     await expect(
       setup.getByRole("heading", { name: "供应商", exact: true }),
     ).toBeVisible();
+    await expect(setup.getByRole("alert")).toContainText("共享账户暂不可用");
     await expect(
-      setup.getByRole("button", { name: "添加供应商" }),
+      setup.getByRole("link", { name: "管理连接", exact: true }),
     ).toBeVisible();
     await expect(
       setup.getByRole("button", { name: "启用网页悬浮球" }),
@@ -136,7 +142,9 @@ test("keeps the popup compact, saves language and opens full settings in a separ
       .click();
     await expect(settings.getByLabel("目标语言")).toHaveValue("English");
     await settings.getByLabel("目标语言").selectOption("日本語");
-    await expect(settings.getByRole("status")).toHaveText("所有更改已保存");
+    await expect(
+      settings.locator("p.ls-design-footer[role=status]"),
+    ).toHaveText("所有更改已保存");
     await settings.reload();
     await expect(settings.getByLabel("目标语言")).toHaveValue("日本語");
     await expect(settings.getByLabel("双语效果预览")).toContainText(
@@ -241,7 +249,7 @@ test("keeps the popup compact, saves language and opens full settings in a separ
       ["思考", "思考程度", "thinking-level"],
       ["持久", "持久保存用量", "persist-usage"],
       ["上下文与权限", "上下文与权限说明", "context-permissions"],
-      ["连接名称", "连接名称", "account-name"],
+      ["连接名称", "连接名称", "providers"],
     ]) {
       await settings.getByLabel("搜索设置").fill(query!);
       await settings

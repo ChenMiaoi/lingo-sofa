@@ -50,6 +50,12 @@ export function failureMessage(message: AssistantMessage): string {
   )
     return "ChatGPT 登录已失效，请重新登录。";
   if (
+    /\b401\b|invalid[_ -]?api[_ -]?key|incorrect api key|authentication fail(?:s|ed)/i.test(
+      message.errorMessage ?? "",
+    )
+  )
+    return "模型服务拒绝账户认证（401），请核对当前账户的 API Key、登录状态与服务地址。";
+  if (
     /\b503\b|service_unavailable|service.is.too.busy/i.test(
       message.errorMessage ?? "",
     )

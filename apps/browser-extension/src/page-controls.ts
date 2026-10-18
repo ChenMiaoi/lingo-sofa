@@ -12,10 +12,10 @@ export interface PageControlActions {
   pause: () => void;
   usage: () => Promise<PageUsageSnapshot>;
   usageSettings: () => Promise<unknown>;
-  ask: () => void;
+  ask: () => void | Promise<void>;
   settings: () => Promise<unknown>;
   enabled: (enabled: boolean) => Promise<void>;
-  paragraph: (element: HTMLElement) => void;
+  paragraph: (element: HTMLElement) => void | Promise<void>;
   language: (language: string) => Promise<void>;
   model: (model: string) => Promise<void>;
   automatic: (enabled: boolean) => Promise<unknown>;
@@ -492,8 +492,13 @@ ${themeStyles(":host")}
       });
   });
   paragraph.addEventListener("pointerdown", (event) => event.preventDefault());
-  paragraph.addEventListener("click", () => {
-    if (hovered?.isConnected) actions.paragraph(hovered);
+  paragraph.addEventListener("click", async () => {
+    try {
+      if (hovered?.isConnected) await actions.paragraph(hovered);
+    } catch {
+      menuNotice.textContent = notice.textContent =
+        "段落翻译未能启动，请重试。";
+    }
   });
   const hover = (event: PointerEvent) => {
     if (

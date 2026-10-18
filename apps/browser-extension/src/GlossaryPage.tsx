@@ -189,8 +189,7 @@ export function GlossaryPage({
                 我的术语 <span className="ls-count">{terms.length}</span>
               </h2>
               <p>
-                手动保存 · 仅用于此浏览器的直连翻译，不会同步到本地助手或
-                Discord。
+                手动保存 · 此浏览器的本地术语表，不会自动同步到助手或 Discord。
               </p>
             </div>
             <button

@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, cp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,7 +14,12 @@ type ExtensionApi = typeof import("wxt/browser").browser;
 test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV3 runtime", async () => {
   test.setTimeout(90_000);
   const directory = await mkdtemp(join(tmpdir(), "lingo-stress-"));
-  const model = await modelServer({ delay: 1 });
+  const model = await modelServer({
+    delay: 1,
+    // Shared sessions retain history; report its growth so native compaction can run.
+    inputTokens: (_call, request) =>
+      Math.ceil(JSON.stringify(request.messages).length / 3),
+  });
   const site = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });
     response.end(
@@ -22,6 +31,7 @@ test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
     recursive: true,
   });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   ) as { host_permissions: string[] };
@@ -43,6 +53,7 @@ test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html?view=activity`);
@@ -109,9 +120,10 @@ test("handles 1,000 visible paragraphs and 100 SPA replacements in the actual MV
         );
         history.replaceState(null, "", `?view=${view}`);
       }, view);
-      await expect(page.locator("[data-lingo-sofa='translation']")).toHaveCount(
-        5,
-      );
+      await expect(
+        page.locator("[data-lingo-sofa='translation']"),
+        `SPA view ${view}`,
+      ).toHaveCount(5);
       await expect(
         page.locator("[data-lingo-sofa='translation']").first(),
       ).toContainText(`View ${view} row 0`);

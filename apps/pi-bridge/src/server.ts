@@ -11,6 +11,7 @@ import { TranslationService } from "@lingo-sofa/translation-core";
 import {
   oauthRequestSchema,
   providerUpdateSchema,
+  accountImportSchema,
   type UsageRecord,
 } from "@lingo-sofa/protocol";
 import { bridgeEnvelopeSchema, type BridgeConfig } from "./config.js";
@@ -19,6 +20,9 @@ import { SafePiSessions } from "./sdk.js";
 import { BridgeOAuth } from "./oauth.js";
 import { saveProviderSettings } from "./provider-settings.js";
 import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
+
+// Full-page batches also read shared settings; allow those valid bursts while bounding local traffic.
+export const BRIDGE_REQUESTS_PER_MINUTE = 1_024;
 
 export function createBridge(
   config: BridgeConfig,
@@ -52,6 +56,7 @@ export function createBridge(
   });
   let configuring = false;
   let currentKey = apiKey;
+  let balance: { key: string; data: unknown; updatedAt: number } | undefined;
   let sessions = new SafePiSessions(
     config.settings.model,
     apiKey,
@@ -244,7 +249,7 @@ export function createBridge(
         ? limit
         : { count: 0, until: Date.now() + 60_000 };
     rate.set(origin, bucket);
-    if (++bucket.count > 120) {
+    if (++bucket.count > BRIDGE_REQUESTS_PER_MINUTE) {
       response.setHeader("Retry-After", "60");
       reply(429, { ok: false, error: "Bridge request limit reached" });
       return;
@@ -307,6 +312,44 @@ export function createBridge(
         return;
       }
       await initialized;
+      if (request.url === "/v1/balance") {
+        if (
+          accounts.translation.provider !== "deepseek" ||
+          accounts.translation.endpoint !== "https://api.deepseek.com"
+        ) {
+          reply(200, { unavailable: true });
+          return;
+        }
+        if (!currentKey) throw new Error("API Key 未配置");
+        if (
+          balance?.key === currentKey &&
+          Date.now() - balance.updatedAt < 30_000
+        ) {
+          reply(200, { data: balance.data, updatedAt: balance.updatedAt });
+          return;
+        }
+        const key = currentKey;
+        const upstream = await fetch("https://api.deepseek.com/user/balance", {
+          headers: { Authorization: `Bearer ${key}` },
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!upstream.ok) {
+          reply(502, {
+            ok: false,
+            error:
+              upstream.status === 401
+                ? "模型服务拒绝账户认证（401），请核对共享账户的 API Key 与服务地址。"
+                : "余额查询失败",
+          });
+          return;
+        }
+        const data: unknown = await upstream.json();
+        if (key !== currentKey)
+          throw new Error("共享账户已更新，请重新查询余额");
+        balance = { key, data, updatedAt: Date.now() };
+        reply(200, { data, updatedAt: balance.updatedAt });
+        return;
+      }
       if (request.url === "/v1/provider") {
         // Reading saved settings must work without contacting the model provider.
         let modelCapabilities = capabilities(config.settings.model);
@@ -367,6 +410,45 @@ export function createBridge(
         });
         return;
       }
+      if (request.url === "/v1/accounts/import") {
+        const migration = accountImportSchema.parse(raw);
+        if (accounts.imported(migration.migrationId)) {
+          reply(200, { ok: true });
+          return;
+        }
+        for (const account of migration.state.accounts) {
+          if (
+            !["deepseek", "openai-compatible"].includes(account.model.provider)
+          )
+            throw new Error("Unsupported browser account provider");
+          resolveModel(account.model);
+        }
+        const plan = accounts.planImport(migration);
+        for (const model of [plan.translation, plan.ask]) resolveModel(model);
+        if (oauth.busy || service.queue.size || inFlight.size) {
+          reply(409, { ok: false, error: "请等待当前请求完成后再迁移账户" });
+          return;
+        }
+        configuring = true;
+        try {
+          await accounts.commit(plan);
+          config.settings.model = plan.translation;
+          config.settings.askModel = plan.ask;
+          config.settings.translationEngine = plan.translationEngine;
+          currentKey = accounts.key(plan.translation);
+          sessions.dispose();
+          sessions = new SafePiSessions(
+            plan.translation,
+            currentKey,
+            directory,
+            authPath(plan.translation),
+          );
+          reply(200, { ok: true });
+        } finally {
+          configuring = false;
+        }
+        return;
+      }
       if (request.url === "/v1/provider/update") {
         const update = providerUpdateSchema.parse(raw);
         if (update.target === "translation-engine") {
@@ -398,6 +480,13 @@ export function createBridge(
             "Provider requires explicitly enabled Pi authentication",
           );
         const plan = accounts.plan(update);
+        if (
+          (!update.target || update.target === "translation") &&
+          plan.accounts.length === 1 &&
+          plan.ask.authMode !== "subscription" &&
+          !accounts.keyFrom(plan, plan.ask)
+        )
+          plan.ask = { ...plan.translation };
         const selected =
           update.target === "ask-default"
             ? plan.ask

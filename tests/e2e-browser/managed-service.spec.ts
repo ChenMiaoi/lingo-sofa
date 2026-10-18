@@ -150,20 +150,66 @@ test("auto-starts shared service from MV3 and keeps Discord connected after brow
       `chrome-extension://${BROWSER_EXTENSION_ID}/options.html#connection`,
     );
     await expect(options.locator(".ls-active-connection")).toHaveText(
-      "当前使用：模型直连",
+      "免 Key 翻译可独立使用；大模型需要共享助手",
     );
-    await options
-      .getByRole("button", { name: "本地助手", exact: true })
-      .click();
     await expect(
       options.getByText("本地助手已连接", { exact: true }),
     ).toBeVisible({ timeout: 75_000 });
     await options
-      .getByRole("button", { name: "使用本地助手", exact: true })
+      .getByRole("button", { name: "使用共享账户", exact: true })
       .click({ timeout: 75_000 });
     await expect(options.locator(".ls-active-connection")).toHaveText(
-      "当前使用：本地助手",
+      "当前使用：共享本地助手",
     );
+    await test.step("migrate a browser account through the real packaged native host", async () => {
+      await options.evaluate(async () => {
+        const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+          .chrome;
+        const catalog = await api.runtime.sendMessage({
+          action: "provider-catalog",
+        });
+        const id = crypto.randomUUID();
+        const model = { ...catalog.model, accountId: id };
+        await api.storage.local.set({
+          providerAccounts: {
+            accounts: [
+              {
+                id,
+                name: "Native migration fixture",
+                model,
+                apiKey: "native-migration-fixture-key",
+              },
+            ],
+            translation: model,
+            ask: model,
+            translationEngine: "bing",
+          },
+        });
+      });
+      await options.reload();
+      await options
+        .getByRole("button", { name: "迁移浏览器账户并共用" })
+        .click();
+      await expect(
+        options.getByRole("region", { name: "浏览器账户迁移" }),
+      ).toContainText("现已共用");
+      const migrated = await options.evaluate(async () => {
+        const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+          .chrome;
+        return {
+          catalog: await api.runtime.sendMessage({
+            action: "provider-catalog",
+          }),
+          local: await api.storage.local.get("providerAccounts"),
+        };
+      });
+      expect(migrated.catalog.keyConfigured).toBe(true);
+      expect(migrated.catalog.accounts).toHaveLength(1);
+      expect(migrated.local).toEqual({});
+      expect(JSON.stringify(migrated)).not.toContain(
+        "native-migration-fixture-key",
+      );
+    });
     const state = await options.evaluate(async () =>
       (
         globalThis as typeof globalThis & { chrome: ExtensionApi }
@@ -193,7 +239,7 @@ test("auto-starts shared service from MV3 and keeps Discord connected after brow
     );
     expect(await provider.json()).toMatchObject({
       translationEngine: "bing",
-      keyConfigured: false,
+      keyConfigured: true,
     });
     await options.evaluate(async () =>
       (
@@ -224,7 +270,7 @@ test("auto-starts shared service from MV3 and keeps Discord connected after brow
       `chrome-extension://${BROWSER_EXTENSION_ID}/options.html#connection`,
     );
     await expect(reopened.locator(".ls-active-connection")).toHaveText(
-      "当前使用：本地助手",
+      "当前使用：共享本地助手",
     );
     const restored = await reopened.evaluate(async () =>
       (

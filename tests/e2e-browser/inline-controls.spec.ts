@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, cp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +34,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
     recursive: true,
   });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   ) as { host_permissions: string[] };
@@ -51,6 +56,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    const assistant = await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html?view=activity`);
@@ -75,6 +81,7 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       });
       if (!reply.ok) throw new Error(reply.error);
     }, model.endpoint);
+    const releaseCatalog = assistant.holdProviderCatalog();
     const page = await context.newPage();
     await page.goto(`http://127.0.0.1:${(site.address() as AddressInfo).port}`);
     await worker.evaluate(async () => {
@@ -91,6 +98,8 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
     expect(model.requests).toHaveLength(0);
     await page.locator("#first").hover();
     await page.getByRole("button", { name: "翻译这一段", exact: true }).click();
+    expect(model.requests).toHaveLength(0);
+    releaseCatalog();
     await expect.poll(() => model.requests.length).toBe(1);
     const activeMigration = await options.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
@@ -105,7 +114,6 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       });
       const after = await api.runtime.sendMessage({
         action: "state",
-        localOnly: true,
       });
       return { ok: saved.ok, running: after.queue.running };
     });
@@ -136,8 +144,8 @@ test("keeps bilingual reading inline with lightweight paragraph/page controls an
       await options.evaluate(async () => {
         const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
           .chrome;
-        const stored = (await api.storage.local.get("usage")).usage;
-        return Array.isArray(stored) ? stored.length : 0;
+        const state = await api.runtime.sendMessage({ action: "state" });
+        return state.bridgeUsage.length;
       }),
     ).toBe(1);
     await expect(

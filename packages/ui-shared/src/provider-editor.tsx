@@ -103,6 +103,7 @@ export function createProviderEditor(getReact: () => HostReact) {
       setError("");
       try {
         const next = await client.providers();
+        if (next.connectionError) throw new Error(next.connectionError);
         setCatalog(next);
         select(
           initialSection === "ask-default"
@@ -117,7 +118,7 @@ export function createProviderEditor(getReact: () => HostReact) {
           next,
         );
       } catch {
-        setError("连接不可用，请检查本地助手或选择模型直连。");
+        setError("共享账户暂不可用，请检查本地助手后重试。");
       } finally {
         setBusy(false);
       }

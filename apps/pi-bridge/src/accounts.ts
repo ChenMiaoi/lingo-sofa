@@ -7,12 +7,14 @@ import {
   type ProviderUpdate,
   resolveTranslationEngine,
   type TranslationEngine,
+  type AccountImport,
 } from "@lingo-sofa/protocol";
 
 import {
   accountStateSchema as schema,
   planAccountUpdate,
   accountKey,
+  planAccountImport,
   type AccountState as State,
 } from "@lingo-sofa/provider-pi/accounts";
 
@@ -97,6 +99,12 @@ export class ProviderAccounts {
   }
   plan(update: ProviderUpdate) {
     return planAccountUpdate(this.state, update, randomUUID);
+  }
+  planImport(migration: AccountImport) {
+    return planAccountImport(this.state, migration, randomUUID);
+  }
+  imported(migrationId: string) {
+    return this.state.completedImports?.includes(migrationId) ?? false;
   }
   keyFrom(state: State, model: ModelConfig) {
     return accountKey(state, model);

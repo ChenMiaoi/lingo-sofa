@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,12 +29,14 @@ test("keeps its ID, accounts and preferences when an updated browser build moves
       ],
     });
   try {
-    for (const extension of [first, second])
+    for (const extension of [first, second]) {
       await cp(
         resolve("apps/browser-extension/.output/chrome-mv3"),
         extension,
         { recursive: true },
       );
+      await prepareTestExtension(extension);
+    }
     const manifest = JSON.parse(
       await readFile(join(second, "manifest.json"), "utf8"),
     );
@@ -42,6 +48,7 @@ test("keeps its ID, accounts and preferences when an updated browser build moves
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    const assistant = await connectTestAssistant(worker, context);
     expect(new URL(worker.url()).host).toBe(BROWSER_EXTENSION_ID);
     const page = await context.newPage();
     await page.goto(`chrome-extension://${BROWSER_EXTENSION_ID}/options.html`);
@@ -69,12 +76,15 @@ test("keeps its ID, accounts and preferences when an updated browser build moves
       });
       if (!engine.ok) throw Error(engine.error);
       await api.storage.local.set({ readingEnabled: false });
+      // Unused legacy data must not prevent shared accounts or keyless settings from loading.
+      await api.storage.local.set({ providerAccounts: { broken: true } });
     });
     await context.close();
     context = await launch(second);
     const restoredWorker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    await assistant.attach(restoredWorker);
     expect(new URL(restoredWorker.url()).host).toBe(BROWSER_EXTENSION_ID);
     const reopened = await context.newPage();
     await reopened.goto(
@@ -102,7 +112,14 @@ test("keeps its ID, accounts and preferences when an updated browser build moves
           .readingEnabled,
       };
     });
-    expect(saved.state.hasKey).toBe(true);
+    expect(saved.catalog.keyConfigured).toBe(true);
+    expect(
+      await restoredWorker.evaluate(async () =>
+        (
+          globalThis as typeof globalThis & { chrome: ExtensionApi }
+        ).chrome.storage.local.get("providerAccounts"),
+      ),
+    ).toEqual({ providerAccounts: { broken: true } });
     expect(saved.catalog.accounts).toHaveLength(1);
     expect(saved.catalog.translationEngine).toBe("google");
     expect(saved.readingEnabled).toBe(false);

@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+type FixtureRequest = {
+  messages: { content: string | { type: string; text?: string }[] }[];
+};
 export async function modelServer(
   options: {
     reply?: string;
@@ -11,7 +14,8 @@ export async function modelServer(
     translate?: (text: string) => string;
     contextWindow?: number;
     maxOutputTokens?: number;
-    inputTokens?: number | ((call: number) => number);
+    inputTokens?: number | ((call: number, request: FixtureRequest) => number);
+    apiKey?: string;
   } = {},
 ) {
   const requests: unknown[] = [];
@@ -39,13 +43,16 @@ export async function modelServer(
       response.end("Missing fixture request");
       return;
     }
-    const body = JSON.parse(raw) as {
-      messages: { content: string | { type: string; text?: string }[] }[];
-    };
+    const body = JSON.parse(raw) as FixtureRequest;
     requests.push(body);
     authorizations.push(request.headers.authorization);
-    if (options.status) {
-      response.writeHead(options.status);
+    const status =
+      options.apiKey &&
+      request.headers.authorization !== `Bearer ${options.apiKey}`
+        ? 401
+        : options.status;
+    if (status) {
+      response.writeHead(status);
       response.end(JSON.stringify({ error: { message: "fixture failure" } }));
       return;
     }
@@ -97,7 +104,7 @@ export async function modelServer(
     chunk({ content: answer.slice(2) });
     const inputTokens =
       typeof options.inputTokens === "function"
-        ? options.inputTokens(requests.length)
+        ? options.inputTokens(requests.length, body)
         : (options.inputTokens ?? 32);
     chunk({}, "stop", {
       prompt_tokens: inputTokens,

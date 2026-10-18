@@ -9,7 +9,7 @@ import {
 } from "@lingo-sofa/protocol";
 type ExtensionApi = typeof import("wxt/browser").browser;
 
-test("guides browser installation with its own extension ID and hides the guide in direct mode", async () => {
+test("guides shared-assistant installation and activates one shared account source", async () => {
   const profile = await mkdtemp(join(tmpdir(), "lingo-setup-ui-"));
   const extension = join(profile, "extension");
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
@@ -77,7 +77,7 @@ test("guides browser installation with its own extension ID and hides the guide 
             return Promise.resolve(state.assistantFixture);
           if (message.action === "provider-catalog")
             return Promise.resolve(catalog);
-          if (message.action === "provider-update") {
+          if (message.action === "account-use-shared") {
             state.connectionFixture.updates.push(message.update);
             if (state.connectionFixture.fail)
               return Promise.resolve({
@@ -88,7 +88,7 @@ test("guides browser installation with its own extension ID and hides the guide 
               (current) =>
                 original({
                   action: "save",
-                  settings: { ...current.settings, mode: message.mode },
+                  settings: { ...current.settings, mode: "bridge" },
                 }),
             );
           }
@@ -102,12 +102,11 @@ test("guides browser installation with its own extension ID and hides the guide 
     await expect(
       page.getByRole("region", { name: "本地助手安装" }),
     ).toHaveCount(0);
-    // The UI mode toggle exposes onboarding before persisting the selection.
+    // Connecting exposes onboarding without creating another account store.
     await page
       .getByRole("navigation", { name: "设置导航" })
       .getByRole("button", { name: "连接方式", exact: true })
       .click();
-    await page.getByRole("button", { name: "本地助手", exact: true }).click();
     const setup = page.getByRole("region", { name: "本地助手安装" });
     await expect(setup).toBeVisible();
     await setup
@@ -233,11 +232,11 @@ test("guides browser installation with its own extension ID and hides the guide 
     await expect(
       page.getByRole("region", { name: "本地助手状态" }),
     ).toContainText("本地助手已连接", { timeout: 6_000 });
-    const connection = page.getByRole("region", { name: "连接配置位置" });
+    const connection = page.getByRole("region", { name: "共享模型账户" });
     await expect(connection.getByRole("status")).toHaveText(
-      "当前使用：模型直连",
+      "免 Key 翻译可独立使用；大模型需要共享助手",
     );
-    await expect(connection).toContainText("正在配置本地助手，尚未切换");
+    await expect(connection).toContainText("不会读取旧 Key");
     const originalSettings = await page.evaluate(
       async () =>
         (
@@ -247,13 +246,13 @@ test("guides browser installation with its own extension ID and hides the guide 
         ).settings,
     );
     await connection
-      .getByRole("button", { name: "使用本地助手", exact: true })
+      .getByRole("button", { name: "使用共享账户", exact: true })
       .click();
     await expect(connection.getByRole("alert")).toContainText(
       "fixture switch failure",
     );
     await expect(connection.getByRole("status")).toHaveText(
-      "当前使用：模型直连",
+      "免 Key 翻译可独立使用；大模型需要共享助手",
     );
     await page.evaluate(() => {
       (
@@ -263,13 +262,13 @@ test("guides browser installation with its own extension ID and hides the guide 
       ).connectionFixture.fail = false;
     });
     await connection
-      .getByRole("button", { name: "使用本地助手", exact: true })
+      .getByRole("button", { name: "使用共享账户", exact: true })
       .click();
     await expect(connection.getByRole("status")).toHaveText(
-      "当前使用：本地助手",
+      "当前使用：共享本地助手",
     );
     await expect(
-      connection.getByRole("button", { name: "使用本地助手", exact: true }),
+      connection.getByRole("button", { name: "使用共享账户", exact: true }),
     ).toHaveCount(0);
     const activated = await page.evaluate(
       async () =>
@@ -280,18 +279,9 @@ test("guides browser installation with its own extension ID and hides the guide 
         ).settings,
     );
     expect(activated).toEqual({ ...originalSettings, mode: "bridge" });
-    await connection
-      .getByRole("button", { name: "模型直连", exact: true })
-      .click();
-    await expect(connection.getByRole("status")).toHaveText(
-      "当前使用：本地助手",
-    );
-    await connection
-      .getByRole("button", { name: "使用模型直连", exact: true })
-      .click();
-    await expect(connection.getByRole("status")).toHaveText(
-      "当前使用：模型直连",
-    );
+    await expect(
+      connection.getByRole("button", { name: "模型直连", exact: true }),
+    ).toHaveCount(0);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, cp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +18,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
     recursive: true,
   });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   );
@@ -34,6 +39,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    const assistant = await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     await worker.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
@@ -196,7 +202,9 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     }
     await page.getByRole("button", { name: "翻译偏好", exact: true }).click();
     await page.getByLabel("目标语言", { exact: true }).selectOption("English");
-    await expect(page.getByRole("status")).toContainText("所有更改已保存");
+    await expect(page.locator("p.ls-design-footer[role=status]")).toContainText(
+      "所有更改已保存",
+    );
     await page.screenshot({
       path: ".cache/ui/figma-settings-translation.png",
       fullPage: true,
@@ -220,6 +228,7 @@ test("saves multiple accounts, separates defaults and keeps credentials after re
     const restoredWorker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    await assistant.attach(restoredWorker);
     const restoredId = new URL(restoredWorker.url()).host;
     const restoredPage = await context.newPage();
     await restoredPage.goto(

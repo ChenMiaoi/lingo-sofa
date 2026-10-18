@@ -89,7 +89,11 @@ export function startNative(
                     ? "/v1/oauth"
                     : envelope.operation === "provider"
                       ? "/v1/provider"
-                      : "/v1/provider/update"
+                      : envelope.operation === "balance"
+                        ? "/v1/balance"
+                        : envelope.operation === "import-accounts"
+                          ? "/v1/accounts/import"
+                          : "/v1/provider/update"
                 : "/v1/request";
             const body =
               "operation" in envelope
@@ -97,7 +101,9 @@ export function startNative(
                   ? envelope.request
                   : envelope.operation === "provider-update"
                     ? envelope.update
-                    : {}
+                    : envelope.operation === "import-accounts"
+                      ? envelope.migration
+                      : {}
                 : envelope;
             const connection = managed
               ? await managed.connection()

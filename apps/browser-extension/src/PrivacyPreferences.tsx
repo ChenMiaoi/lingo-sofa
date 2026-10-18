@@ -34,7 +34,7 @@ export function PrivacyPreferences({
       <TranslationCachePreferences />
       {settings?.mode === "bridge" && (
         <p className="ls-info-note">
-          下方保存偏好用于此浏览器的模型直连记录。本地助手的记录保留策略由助手独立管理，可在用量页查看当前保留范围。
+          下方保存偏好用于浏览器本地记录。本地助手的记录保留策略由助手管理，可在用量页查看当前保留范围。
         </p>
       )}
       <div className="ls-design-card">

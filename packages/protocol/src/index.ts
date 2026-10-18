@@ -138,8 +138,14 @@ export const accountStateSchema = z.strictObject({
   accounts: z.array(storedAccountSchema).max(100),
   translation: modelConfigSchema,
   ask: modelConfigSchema,
+  completedImports: z.array(z.uuid()).max(100).optional(),
 });
 export type AccountState = z.infer<typeof accountStateSchema>;
+export const accountImportSchema = z.strictObject({
+  migrationId: z.uuid(),
+  state: accountStateSchema.omit({ completedImports: true }),
+});
+export type AccountImport = z.infer<typeof accountImportSchema>;
 export function accountMatches(
   account: ProviderAccount,
   model: ModelConfig,
@@ -491,6 +497,7 @@ export const oauthStatusSchema = z.strictObject({
 });
 export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
 export const providerCatalogSchema = z.strictObject({
+  connectionError: z.string().max(500).optional(),
   translationEngine: translationEngineSchema.optional(),
   accounts: z.array(providerAccountSchema).default([]),
   askModel: modelConfigSchema.optional(),

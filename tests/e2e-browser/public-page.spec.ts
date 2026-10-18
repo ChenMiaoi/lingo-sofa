@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, chromium, expect } from "@playwright/test";
 import { mkdtemp, cp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,6 +22,7 @@ test("preserves real public LLVM page controls and restores inline bilingual con
     await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
       recursive: true,
     });
+    await prepareTestExtension(extension);
     const manifest = JSON.parse(
       await readFile(join(extension, "manifest.json"), "utf8"),
     );
@@ -35,6 +40,7 @@ test("preserves real public LLVM page controls and restores inline bilingual con
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     const options = await context.newPage();
     await options.goto(`chrome-extension://${id}/options.html?view=activity`);

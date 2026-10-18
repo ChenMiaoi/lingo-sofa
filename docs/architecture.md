@@ -28,7 +28,7 @@ v0.1.9 起，翻译引擎与 Ask 模型独立配置。`provider-web` 通过宿�
 
 ## 核心执行与用量
 
-后台和 Bridge 均使用 `TranslationService`：手动翻译/主动问答优先，最大并发 2，同一翻译范围串行、不同范围可并行，单问答会话最多一个回合在途；Pi 内存会话最多 50 个、空闲 30 分钟回收，不再限制为 20 个成功回合。缓存最多 500 项，包含隔离域、正文、保护片段、语言、上下文、模型、提示词版本与术语表。混合批次只发送缓存未命中的段落；本地缓存命中不新增模型消耗。
+后台和 Bridge 均使用 `TranslationService`：手动翻译/主动问答优先，最大并发 2，同一翻译范围串行、不同范围可并行，单问答会话最多一个回合在途；Pi 内存会话最多 50 个、空闲 30 分钟回收，不再限制为 20 个成功回合。新增翻译范围达到上限时，释放最久未使用且没有执行或排队任务的翻译会话，保留用量记录；Ask 对话不参与该回收。缓存最多 500 项，包含隔离域、正文、保护片段、语言、上下文、模型、提示词版本与术语表。混合批次只发送缓存未命中的段落；本地缓存命中不新增模型消耗。
 
 本地统计 API 实际用量与请求单价计算出的计费金额，不设置日/月预算，不因缺少计费数据拦截请求；供应商决定余额、配额与限流。累计展示已计费金额，缺少用量或单价的记录单独列为待计费，不覆盖已经计算的费用。旧预算字段仅为读取既有配置而保留，执行路径忽略，设置页不再展示。主动取消不提前释放正在执行的队列槽位，必须等上游结束并完成结算，防止晚到结果重新入账或虚增并发。provider 的一般重试关闭；Pi 原生上下文压缩及溢出恢复的每次辅助调用都独立记账，用量持久化失败时停止后续未记账调用。重试按钮创建新请求。
 
@@ -39,6 +39,8 @@ Pi 互斥输入桶相加作为总输入；reasoning 不重复加入 output。TPS
 页面请求只来自当前扩展的顶层 HTTP(S) content script。网站、tab/frame/document 由后台 sender 元数据绑定；页面不能传任意网络代理 URL、读取密钥或查询账户。问答预览绑定随机文档标识，刷新/导航后必须重新预览。
 
 Native Messaging 与 Discord loopback 使用同一 Zod 应用协议，版本不匹配拒绝。Native caller 必须在允许的扩展列表中；loopback 另外验证 Origin、Host、服务实例 Bearer token、请求大小和速率。Origin 和 token 是前端认证边界；已配对的同一 Discord 进程内不同账号/频道 scope 由插件绑定，Bridge 无法独立验证 Discord 账号身份。
+
+本地服务每个已认证来源每分钟最多接受 1,024 次请求，包含模型、配置和用量读取；该容量覆盖整页分批及页面切换的控制请求，仍保留并发、队列和消息大小限制。超过后返回 429 与重试时间，不自动重发模型请求。
 
 浏览器 session storage 保存已发送任务的最小元数据检查点。后台重启时恢复成功用量及消耗未知任务，不重放正文或模型调用。Bridge 默认会话内存统计；用户开启历史后将元数据原子写入 `usage.json`，发送前写 unknown，完成后以同一 requestId 替换。禁用历史会删除旧文件。持久化校验失败时拒绝启动/操作，不静默当成零用量。
 
@@ -52,7 +54,7 @@ Native Messaging 与 Discord loopback 使用同一 Zod 应用协议，版本不�
 
 ## 本地后台服务
 
-默认通过安装后的共享 Bridge 执行；已有浏览器直连仍是显式可选模式。`local-runtime` 是 Node 宿主启动/连接边界，不进入共享翻译核心或网页。Native Host 与 Vencord native 层使用同一个 `RuntimeClient`：发现健康服务、启动固定本地安装入口、更新连接租约。HTTP 服务状态验证版本与随机实例 ID；浏览器 stdio 外层只增加 `transportId` 与 `payload` 以匹配并发响应，应用协议仍为版本 1。Discord HTTP 与浏览器 relay 转发同一业务请求，不向 content script 下发服务 token。
+大模型请求统一通过共享 Bridge 执行，不再提供独立的浏览器账户或模型直连入口；没有助手时仍可使用免 Key 翻译。`local-runtime` 是 Node 宿主启动/连接边界，不进入共享翻译核心或网页。Native Host 与 Vencord native 层使用同一个 `RuntimeClient`：发现健康服务、启动固定本地安装入口、更新连接租约。HTTP 服务状态验证版本与随机实例 ID；浏览器 stdio 外层只增加 `transportId` 与 `payload` 以匹配并发响应，应用协议仍为版本 1。Discord HTTP 与浏览器 relay 转发同一业务请求，不向 content script 下发服务 token。
 
 服务先绑定本机端口，再初始化历史和发布连接描述文件。并发启动的其他进程无法获得该端口，因此不会成为竞争的历史写入者。实例凭据随机生成并只存于 0600 描述文件，随服务重启轮换；没有永久全局配对令牌，也无每小时人工配对。
 
@@ -66,7 +68,7 @@ Native Messaging 与 Discord loopback 使用同一 Zod 应用协议，版本不�
 
 模型容量来自供应商 `/models`、官方规格快照或已安装 Pi 的模型目录，注明来源。DeepSeek 官方端点在 Runtime 初始化时读取 `/models`；网络暂不可用时使用注明核对日期的官方快照。兼容端点缺少容量元数据时拒绝猜测，可在本地配置文件的 Provider 模型配置中提供带模型标识和来源的已核实 `model.capabilities`。`maxOutputTokens: 0` 表示按本次任务自动分配，并受真实模型输出/上下文额度约束；正值保留为用户明确选择的请求额度，不再有应用的 8,192 上限。自动分配不是供应商的精确 tokenizer。分批、队列与 Native Messaging 帧限制是传输/资源策略，不是宣称模型只支持这些上下文大小。
 
-浏览器模型直连仍为独立 `pi-ai` 请求，供应商前缀缓存可以生效；原生 Pi 会话与压缩需要共享本地 Bridge，设置页明确说明这一差异。网页与 Discord 的默认 Bridge 模式共用上述能力。
+网页与 Discord 的大模型请求共用上述原生 Pi 能力；浏览器的本地执行路径仅用于免 Key 翻译，不会读取旧浏览器凭证。
 
 ## OpenAI OAuth 与 API 等值用量
 
@@ -76,10 +78,12 @@ OpenAI 可选择 API Key 或 ChatGPT 订阅，认证集中于 Bridge；两端复
 
 账户、任务默认值和会话覆盖分开管理。`settings.model` 保留为翻译默认配置，`settings.askModel` 是新 Ask 的默认值；Ask 请求可携带独立 `model`，界面在新建会话时固定初始选择，后续变更默认值不修改已有对话。`accountId` 仅引用后台凭证，客户端不能提供或接收保存的 Key。账户同时绑定 provider、endpoint、authMode；修改地址不能复用旧账户 ID。
 
-共享的纯账户更新逻辑位于 `provider-pi/accounts`；Bridge 原子保存 `accounts.json`，POSIX 权限 0600；浏览器直连使用 trusted local storage。支持命名、多账户、同供应商多个 Key、更新与移除，默认模型仍引用的账户需先重新选择默认值再移除。旧单 Key 配置迁移成账户，保留 `provider.json` 的翻译默认值兼容写入。浏览器旧 session Key 仅用于迁移，不继续作为活动凭证来源。
+共享的纯账户更新与导入逻辑位于 `provider-pi/accounts`；Bridge 是唯一活动账户存储，原子保存 `accounts.json`，POSIX 权限 0600。支持命名、多账户、同供应商多个 Key、更新与移除，默认模型仍引用的账户需先重新选择默认值再移除。旧单 Key 配置迁移成账户，保留 `provider.json` 的翻译默认值兼容写入。
 
-每个 Bridge Ask 会话拥有独立 Pi 运行时和凭证。切换 provider/model/effort 时通过 Pi `SessionManager.inMemory` 转移本会话的分支、压缩条目和累计费用，验证新运行时后再释放旧实例。其他会话及翻译运行时保持隔离。直连沿用按会话保存的上下文和历史，使用本次请求选择的账户。用量及压缩记录按本次实际模型记账，不重复累加历史。Ask 的账户/模型选择不会保存成翻译配置，也不会清除其他对话。
+旧浏览器 local/session 凭证仅作待迁移数据保留，不再用于请求或写入新凭证。用户从连接页发起迁移，通过已授权 Native Messaging 导入账户；相同 provider/endpoint/authMode/Key 去重，不同 Key 保留为独立账户并重映射 ID。翻译/Ask 默认值和迁移收据在同一次原子写入提交，收到确认后才删除浏览器副本。收据跨重启保留，重复提交不重置后续修改，也不发起模型请求。未更新的助手拒绝新操作时保留浏览器数据，要求同时更新两端。余额查询也在助手中使用当前共享 Key，缓存按 Key 隔离，认证错误只返回安全提示。
 
-模型目录通过 Pi `getSupportedThinkingLevels` 提供真实可选档位；切换模型清理旧 effort、容量和价格。请求端拒绝不支持的档位；直连使用 `reasoning`，Bridge 使用 Pi 原生 `thinkingLevel`。API Key 账户支持多个；ChatGPT OAuth 仍由一个 Bridge 的 Pi 登录文件管理，账户别名不代表多个独立订阅登录。
+每个 Bridge Ask 会话拥有独立 Pi 运行时和凭证。切换 provider/model/effort 时通过 Pi `SessionManager.inMemory` 转移本会话的分支、压缩条目和累计费用，验证新运行时后再释放旧实例。其他会话及翻译运行时保持隔离。用量及压缩记录按本次实际模型记账，不重复累加历史。Ask 的账户/模型选择不会保存成翻译配置，也不会清除其他对话。
+
+模型目录通过 Pi `getSupportedThinkingLevels` 提供真实可选档位；切换模型清理旧 effort、容量和价格。请求端拒绝不支持的档位，使用 Pi 原生 `thinkingLevel`。API Key 账户支持多个；ChatGPT OAuth 仍由一个 Bridge 的 Pi 登录文件管理，账户别名不代表多个独立订阅登录。
 
 设置与 Ask 的组件通过注入宿主 React 在扩展和 Discord 中共享。界面分为翻译、Ask 默认值和供应商账户三个区域，Ask 使用紧凑的会话选择器。设计参考 Envoi 的账户管理与聊天交互、[LobeHub 的设计规范](https://github.com/lobehub/lobehub/blob/canary/DESIGN.md)以及 [Nanobrowser 的按任务选择模型](https://github.com/nanobrowser/nanobrowser)；布局与样式为本项目重新实现，保留用户 Figma 标志。

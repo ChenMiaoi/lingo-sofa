@@ -1,4 +1,8 @@
 import { test, expect, chromium } from "@playwright/test";
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { mkdtemp, cp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -24,6 +28,7 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
     recursive: true,
   });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   );
@@ -99,6 +104,7 @@ test("starts without a Key, switches free engines, keeps Ask separate and persis
     await expect(
       article.locator('[data-lingo-sofa="translation"]'),
     ).not.toContainText("免 Key 翻译");
+    await connectTestAssistant(worker, context);
     const before = await page.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
         .chrome;

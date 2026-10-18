@@ -1,12 +1,20 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`supports keyboard navigation and narrow/full layouts in ${colorScheme} theme`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "lingo-layout-"));
-    const extension = resolve("apps/browser-extension/.output/chrome-mv3");
+    const extension = join(directory, "extension");
+    await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
+      recursive: true,
+    });
+    await prepareTestExtension(extension);
     const context = await chromium.launchPersistentContext(directory, {
       channel: "chromium",
       headless: true,
@@ -20,6 +28,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       const worker =
         context.serviceWorkers()[0] ??
         (await context.waitForEvent("serviceworker"));
+      await connectTestAssistant(worker, context);
       const id = new URL(worker.url()).host;
       await worker.evaluate(async () => {
         await (
@@ -38,10 +47,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         page.getByRole("button", { name: "设置网页悬浮球" }),
       ).toHaveCount(0);
       await expect(page.locator(".ls-activity-heading")).toContainText(
-        "本浏览器的累计消耗",
-      );
-      await expect(page.locator(".ls-activity-heading")).not.toContainText(
-        "全部客户端",
+        "全部客户端的累计消耗",
       );
       await expect(
         page.getByRole("region", { name: "网页悬浮入口授权" }),
@@ -50,7 +56,23 @@ for (const colorScheme of ["light", "dark"] as const) {
       await page.keyboard.press("Tab");
       await expect(page.getByRole("link", { name: /LingoSofa/ })).toBeFocused();
 
-      await page.getByText("直连模型的自定义计价", { exact: true }).click();
+      await page.evaluate(async () => {
+        const api = (
+          globalThis as typeof globalThis & {
+            chrome: typeof import("wxt/browser").browser;
+          }
+        ).chrome;
+        const state = await api.runtime.sendMessage({
+          action: "state",
+          localOnly: true,
+        });
+        const reply = await api.runtime.sendMessage({
+          action: "provider-update",
+          update: { model: state.settings.model, apiKey: "fixture-layout-key" },
+        });
+        if (!reply.ok) throw Error(reply.error);
+      });
+      await page.getByText("共享模型的自定义计价", { exact: true }).click();
       await page.getByLabel("输入单价", { exact: true }).fill("0.2,");
       await page.getByRole("button", { name: "保存计价", exact: true }).click();
       await expect(page.getByRole("alert")).toContainText("请填写四个非负数");
@@ -68,7 +90,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(
         page.getByRole("heading", { name: "用量与费用", exact: true }),
       ).toBeVisible();
-      await page.getByText("直连模型的自定义计价", { exact: true }).click();
+      await page.getByText("共享模型的自定义计价", { exact: true }).click();
       await expect(page.getByLabel("输入单价", { exact: true })).toHaveValue(
         "0.2",
       );

@@ -13,6 +13,98 @@ type Sent = {
   max_completion_tokens: number;
 };
 
+it("releases the least recently used idle translation history after 50 scopes while retaining recently used history", async () => {
+  const model = await modelServer({ delay: 1 });
+  const directory = await mkdtemp(join(tmpdir(), "lingo-session-capacity-"));
+  const sessions = new SafePiSessions(
+    modelConfigSchema.parse({
+      provider: "openai-compatible",
+      model: "fixture",
+      endpoint: model.endpoint,
+    }),
+    "fixture",
+    directory,
+  );
+  const translate = (scope: number, text: string) =>
+    sessions
+      .translationClient(`page-${scope}`, "中文", [], () => {})
+      .complete("Translate", prompt(text, text), signal());
+  try {
+    for (let scope = 0; scope < 50; scope++)
+      await translate(scope, `SCOPE_${scope}_INITIAL`);
+    await translate(0, "RECENT_SCOPE_0");
+    await translate(50, "NEW_SCOPE_50");
+    await translate(1, "RETURN_TO_EVICTED_SCOPE_1");
+    expect(JSON.stringify(model.requests.at(-1))).not.toContain(
+      "SCOPE_1_INITIAL",
+    );
+    await translate(0, "RETURN_TO_RECENT_SCOPE_0");
+    expect(JSON.stringify(model.requests.at(-1))).toContain("SCOPE_0_INITIAL");
+    expect(JSON.stringify(model.requests.at(-1))).toContain("RECENT_SCOPE_0");
+    expect(model.requests).toHaveLength(54);
+  } finally {
+    sessions.dispose();
+    await model.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("discovers native model limits without mutating the shared settings used for cache identity", async () => {
+  const model = await modelServer();
+  const directory = await mkdtemp(
+    join(tmpdir(), "lingo-private-model-config-"),
+  );
+  const config = modelConfigSchema.parse({
+    provider: "openai-compatible",
+    model: "fixture",
+    endpoint: model.endpoint,
+  });
+  const saved = structuredClone(config);
+  const sessions = new SafePiSessions(config, "fixture", directory);
+  try {
+    await sessions
+      .translationClient("page", "中文", [], () => {})
+      .complete("Translate", prompt("a"), signal());
+    expect(model.requests).toHaveLength(1);
+    expect(config).toEqual(saved);
+    expect(config.capabilities).toBeUndefined();
+  } finally {
+    sessions.dispose();
+    await model.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("explains an upstream authentication rejection in native sessions and keeps usage unknown without retrying", async () => {
+  const model = await modelServer({ status: 401 });
+  const directory = await mkdtemp(join(tmpdir(), "lingo-native-auth-failure-"));
+  const sessions = new SafePiSessions(
+    modelConfigSchema.parse({
+      provider: "openai-compatible",
+      model: "fixture",
+      endpoint: model.endpoint,
+    }),
+    "fixture-private-key",
+    directory,
+  );
+  const metrics: Metrics[] = [];
+  try {
+    await expect(
+      sessions
+        .translationClient("fixture", "中文", [], (value) =>
+          metrics.push(value),
+        )
+        .complete("Translate synthetic text", prompt("a"), signal()),
+    ).rejects.toThrow("拒绝账户认证（401）");
+    expect(model.requests).toHaveLength(1);
+    expect(metrics.at(-1)?.usage).toBeNull();
+  } finally {
+    sessions.dispose();
+    await model.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 it("reuses native Pi history within a page/channel while isolating other scopes and Ask Pi", async () => {
   const model = await modelServer();
   const directory = await mkdtemp(join(tmpdir(), "lingo-sessions-"));

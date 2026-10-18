@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { browser } from "wxt/browser";
-import { settingsSchema, type ModelConfig } from "@lingo-sofa/protocol";
+import { providerCatalogSchema, type ModelConfig } from "@lingo-sofa/protocol";
 
-/** Pricing overrides affect future direct requests; recorded costs remain intact. */
+/** Shared pricing overrides affect future requests; recorded costs remain intact. */
 export function PricingPreferences({ model }: { model: ModelConfig }) {
   const [values, setValues] = useState(() => [
     model.prices?.input?.toString() ?? "",
@@ -15,7 +15,7 @@ export function PricingPreferences({ model }: { model: ModelConfig }) {
   const [notice, setNotice] = useState("");
   return (
     <details className="ls-design-card ls-billing-help">
-      <summary>直连模型的自定义计价</summary>
+      <summary>共享模型的自定义计价</summary>
       <p>
         当前模型：{model.model}。单位为 USD / 百万
         tokens；全部留空使用官方或目录价格。只影响后续请求的费用计算。
@@ -40,21 +40,20 @@ export function PricingPreferences({ model }: { model: ModelConfig }) {
           }
           setBusy(true);
           void browser.runtime
-            .sendMessage({ action: "state", localOnly: true })
+            .sendMessage({ action: "provider-catalog" })
             .then(async (current) => {
               if (current?.ok === false) throw new Error(current.error);
+              const catalog = providerCatalogSchema.parse(current);
               if (
-                current.settings.mode !== "direct" ||
-                current.settings.model.provider !== model.provider ||
-                current.settings.model.model !== model.model ||
-                current.settings.model.endpoint !== model.endpoint ||
-                current.settings.model.accountId !== model.accountId
+                catalog.model.provider !== model.provider ||
+                catalog.model.model !== model.model ||
+                catalog.model.endpoint !== model.endpoint ||
+                catalog.model.accountId !== model.accountId
               )
                 throw new Error("当前模型已变更，请重新打开计价设置。");
-              const settings = settingsSchema.parse({
-                ...current.settings,
+              const update = {
                 model: {
-                  ...current.settings.model,
+                  ...catalog.model,
                   prices: custom
                     ? {
                         input: Number(values[0]),
@@ -64,10 +63,10 @@ export function PricingPreferences({ model }: { model: ModelConfig }) {
                       }
                     : null,
                 },
-              });
+              };
               const reply = await browser.runtime.sendMessage({
-                action: "save",
-                settings,
+                action: "provider-update",
+                update,
               });
               if (reply?.ok === false) throw new Error(reply.error);
               setNotice("计价已保存，将用于后续请求。");

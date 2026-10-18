@@ -1,4 +1,8 @@
 import { test, expect, chromium } from "@playwright/test";
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -29,6 +33,7 @@ test("restores authorized reading and floating preferences across full browser r
     await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
       recursive: true,
     });
+    await prepareTestExtension(extension);
     const manifest = JSON.parse(
       await readFile(join(extension, "manifest.json"), "utf8"),
     );
@@ -48,6 +53,7 @@ test("restores authorized reading and floating preferences across full browser r
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    const assistant = await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${id}/options.html`);
@@ -103,6 +109,10 @@ test("restores authorized reading and floating preferences across full browser r
 
     revision++;
     context = await launch();
+    await assistant.attach(
+      context.serviceWorkers()[0] ??
+        (await context.waitForEvent("serviceworker")),
+    );
     await closeWelcome();
     // Navigate directly to the authorized site. No popup/options page wakes it.
     page = await context.newPage();
@@ -125,11 +135,18 @@ test("restores authorized reading and floating preferences across full browser r
       page.getByRole("switch", { name: "自动翻译此网站" }),
     ).toBeChecked();
     await page.getByRole("switch", { name: "开启双语阅读" }).uncheck();
+    await expect(
+      page.getByRole("switch", { name: "开启双语阅读" }),
+    ).toBeEnabled();
     await context.close();
 
     revision++;
     const calls = model.requests.length;
     context = await launch();
+    await assistant.attach(
+      context.serviceWorkers()[0] ??
+        (await context.waitForEvent("serviceworker")),
+    );
     await closeWelcome();
     page = await context.newPage();
     await page.goto(url);

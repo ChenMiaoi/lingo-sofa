@@ -1,6 +1,7 @@
 import { historyPage } from "../../apps/browser-extension/src/history-page.js";
+import { prepareTestExtension } from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { settingsSchema, type UsageRecord } from "@lingo-sofa/protocol";
@@ -9,7 +10,11 @@ import { summarizeModels } from "@lingo-sofa/translation-core";
 test("unifies activity navigation, filters requests, preserves glossary edits and clears totals explicitly", async () => {
   test.setTimeout(60_000);
   const directory = await mkdtemp(join(tmpdir(), "lingo-activity-"));
-  const extension = resolve("apps/browser-extension/.output/chrome-mv3");
+  const extension = join(directory, "extension");
+  await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
+    recursive: true,
+  });
+  await prepareTestExtension(extension);
   const context = await chromium.launchPersistentContext(directory, {
     channel: "chromium",
     headless: true,

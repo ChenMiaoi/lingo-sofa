@@ -9,6 +9,10 @@ export class NativeConnection {
   private retryDelay = 1_000;
   private hostSeen = false;
   private ready: Promise<void> | undefined;
+  private healthy = false;
+  get connected(): boolean {
+    return this.healthy;
+  }
   get installed(): true | null {
     return this.hostSeen ? true : null;
   }
@@ -50,6 +54,7 @@ export class NativeConnection {
         const error = browser.runtime.lastError?.message ?? "";
         if (/forbidden|exited|not allowed/i.test(error)) this.hostSeen = true;
         this.port = undefined;
+        this.healthy = false;
         this.ready = undefined;
         this.rejectPending("本地助手连接中断；请求未自动重发");
         this.schedule();
@@ -68,10 +73,12 @@ export class NativeConnection {
         .then((reply) => {
           if (!runtimeStatusSchema.safeParse(reply).success)
             throw new Error("本地助手状态无效，请更新助手后重试");
+          if (this.port === port) this.healthy = true;
         })
         .catch((error: unknown) => {
           if (this.port === port) {
             this.port = undefined;
+            this.healthy = false;
             this.ready = undefined;
             port.disconnect();
             this.rejectPending("本地助手尚未就绪；未发送模型请求");
@@ -106,6 +113,7 @@ export class NativeConnection {
     this.retry = undefined;
     const port = this.port;
     this.port = undefined;
+    this.healthy = false;
     this.ready = undefined;
     port?.disconnect();
     this.rejectPending("本地助手连接已关闭");

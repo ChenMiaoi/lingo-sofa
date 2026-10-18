@@ -77,7 +77,7 @@ export function createPageUsage(
       panel.querySelector<HTMLElement>(".usage-scope")!.textContent =
         usage.coverage === "all-clients"
           ? "全部客户端 · 全部可用记录"
-          : "本浏览器直连 · 全部可用记录";
+          : "本浏览器 · 全部可用记录";
       const rows = panel.querySelector<HTMLElement>(".usage-models")!;
       rows.replaceChildren();
       for (const model of usage.models) {
@@ -101,7 +101,7 @@ export function createPageUsage(
       message.textContent = usage.totals.requests
         ? ""
         : "还没有请求，翻译或提问后会显示累计用量。";
-      updated.textContent = `${usage.mode === "bridge" ? "本地助手" : "模型直连"} · 已更新`;
+      updated.textContent = `${usage.mode === "bridge" ? "共享本地助手" : "本浏览器"} · 已更新`;
     } catch (reason) {
       if (!visible || current !== revision) return;
       message.setAttribute("role", "alert");

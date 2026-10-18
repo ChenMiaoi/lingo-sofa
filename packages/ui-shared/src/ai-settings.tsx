@@ -52,6 +52,7 @@ export function createAISettings(getReact: () => HostReact) {
         const next = await client.providers();
         if (revision !== catalogRevision.current) return;
         setCatalog(next);
+        setError(next.connectionError ?? "");
         setTranslationEngine(next.translationEngine ?? "llm");
         setRefreshFailed(false);
       } catch {

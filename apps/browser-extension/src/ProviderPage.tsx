@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { browser } from "wxt/browser";
-import { providerCatalogSchema, type Settings } from "@lingo-sofa/protocol";
+import { providerCatalogSchema } from "@lingo-sofa/protocol";
 import {
   createAISettings,
   createProviderEditor,
@@ -23,28 +23,23 @@ import { AppearancePreferences } from "./AppearancePreferences.js";
 import { PrivacyPreferences } from "./PrivacyPreferences.js";
 import { ShortcutPreferences } from "./ShortcutPreferences.js";
 import { ConnectionPreferences } from "./ConnectionPreferences.js";
+import { AccountMigration } from "./AccountMigration.js";
 
 import { SettingsNavigation, sections } from "./SettingsNavigation.js";
 const AISettings = createAISettings(() => React);
 const ProviderEditor = createProviderEditor(() => React);
 export function ProviderPage() {
-  const [mode, setMode] = useState<"bridge" | "direct">("bridge");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     void send({ action: "state", localOnly: true })
-      .then((state: { settings: Settings }) => {
-        setMode(state.settings.mode);
-        setReady(true);
-      })
+      .then(() => setReady(true))
       .catch(() => setError("无法读取扩展设置"));
   }, []);
   const providers = useCallback(
     async () =>
-      providerCatalogSchema.parse(
-        await send({ action: "provider-catalog", mode }),
-      ),
-    [mode],
+      providerCatalogSchema.parse(await send({ action: "provider-catalog" })),
+    [],
   );
   const client = useMemo(
     () => ({
@@ -59,44 +54,27 @@ export function ProviderPage() {
               ? update.engine === "llm"
                 ? []
                 : [webTranslationOrigins[update.engine]]
-              : [`${new URL(update.model.endpoint).origin}/*`];
+              : [];
         if (
-          mode === "direct" &&
           origins.length > 0 &&
           !(await browser.permissions.request({ origins }))
         )
-          throw new Error("需要允许访问所选翻译服务或模型地址");
-        return send({ action: "provider-update", mode, update });
+          throw new Error("需要允许访问所选免 Key 翻译服务");
+        return send({ action: "provider-update", update });
       },
-      ...(mode === "bridge"
-        ? {
-            oauth: (action: "start" | "status" | "cancel" | "logout") =>
-              send({ action: "provider-oauth", oauth: { action } }),
-          }
-        : {}),
+      oauth: (action: "start" | "status" | "cancel" | "logout") =>
+        send({ action: "provider-oauth", oauth: { action } }),
     }),
-    [providers, mode],
+    [providers],
   );
-  return (
-    <ProductSettings
-      mode={mode}
-      setMode={setMode}
-      ready={ready}
-      error={error}
-      client={client}
-    />
-  );
+  return <ProductSettings ready={ready} error={error} client={client} />;
 }
 
 function ProductSettings({
-  mode,
-  setMode,
   ready,
   error,
   client,
 }: {
-  mode: "bridge" | "direct";
-  setMode: (mode: "bridge" | "direct") => void;
   ready: boolean;
   error: string;
   client: import("@lingo-sofa/ui-shared").AISettingsClient;
@@ -173,6 +151,9 @@ function ProductSettings({
         className={`ls-product-content${section === "usage" || section === "history" ? " ls-content-wide" : ""}`}
         ref={content}
       >
+        {section !== "connection" && (
+          <AccountMigration onMigrated={connected} />
+        )}
         {(section === "translation" ||
           new URLSearchParams(location.search).get("setup") === "reading") && (
           <div className="ls-reading-access">
@@ -187,18 +168,7 @@ function ProductSettings({
         {["translation", "intelligence", "accounts"].includes(section) &&
           preferences.settings && (
             <div className="ls-configuration-context">
-              <span>
-                当前使用：
-                {preferences.settings.mode === "bridge"
-                  ? "本地助手"
-                  : "模型直连"}
-              </span>
-              {mode !== preferences.settings.mode && (
-                <strong>
-                  正在配置：{mode === "bridge" ? "本地助手" : "模型直连"} ·
-                  保存后生效
-                </strong>
-              )}
+              <span>模型账户：浏览器与 Discord 共用本地助手</span>
               <a href="#connection">管理连接</a>
             </div>
           )}
@@ -231,7 +201,7 @@ function ProductSettings({
               {ready && (
                 <section className="ls-provider-page" aria-label="连接服务商">
                   <ProviderEditor
-                    key={`${mode}:${connectionRevision}`}
+                    key={connectionRevision}
                     client={client}
                     initialSection="account"
                     onDirtyChange={setProviderDirty}
@@ -249,7 +219,7 @@ function ProductSettings({
           <>
             {ready && (
               <AISettings
-                key={`${mode}:${connectionRevision}`}
+                key={connectionRevision}
                 client={client}
                 section="ask"
                 onManage={openAccounts}
@@ -259,20 +229,8 @@ function ProductSettings({
         ) : section === "connection" ? (
           <div data-setting="connection">
             <ConnectionPreferences
-              mode={mode}
               activeMode={preferences.settings?.mode}
-              setMode={(value) => {
-                if (providerDirty && value !== mode) {
-                  setNavigationError(
-                    "供应商有未保存更改，请先返回保存或放弃更改后切换连接。",
-                  );
-                  return;
-                }
-                setNavigationError("");
-                setMode(value);
-              }}
               onConnected={connected}
-              client={client}
             />
           </div>
         ) : section === "usage" || section === "history" ? (
@@ -295,7 +253,7 @@ function ProductSettings({
             </header>
             {section === "translation" && (
               <TranslationPreferences
-                key={`${mode}:${connectionRevision}`}
+                key={connectionRevision}
                 preferences={preferences}
                 ready={ready}
                 client={client}

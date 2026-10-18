@@ -1,3 +1,7 @@
+import {
+  connectTestAssistant,
+  prepareTestExtension,
+} from "./shared-assistant-fixture.js";
 import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, cp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +25,7 @@ test("unifies browser provider settings and the three floating reading controls"
   await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
     recursive: true,
   });
+  await prepareTestExtension(extension);
   const manifest = JSON.parse(
     await readFile(join(extension, "manifest.json"), "utf8"),
   ) as { host_permissions: string[] };
@@ -42,6 +47,7 @@ test("unifies browser provider settings and the three floating reading controls"
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    await connectTestAssistant(worker, context);
     const id = new URL(worker.url()).host;
     await worker.evaluate(async () => {
       const api = (
@@ -228,7 +234,7 @@ test("unifies browser provider settings and the three floating reading controls"
       await expect
         .poll(() =>
           options
-            .getByRole("button", { name: "模型直连", exact: true })
+            .getByRole("region", { name: "共享模型账户", exact: true })
             .evaluate((node) => getComputedStyle(node).backgroundColor),
         )
         .toBe(theme === "dark" ? "rgb(39, 40, 45)" : "rgb(255, 255, 255)");

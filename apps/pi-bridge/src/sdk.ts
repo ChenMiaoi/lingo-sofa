@@ -39,12 +39,15 @@ export class SafePiSessions {
   >();
   private locks = new Map<string, Promise<void>>();
   private costs = new Map<string, number | null>();
+  private readonly config: ModelConfig;
   constructor(
-    private readonly config: ModelConfig,
+    config: ModelConfig,
     private readonly apiKey: string,
     private readonly directory: string,
     private readonly authPath?: string,
-  ) {}
+  ) {
+    this.config = structuredClone(config);
+  }
   private runtimePromise: Promise<ModelRuntime> | undefined;
   runtime(): Promise<ModelRuntime> {
     return (this.runtimePromise ??= this.createRuntime());
@@ -149,16 +152,18 @@ export class SafePiSessions {
     for (const [id, entry] of this.sessions)
       if (
         Date.now() - entry.lastUsed > 30 * 60_000 &&
-        !entry.session.isStreaming
+        !entry.session.isStreaming &&
+        !this.locks.has(id)
       )
         this.clear(id);
     const current = this.sessions.get(key);
     if (current) {
       current.lastUsed = Date.now();
+      this.sessions.delete(key);
+      this.sessions.set(key, current);
       return current.session;
     }
-    if (this.sessions.size >= 50)
-      throw new Error("Session limit reached; clear old sessions");
+    this.makeSessionRoom();
     const runtime = await this.runtime();
     const { model } = resolveModel(this.config);
     const loader: ResourceLoader = {
@@ -227,9 +232,27 @@ export class SafePiSessions {
       session.dispose();
       throw new Error("Unexpected active tools");
     }
+    try {
+      // Different scopes can finish initialization concurrently.
+      this.makeSessionRoom();
+    } catch (error) {
+      session.dispose();
+      throw error;
+    }
     this.sessions.set(key, { session, lastUsed: Date.now() });
     this.costs.set(key, snapshot?.cost ?? (snapshot ? null : 0));
     return session;
+  }
+  private makeSessionRoom() {
+    if (this.sessions.size < 50) return;
+    const idle = [...this.sessions].find(
+      ([key, entry]) =>
+        key.startsWith("translation:") &&
+        !this.locks.has(key) &&
+        !entry.session.isStreaming,
+    );
+    if (!idle) throw new Error("Session limit reached; clear old sessions");
+    this.clear(idle[0]);
   }
   translationClient(
     scope: string,

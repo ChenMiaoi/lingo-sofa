@@ -21,7 +21,7 @@ export const settingsIndex = [
     "上下文与权限说明",
     "默认上下文 工具权限 所选文本",
   ],
-  ["connection", "connection", "连接方式", "本地助手 直连 Discord"],
+  ["connection", "connection", "连接方式", "本地助手 共享 账户迁移 Discord"],
   ["accounts", "providers", "供应商", "账户 API Key 登录"],
   ["accounts", "account-name", "连接名称", "工作 个人 账户 命名 重命名"],
   ["usage", "usage", "用量与费用", "消耗 tokens 费用 余额"],

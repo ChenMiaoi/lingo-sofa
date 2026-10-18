@@ -53,7 +53,7 @@ Screenshots show the current browser extension with demo text and locally simula
 
 - **Translate in place.** Translate a paragraph, selected text or Discord message without replacing the original. Enable automatic bilingual reading per website or channel.
 - **Ask about what you read.** Open a conversation next to selected content to explain, summarize or draft a reply. Replies are yours to review and copy.
-- **Choose your models.** Save multiple provider accounts and set separate defaults for translation and chat. Browser direct mode supports DeepSeek and OpenAI-compatible endpoints; the local assistant provides access through Pi.
+- **Choose your models.** Save provider accounts once in the local assistant and share them between the browser and Discord. Translation and chat keep separate default models and content contexts.
 - **Translate without an API key.** Choose Bing or Google in the browser and Discord. Bing is the default without model credentials; adding an account keeps your chosen free engine. Translation and Ask are configured independently. See [translation engines](docs/translation-engines.md).
 - **Share one local assistant.** Browser and Discord reuse the same installation and model configuration on your computer, with separate content contexts.
 - **See observed usage.** Inspect tokens, request history and estimated costs. Unknown usage stays unknown; interrupted requests are not automatically replayed.
@@ -73,7 +73,7 @@ Assistant builds target macOS Apple Silicon / Intel, Linux ARM64 / x64, and Wind
 ### Browser
 
 1. Open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, and drag the browser ZIP onto the page. If your browser does not accept ZIP files, unpack it and choose **Load unpacked**.
-2. Open LingoSofa settings. New browser installations connect directly to the translation service. To share accounts and engines with Discord, choose **Shared local assistant**. New helper installers authorize the extension's stable ID automatically; older helpers need a one-time upgrade or authorization. Download the helper only for a first installation. See [browser updates and saved settings](docs/installation.md#配置保存与浏览器更新) before migrating from an older extension ID.
+2. Open LingoSofa settings. Bing and Google work without a helper. Model translation and Ask use the shared local assistant; browser and Discord read the same accounts. Update the extension and helper together, then migrate any old browser accounts from the connection page. New helper installers authorize the extension's stable ID automatically. See [browser updates and saved settings](docs/installation.md#配置保存与浏览器更新) before migrating from an older extension ID.
 3. Choose Bing or Google in **Translation preferences** to translate without a key. Add a provider account when you want model translation or Ask, and configure them independently.
 4. Open a webpage and show the floating reader from the extension popup. Hover over a paragraph to translate, or select text for **Translate / Ask**. Press **Alt+Shift+A** to ask about selected content.
 
