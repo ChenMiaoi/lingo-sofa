@@ -1,4 +1,5 @@
 import { defineConfig } from "wxt";
+import { BROWSER_EXTENSION_KEY } from "@lingo-sofa/protocol";
 
 const icons = {
   16: "brand/icon-16.png",
@@ -49,6 +50,7 @@ export default defineConfig({
     ],
   }),
   manifest: {
+    key: BROWSER_EXTENSION_KEY,
     name: "LingoSofa",
     description: "就地双语翻译与 Pi 助手",
     icons,

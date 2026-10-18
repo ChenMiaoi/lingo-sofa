@@ -6,6 +6,7 @@ import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { pathToFileURL } from "node:url";
 import { createStageTimer } from "./stage-timer.mjs";
 
 const timing = createStageTimer("verify-assistant");
@@ -50,11 +51,23 @@ try {
   execFileSync("tar", ["-xzf", archive, "-C", work]);
   const payload = join(work, directory);
   const home = join(work, "home");
+  const user = join(work, "user");
+  const preload = join(work, "isolate-registration.mjs");
+  await writeFile(
+    preload,
+    `import os from 'node:os'; import cp from 'node:child_process'; import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module'; os.homedir=()=>process.env.TEST_USER_HOME; cp.execFileSync=(file,args)=>{if(file!=='reg')throw Error('Unexpected installer process');fs.appendFileSync(process.env.TEST_REGISTRY_LOG,JSON.stringify([file,args])+'\\n');}; syncBuiltinESMExports();`,
+  );
   const node = process.platform === "win32" ? "node.exe" : "node";
   timing.start("install bundled assistant");
   execFileSync(join(payload, "runtime", node), [join(payload, "install.mjs")], {
     cwd: work,
-    env: { ...process.env, LINGO_SOFA_HOME: home },
+    env: {
+      ...process.env,
+      LINGO_SOFA_HOME: home,
+      TEST_USER_HOME: user,
+      TEST_REGISTRY_LOG: join(work, "registry.jsonl"),
+      NODE_OPTIONS: `--import="${pathToFileURL(preload).href}"`,
+    },
     stdio: "pipe",
   });
   const installation = JSON.parse(
@@ -65,6 +78,37 @@ try {
     !installation.entrypoint.startsWith(home)
   )
     throw new Error("Installation depends on external source or runtime");
+  const { BROWSER_EXTENSION_ID } = await import(
+    pathToFileURL(join(dirname(installation.entrypoint), "config.js")).href
+  );
+  const initialConfig = JSON.parse(
+    await readFile(join(home, "config.json"), "utf8"),
+  );
+  if (
+    !BROWSER_EXTENSION_ID ||
+    !initialConfig.allowedExtensions.includes(BROWSER_EXTENSION_ID)
+  )
+    throw new Error(
+      "Official browser extension was not authorized during installation",
+    );
+  const registration =
+    process.platform === "win32"
+      ? join(home, "native/com.lingosofa.bridge.json")
+      : process.platform === "darwin"
+        ? join(
+            user,
+            "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.lingosofa.bridge.json",
+          )
+        : join(
+            user,
+            ".config/google-chrome/NativeMessagingHosts/com.lingosofa.bridge.json",
+          );
+  if (
+    !JSON.parse(await readFile(registration, "utf8")).allowed_origins.includes(
+      `chrome-extension://${BROWSER_EXTENSION_ID}/`,
+    )
+  )
+    throw new Error("Native host does not authorize the official extension");
   // Delete the extracted installer: launch must use only the installed snapshot.
   timing.start("remove extracted installer");
   await rm(payload, { recursive: true, force: true });
@@ -98,7 +142,6 @@ try {
   const configPath = join(home, "config.json");
   const config = JSON.parse(await readFile(configPath, "utf8"));
   config.port = port;
-  config.allowedExtensions = ["a".repeat(32)];
   await writeFile(configPath, JSON.stringify(config));
   let stderr = "";
   child = spawn(
@@ -152,7 +195,7 @@ try {
     return response.json();
   }
   const discord = "https://discord.com";
-  const browser = `chrome-extension://${"a".repeat(32)}`;
+  const browser = `chrome-extension://${BROWSER_EXTENSION_ID}`;
   for (const [origin, id] of [
     [discord, randomUUID()],
     [browser, randomUUID()],

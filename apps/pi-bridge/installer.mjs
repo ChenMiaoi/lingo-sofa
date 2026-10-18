@@ -12,8 +12,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { installBrowserAuthorization } from "./authorization-entry.mjs";
 import { browserRegistration, save } from "./native-registration.mjs";
-import { createInterface } from "node:readline/promises";
-import { bridgeConfigSchema } from "./runtime/config.js";
+import { bridgeConfigSchema, BROWSER_EXTENSION_ID } from "./runtime/config.js";
 
 const source = import.meta.dirname;
 const home = resolve(
@@ -30,24 +29,10 @@ if (
   throw new Error(
     "This assistant package does not match this computer / Node 24 runtime",
   );
-const extensions = process.argv.slice(2);
-if (extensions.includes("--interactive")) {
-  extensions.splice(extensions.indexOf("--interactive"), 1);
-  const prompt = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  try {
-    const answer = (
-      await prompt.question(
-        "浏览器扩展 ID（从 LingoSofa 设置页复制；仅 Discord 使用可直接回车）：",
-      )
-    ).trim();
-    if (answer) extensions.push(answer);
-  } finally {
-    prompt.close();
-  }
-}
+// Existing launcher scripts may still pass --interactive; the official ID needs no prompt.
+const extensions = process.argv
+  .slice(2)
+  .filter((arg) => arg !== "--interactive");
 if (extensions.some((id) => !/^[a-p]{32}$/.test(id)))
   throw new Error("Invalid extension ID");
 // Reject incomplete or altered payloads before changing the user's installation.
@@ -89,7 +74,11 @@ try {
     });
   }
   config.allowedExtensions = [
-    ...new Set([...config.allowedExtensions, ...extensions]),
+    ...new Set([
+      ...config.allowedExtensions,
+      BROWSER_EXTENSION_ID,
+      ...extensions,
+    ]),
   ];
   config = bridgeConfigSchema.parse(config);
   const binaryName = `lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`;

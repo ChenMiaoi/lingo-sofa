@@ -74,16 +74,16 @@ try {
   for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.md"])
     await cp(resolve(project, "../..", file), join(payload, file));
   const shell =
-    '#!/bin/sh\ncd -- "$(dirname -- "$0")" || exit 1\n./runtime/node install.mjs --interactive\nstatus=$?\nprintf "\\nPress Enter to close…"\nread -r answer\nexit "$status"\n';
+    '#!/bin/sh\ncd -- "$(dirname -- "$0")" || exit 1\n./runtime/node install.mjs\nstatus=$?\nprintf "\\nPress Enter to close…"\nread -r answer\nexit "$status"\n';
   await writeFile(join(payload, "Install.command"), shell);
   await chmod(join(payload, "Install.command"), 0o755);
   await writeFile(
     join(payload, "Install.cmd"),
-    '@echo off\r\ncd /d "%~dp0"\r\n"runtime\\node.exe" "install.mjs" --interactive\r\nset "result=%errorlevel%"\r\npause\r\nexit /b %result%\r\n',
+    '@echo off\r\ncd /d "%~dp0"\r\n"runtime\\node.exe" "install.mjs"\r\nset "result=%errorlevel%"\r\npause\r\nexit /b %result%\r\n',
   );
   await writeFile(
     join(payload, "README.txt"),
-    `LingoSofa ${version} — ${process.platform}/${process.arch}\n\n解压后双击 ${process.platform === "win32" ? "Install.cmd" : "Install.command"}。浏览器用户先从扩展设置复制扩展 ID，在安装提示中粘贴。仅 Discord 使用可直接回车。\n安装到当前用户目录，无需另装 Node。所有客户端共用一份助手。升级助手前关闭所有客户端并等待退出；仅新增浏览器授权时，复制扩展设置中的授权命令即可，无需关闭客户端。\nCLI: runtime/${process.platform === "win32" ? "node.exe" : "node"} install.mjs [EXTENSION_ID ...]\n本开发包尚未签名/公证；公开发行条件见 THIRD_PARTY_NOTICES.md 和项目文档。\n`,
+    `LingoSofa ${version} — ${process.platform}/${process.arch}\n\n解压后双击 ${process.platform === "win32" ? "Install.cmd" : "Install.command"}。安装器自动授权官方浏览器扩展的固定 ID，无需复制或输入。自定义扩展仍可通过命令行传入额外 ID。\n安装到当前用户目录，无需另装 Node。所有客户端共用一份助手。升级助手前关闭所有客户端并等待退出；旧版助手仅补充浏览器授权时，复制扩展设置中的授权命令即可，无需关闭客户端。\nCLI: runtime/${process.platform === "win32" ? "node.exe" : "node"} install.mjs [EXTENSION_ID ...]\n本开发包尚未签名/公证；公开发行条件见 THIRD_PARTY_NOTICES.md 和项目文档。\n`,
   );
   const files = {};
   async function inventory(directory, prefix = "") {

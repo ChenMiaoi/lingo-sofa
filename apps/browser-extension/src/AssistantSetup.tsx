@@ -1,7 +1,10 @@
 import * as React from "react";
 import "./assistant-setup.css";
 import { browser } from "wxt/browser";
-import { assistantConnectionSchema } from "@lingo-sofa/protocol";
+import {
+  assistantConnectionSchema,
+  BROWSER_EXTENSION_ID,
+} from "@lingo-sofa/protocol";
 import { assistantDownloads } from "@lingo-sofa/local-runtime/release";
 import {
   assistantAuthorizationCommand,
@@ -81,6 +84,7 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
     );
   }
   const command = assistantAuthorizationCommand(platform, browser.runtime.id);
+  const official = browser.runtime.id === BROWSER_EXTENSION_ID;
   if (connection !== "offline")
     return (
       <section
@@ -141,6 +145,11 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
         </>
       ) : installed ? (
         <>
+          {official && (
+            <p className="assistant-note">
+              新版助手已预先授权此扩展，升级扩展无需再次配置。旧版助手可升级一次，或运行下面的命令补充授权。
+            </p>
+          )}
           <ol className="assistant-steps">
             <li>复制命令，在终端粘贴运行，无需关闭浏览器或 Discord。</li>
             <li>运行完成后，回到此页点击“检测连接”。</li>
@@ -205,23 +214,28 @@ export function AssistantSetup({ onConnected }: { onConnected?: () => void }) {
                 选择与你的系统和芯片对应的安装包，自带 Node，无需额外安装。
               </span>
             </li>
-            <li>
-              <strong>复制扩展 ID</strong>
-              <div className="assistant-id">
-                <code>{browser.runtime.id}</code>
-                <button
-                  type="button"
-                  onClick={() => copy(browser.runtime.id, "扩展 ID 已复制")}
-                >
-                  复制 ID
-                </button>
-              </div>
-            </li>
+            {!official && (
+              <li>
+                <strong>复制扩展 ID</strong>
+                <div className="assistant-id">
+                  <code>{browser.runtime.id}</code>
+                  <button
+                    type="button"
+                    onClick={() => copy(browser.runtime.id, "扩展 ID 已复制")}
+                  >
+                    复制 ID
+                  </button>
+                </div>
+              </li>
+            )}
             <li>
               <strong>解压助手包并运行安装入口</strong>
               <span>
                 Windows：Install.cmd；macOS：Install.command；Linux：sh
-                Install.command。在提示中粘贴扩展 ID。
+                Install.command。
+                {official
+                  ? "新版助手会自动授权，无需输入扩展 ID。"
+                  : "自定义扩展请通过命令行传入上方 ID。"}
               </span>
             </li>
             <li>完成后回到此页，点击“检测连接”。</li>

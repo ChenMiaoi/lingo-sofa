@@ -35,7 +35,41 @@ const home = join(work, "home");
 const target = join(work, "DiscordCanary");
 const settings = join(work, "settings/settings.json");
 const resources = join(target, "app-1.0.0/resources");
+const registryDirectory = join(work, "registry-fixture");
+const registryLog = join(work, "registry.jsonl");
+const registryEnv = (env) => {
+  const value = {
+    ...env,
+    Path: `${registryDirectory};${process.env.PATH}`,
+    LINGO_SOFA_REGISTRY_LOG: registryLog,
+  };
+  delete value.PATH;
+  return value;
+};
 try {
+  // Even the EXE's sanitized Node environment must use a disposable registry fixture.
+  await mkdir(registryDirectory);
+  const registrySource = join(registryDirectory, "registry.go");
+  await writeFile(
+    registrySource,
+    `package main
+import("encoding/json";"fmt";"os";"strings")
+func main(){args:=os.Args[1:];if len(args)==1&&args[0]=="--lingo-sofa-fixture-probe"{fmt.Println("LingoSofa registry fixture");return};if len(args)<2||args[0]!="ADD"||!(strings.EqualFold(args[1],${JSON.stringify("HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.lingosofa.bridge")})||strings.EqualFold(args[1],${JSON.stringify("HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.lingosofa.bridge")})){os.Exit(1)};file,err:=os.OpenFile(os.Getenv("LINGO_SOFA_REGISTRY_LOG"),os.O_CREATE|os.O_WRONLY|os.O_APPEND,0600);if err!=nil{os.Exit(1)};defer file.Close();if json.NewEncoder(file).Encode(args)!=nil{os.Exit(1)}}
+`,
+  );
+  execFileSync(
+    "go",
+    ["build", "-o", join(registryDirectory, "reg.exe"), registrySource],
+    { windowsHide: true },
+  );
+  if (
+    execFileSync("reg", ["--lingo-sofa-fixture-probe"], {
+      env: registryEnv(process.env),
+      encoding: "utf8",
+      windowsHide: true,
+    }).trim() !== "LingoSofa registry fixture"
+  )
+    throw new Error("Windows registry fixture is not isolated");
   await mkdir(resources, { recursive: true });
   await writeFile(
     join(resources, "app.asar"),
@@ -48,7 +82,7 @@ try {
     settings,
     run: async (file, args, env) => {
       execFileSync(file, args, {
-        env: { ...env, LOCALAPPDATA: work, APPDATA: work },
+        env: registryEnv({ ...env, LOCALAPPDATA: work, APPDATA: work }),
         windowsHide: true,
         timeout: 600_000,
         maxBuffer: 8 * 1024 * 1024,
@@ -81,12 +115,12 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
         `/LOG=${join(work, "setup.log")}`,
       ],
       {
-        env: {
+        env: registryEnv({
           ...process.env,
           LINGO_SOFA_HOME: home,
           APPDATA: work,
           LOCALAPPDATA: work,
-        },
+        }),
         windowsHide: true,
         timeout: 900_000,
       },
@@ -120,12 +154,12 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
           `/DISCORDDIR=${invalid}`,
         ],
         {
-          env: {
+          env: registryEnv({
             ...process.env,
             LINGO_SOFA_HOME: join(work, "failure-home"),
             APPDATA: work,
             LOCALAPPDATA: work,
-          },
+          }),
           windowsHide: true,
           timeout: 900_000,
         },
@@ -170,6 +204,17 @@ func main(){root,_:=os.Executable();root=filepath.Dir(root);data,_:=os.ReadFile(
     '{"fixture":"retained"}'
   )
     throw new Error("Reinstallation changed existing accounts");
+  const calls = (await readFile(registryLog, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  if (
+    !calls.some((args) => args[1].includes("Google\\Chrome")) ||
+    !calls.some((args) => args[1].includes("Microsoft\\Edge"))
+  )
+    throw new Error(
+      "Native registration was not installed for Chrome and Edge",
+    );
   console.log(
     "Windows combined installation and reinstallation passed against isolated Discord resources.",
   );

@@ -1,4 +1,8 @@
 import { z } from "zod";
+export {
+  BROWSER_EXTENSION_ID,
+  BROWSER_EXTENSION_KEY,
+} from "./browser-identity.js";
 
 export const PROTOCOL_VERSION = 1;
 export const runtimeStatusSchema = z.object({

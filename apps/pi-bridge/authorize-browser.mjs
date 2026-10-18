@@ -1,11 +1,12 @@
 import { access, mkdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { bridgeConfigSchema } from "./config.js";
+import { bridgeConfigSchema, BROWSER_EXTENSION_ID } from "./config.js";
 import { browserRegistration, save } from "./native-registration.mjs";
 
 const extensions = process.argv.slice(2);
-if (!extensions.length || extensions.some((id) => !/^[a-p]{32}$/.test(id)))
+if (!extensions.length) extensions.push(BROWSER_EXTENSION_ID);
+if (extensions.some((id) => !/^[a-p]{32}$/.test(id)))
   throw new Error("Invalid extension ID");
 const home = resolve(
   process.env.LINGO_SOFA_HOME ?? join(homedir(), ".config/lingo-sofa"),

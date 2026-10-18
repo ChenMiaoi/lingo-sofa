@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { build } from "esbuild";
 import { pathToFileURL } from "node:url";
 import { assistantAuthorizationCommand } from "../apps/browser-extension/src/assistant-command";
+import { BROWSER_EXTENSION_ID } from "@lingo-sofa/protocol";
 
 const execute = promisify(execFile);
 const id = "a".repeat(32);
@@ -165,6 +166,15 @@ it("authorizes an installed runtime without its installer, preserves data while 
       JSON.parse(await readFile(join(home, "runtime-connection.json"), "utf8"))
         .pid,
     ).toBe(process.pid);
+    await authorize();
+    await authorize();
+    expect(
+      JSON.parse(await readFile(join(home, "config.json"), "utf8"))
+        .allowedExtensions,
+    ).toEqual(["b".repeat(32), id, "c".repeat(32), BROWSER_EXTENSION_ID]);
+    expect(
+      JSON.parse(await readFile(registration, "utf8")).allowed_origins,
+    ).toContain(`chrome-extension://${BROWSER_EXTENSION_ID}/`);
     const authorized = await readFile(join(home, "config.json"), "utf8");
     await rm(join(home, "runtime-connection.json"));
     await writeFile(
@@ -178,7 +188,6 @@ it("authorizes an installed runtime without its installer, preserves data while 
     await expect(authorize("invalid-id")).rejects.toThrow(
       "Invalid extension ID",
     );
-    await expect(authorize()).rejects.toThrow("Invalid extension ID");
     await rm(join(home, "runtime-install.json"));
     await expect(authorize(id)).rejects.toThrow("ENOENT");
   } finally {

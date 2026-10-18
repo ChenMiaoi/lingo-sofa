@@ -1,11 +1,31 @@
 import { TextDecoder } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { join, resolve } from "node:path";
 import ts from "typescript";
+import {
+  BROWSER_EXTENSION_ID,
+  BROWSER_EXTENSION_KEY,
+} from "../packages/protocol/src/browser-identity.ts";
 const root = resolve("apps/browser-extension/.output/chrome-mv3");
 const manifest = JSON.parse(
   await readFile(join(root, "manifest.json"), "utf8"),
 );
+const extensionId = createHash("sha256")
+  .update(Buffer.from(manifest.key ?? "", "base64"))
+  .digest("hex")
+  .slice(0, 32)
+  .replace(/[0-9a-f]/g, (digit) =>
+    String.fromCharCode(97 + Number.parseInt(digit, 16)),
+  );
+if (
+  manifest.key !== BROWSER_EXTENSION_KEY ||
+  extensionId !== BROWSER_EXTENSION_ID
+)
+  throw new Error(
+    "Browser package identity changed; existing settings and native authorization depend on it",
+  );
 if (manifest.manifest_version !== 3 || manifest.host_permissions?.length)
   throw new Error("Release package must be MV3 with optional host permissions");
 if (manifest.content_scripts?.length)

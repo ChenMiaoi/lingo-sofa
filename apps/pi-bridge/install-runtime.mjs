@@ -37,7 +37,8 @@ try {
 } catch (error) {
   if (error.code !== "ENOENT") throw error;
 }
-const { bridgeConfigSchema } = await import("./dist/config.js");
+const { bridgeConfigSchema, BROWSER_EXTENSION_ID } =
+  await import("./dist/config.js");
 let config;
 try {
   config = bridgeConfigSchema.parse(
@@ -49,14 +50,17 @@ try {
     settings: { mode: "bridge", persistUsage: true },
   });
 }
-const extension = process.argv[2];
-if (extension) {
-  if (!/^[a-p]{32}$/.test(extension)) throw new Error("Invalid extension ID");
-  config.allowedExtensions = [
-    ...new Set([...config.allowedExtensions, extension]),
-  ];
-  config = bridgeConfigSchema.parse(config);
-}
+const extensions = process.argv.slice(2);
+if (extensions.some((id) => !/^[a-p]{32}$/.test(id)))
+  throw new Error("Invalid extension ID");
+config.allowedExtensions = [
+  ...new Set([
+    ...config.allowedExtensions,
+    BROWSER_EXTENSION_ID,
+    ...extensions,
+  ]),
+];
+config = bridgeConfigSchema.parse(config);
 // Install a private runtime snapshot: browser-launched helpers must not depend on an external source volume.
 const root = resolve(import.meta.dirname, "../..");
 const lockText = await readFile(join(root, "package-lock.json"), "utf8");

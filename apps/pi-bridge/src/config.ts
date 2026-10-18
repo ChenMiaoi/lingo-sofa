@@ -1,4 +1,8 @@
 import { z } from "zod";
+export {
+  BROWSER_EXTENSION_ID,
+  BROWSER_EXTENSION_KEY,
+} from "@lingo-sofa/protocol";
 import {
   settingsSchema,
   requestSchema,

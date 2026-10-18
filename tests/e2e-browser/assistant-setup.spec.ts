@@ -2,7 +2,11 @@ import { test, expect, chromium } from "@playwright/test";
 import { mkdtemp, rm, cp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { modelConfigSchema, providerCatalogSchema } from "@lingo-sofa/protocol";
+import {
+  modelConfigSchema,
+  providerCatalogSchema,
+  BROWSER_EXTENSION_ID,
+} from "@lingo-sofa/protocol";
 type ExtensionApi = typeof import("wxt/browser").browser;
 
 test("guides browser installation with its own extension ID and hides the guide in direct mode", async () => {
@@ -27,6 +31,7 @@ test("guides browser installation with its own extension ID and hides the guide 
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
+    expect(id).toBe(BROWSER_EXTENSION_ID);
     // Isolate this UI test from any installed native host in the user's profile.
     await worker.evaluate(async () => {
       const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
@@ -128,7 +133,8 @@ test("guides browser installation with its own extension ID and hides the guide 
     await setup
       .getByRole("button", { name: "这台电脑尚未安装助手", exact: true })
       .click();
-    await expect(setup.locator(".assistant-id code")).toHaveText(id);
+    await expect(setup.locator(".assistant-id code")).toHaveCount(0);
+    await expect(setup).toContainText("新版助手会自动授权，无需输入扩展 ID。");
     await expect(
       setup.getByRole("link", { name: /下载本地助手/ }),
     ).toHaveAttribute(

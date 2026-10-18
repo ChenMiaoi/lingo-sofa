@@ -73,7 +73,7 @@ Assistant builds target macOS Apple Silicon / Intel, Linux ARM64 / x64, and Wind
 ### Browser
 
 1. Open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, and drag the browser ZIP onto the page. If your browser does not accept ZIP files, unpack it and choose **Load unpacked**.
-2. Open LingoSofa settings. New browser installations connect directly to the translation service. To share accounts and engines with Discord, choose **Shared local assistant** and authorize your existing helper; download it only for a first installation.
+2. Open LingoSofa settings. New browser installations connect directly to the translation service. To share accounts and engines with Discord, choose **Shared local assistant**. New helper installers authorize the extension's stable ID automatically; older helpers need a one-time upgrade or authorization. Download the helper only for a first installation. See [browser updates and saved settings](docs/installation.md#配置保存与浏览器更新) before migrating from an older extension ID.
 3. Choose Bing or Google in **Translation preferences** to translate without a key. Add a provider account when you want model translation or Ask, and configure them independently.
 4. Open a webpage and show the floating reader from the extension popup. Hover over a paragraph to translate, or select text for **Translate / Ask**. Press **Alt+Shift+A** to ask about selected content.
 
