@@ -97,7 +97,7 @@ export async function connectTestAssistant(
     if (!available)
       payload = { ok: false, error: "Shared test assistant unavailable" };
     else if (request.operation === "runtime-status")
-      payload = { version: 1, instanceId, clients: 1, appVersion: "0.1.11" };
+      payload = { version: 1, instanceId, clients: 1, appVersion: "0.1.12" };
     else if (request.operation === "import-accounts" && rejectImport) {
       rejectImport = false;
       payload = { ok: false, error: "Fixture migration failure" };

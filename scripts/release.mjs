@@ -118,7 +118,48 @@ if (command === "validate") {
   );
   await writeFile(
     join(output, "RELEASE-NOTES.md"),
-    `# LingoSofa ${tag}\n\nTag: ${tag} · Commit: ${revision}\n\n## Highlights\n\n- Bing and Google keyless translation remain selectable when a model account or provider catalog is unavailable. A failed model connection no longer blocks switching to a free engine or overwrites the saved selection.\n- Switching from the local assistant back to direct browser access restores the browser's saved translation account, while keeping its Ask model and the assistant's accounts separate. Removing an unused retired provider no longer asks for access to its old endpoint.\n- Browser ZIPs and source builds now share the stable extension ID ahbkbjlbljldmlgkdppdkeeemlajjhgh. New assistant installers authorize it automatically and preserve existing custom extension IDs, accounts and usage.\n- Installation guidance explains where browser, Discord and assistant settings are stored and how to retain them during updates. Windows installer tests isolate Native Messaging registration, and native lifecycle coverage checks shared browser/Discord connections, browser restart and lease release.\n\n## Upgrading\n\n**One-time browser identity migration:** older sideloaded extensions used directory-based IDs. Moving to the stable ID can create a new extension identity. Keep the old extension and its data until migration is complete: browser-local direct accounts, site permissions and reading preferences do not transfer automatically between IDs. Shared assistant accounts, keys and usage remain in place.\n\nUpdate the browser extension and local assistant together. Windows users can use the combined installer to update Vencord, LingoSofa and the assistant; custom Vencord users should rebuild with the new userplugin. Upgrade an older assistant once, or authorize the new ID once from the connection settings. Later updates using the same ID do not need authorization again. For unpacked updates, replace files in the existing directory and reload the existing extension entry; uninstalling an extension deletes its browser-local data. See INSTALLATION.md for migration steps and storage locations.\n\nFresh browser installations can use Bing or Google without the assistant. Connecting the assistant shares engine/account settings with Discord. Connection previews take effect only after selecting the corresponding use action; an empty key input does not erase an existing key. Engine failures do not automatically switch providers or resend paid model requests.\n\nAutomated MV3 regressions cover account switching, free-engine recovery, saved settings and browser restart. Windows validation also exercises the real packaged Native Host, shared service and combined installer in isolated fixtures. These checks do not replace manual acceptance in an installed Chrome, Edge or Discord client. Keyless engines remain subject to service availability and rate limits.\n\n## Downloads\n\n- Windows x64: LingoSofa-Setup-${version}-win32-x64.exe (prebuilt Vencord with LingoSofa and the local assistant; no compilation required).\n- Browser: lingo-sofa-browser-${version}.zip (Chrome/Edge MV3; enable developer mode and drag the ZIP onto the extensions page).\n- Discord: lingo-sofa-vencord-${version}.tar.gz (userplugin source for a custom Vencord build, not an official Discord plugin or Vencord installer).\n- Local assistant: choose lingo-sofa-assistant-${version}-<platform>-<arch>.tar.gz for your OS/CPU. Node 24 is included.\n- INSTALLATION.md: first installation, browser authorization and shared-service instructions.\n- SHA256SUMS: verify all downloaded files; assistant-release.json pins every native archive for Discord automatic installation.\n\n## Current distribution status\n\nThese are unsigned development packages, not notarized graphical installers. Platform CI smoke tests do not replace full client acceptance. See docs/release-readiness.md and docs/dependency-license-review.md in the source archive for outstanding acceptance and license-delivery items. The Windows combined installer includes its pinned Vencord host, corresponding source and licenses; the separate userplugin archive does not.\n\n## Source\n\nlingo-sofa-source-${version}.tar.gz corresponds exactly to ${revision}.\n`,
+    `# LingoSofa ${tag}
+
+Tag: ${tag} · Commit: ${revision}
+
+## Highlights
+
+- Browser and Discord now share one model account store in the local assistant. Model credentials, translation and Ask defaults, and balance queries use that store; changing an account in either client takes effect in both.
+- Existing browser accounts can be migrated from connection settings. The assistant preserves existing accounts, deduplicates matching credentials, and saves migration receipts atomically. Browser keys are removed only after acknowledgement; a failed or interrupted migration keeps the data for retry without overwriting later shared choices.
+- Bing and Google remain usable without a model key or local assistant. Model configuration failures do not block free-engine selection. Saving local preferences in keyless mode preserves an in-flight shared Ask request.
+- Updating or reinstalling the extension recovers already-open pages without requiring a refresh. Interrupted model requests wait for a new user action; they are never replayed automatically.
+- The assistant recovers when its saved port is occupied or reserved by Windows. Browser and Discord still share one service, with startup, cancellation, reconnection and shutdown checks.
+- Large-page reading releases idle translation sessions instead of stopping after many page changes. Model discovery preserves cache identity, and early paragraph/Ask actions wait for reading settings instead of being silently dropped. Authentication failures show a safe 401 explanation.
+
+## Upgrading
+
+**Model accounts now require the local assistant. Update the browser extension and assistant together.** Independent direct-browser model access has been removed; keyless translation remains standalone. Windows users can use the combined installer to update Vencord, LingoSofa and the assistant. Custom Vencord users should rebuild with the new userplugin.
+
+Keep the existing extension entry and its data. After updating both components, open Settings → Connection and click “迁移浏览器账户并共用” to migrate old browser accounts. Existing assistant accounts are retained; configured browser translation/Ask defaults become the shared defaults. The browser clears its old keys only after the assistant confirms persistence. If migration fails, update/connect the assistant and retry. Leaving a saved key input empty preserves its value.
+
+The extension ID remains ahbkbjlbljldmlgkdppdkeeemlajjhgh. For unpacked updates, replace files in the existing directory and reload the same extension entry. **Do not uninstall the old extension before migration:** uninstalling removes browser-local data.
+
+**One-time browser identity migration:** extensions older than v0.1.11 may use a directory-based ID. Moving to the stable ID creates a different storage boundary; the new extension cannot read the old ID's accounts, permissions or reading preferences automatically. Keep the old extension and its data until migration is complete. Shared assistant accounts, keys and usage remain in place. See INSTALLATION.md for storage locations and identity-migration guidance.
+
+Engine or account failures do not automatically switch providers or resend paid model requests. Existing usage and unknown records are retained. Automated checks use isolated browser profiles, private assistant directories and synthetic credentials; they do not prove that a particular real provider key is valid or replace acceptance in the installed Chrome, Edge or Discord client. Keyless engines remain subject to service availability and rate limits.
+
+## Downloads
+
+- Windows x64: LingoSofa-Setup-${version}-win32-x64.exe (prebuilt Vencord with LingoSofa and the local assistant; no compilation required).
+- Browser: lingo-sofa-browser-${version}.zip (Chrome/Edge MV3; update the existing unpacked extension entry).
+- Discord: lingo-sofa-vencord-${version}.tar.gz (userplugin source for a custom Vencord build, not an official Discord plugin or Vencord installer).
+- Local assistant: choose lingo-sofa-assistant-${version}-<platform>-<arch>.tar.gz for your OS/CPU. Node 24 is included.
+- INSTALLATION.md: first installation, account migration, browser authorization and shared-service instructions.
+- SHA256SUMS: verify downloaded files; assistant-release.json pins all five native assistant archives.
+
+## Current distribution status
+
+These are unsigned development packages, not notarized graphical installers. Platform CI smoke tests do not replace full client acceptance. See docs/release-readiness.md and docs/dependency-license-review.md in the source archive for outstanding acceptance and license-delivery items. The Windows combined installer includes its pinned Vencord host, corresponding source and licenses; the separate userplugin archive does not.
+
+## Source
+
+lingo-sofa-source-${version}.tar.gz corresponds exactly to ${revision}.
+`,
   );
   await writeReleaseChecksums(output);
   console.log(
