@@ -1,15 +1,15 @@
 {
   "name": "@lingo-sofa/web-extraction",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@lingo-sofa/ui-shared": "0.1.10",
-    "@lingo-sofa/protocol": "0.1.10",
-    "@lingo-sofa/translation-core": "0.1.10"
+    "@lingo-sofa/ui-shared": "0.1.11",
+    "@lingo-sofa/protocol": "0.1.11",
+    "@lingo-sofa/translation-core": "0.1.11"
   },
   "license": "GPL-3.0-or-later"
 }
