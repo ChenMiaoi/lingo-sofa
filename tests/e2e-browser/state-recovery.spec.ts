@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { Settings, UsageRecord } from "@lingo-sofa/protocol";
+import type { AccountState, Settings, UsageRecord } from "@lingo-sofa/protocol";
 import { modelServer } from "../fixtures/model-server.js";
 
 type ExtensionApi = typeof import("wxt/browser").browser;
@@ -289,6 +289,144 @@ test("merges preference edits from two settings pages and restores both after re
     await privacy.reload();
     await expect(privacy.getByLabel("跨页面复用译文")).toHaveValue("false");
     await expect(privacy.getByLabel("译文保留时长")).toHaveValue("30");
+  });
+});
+
+test("returns from the assistant to the browser's saved model account without changing either configuration", async () => {
+  await fixture(async ({ options, restart, model }) => {
+    const direct = await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const saved = await api.runtime.sendMessage({
+        action: "provider-catalog",
+        mode: "direct",
+      });
+      // This is the local snapshot written after selecting an assistant-only account.
+      const reply = await api.runtime.sendMessage({
+        action: "save",
+        patch: {
+          mode: "bridge",
+          model: {
+            ...saved.model,
+            accountId: crypto.randomUUID(),
+            model: "assistant-only-model",
+            endpoint: "https://assistant-only.test/v1",
+          },
+        },
+      });
+      if (!reply.ok) throw Error(reply.error);
+      return saved;
+    });
+    await options.goto(`${options.url()}#connection`);
+    await options.reload();
+    const status = options.locator(".ls-active-connection");
+    await expect(status).toHaveText("当前使用：本地助手");
+    await options
+      .getByRole("button", { name: "模型直连", exact: true })
+      .click();
+    await options
+      .getByRole("button", { name: "使用模型直连", exact: true })
+      .click();
+    await expect(status).toHaveText("当前使用：模型直连");
+    const reopened = await restart();
+    const restored = await reopened.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      return {
+        settings: (
+          await api.runtime.sendMessage({ action: "state", localOnly: true })
+        ).settings,
+        catalog: await api.runtime.sendMessage({
+          action: "provider-catalog",
+          mode: "direct",
+        }),
+      };
+    });
+    expect(restored.settings.mode).toBe("direct");
+    expect(restored.catalog).toMatchObject({
+      model: direct.model,
+      askModel: direct.askModel,
+      accounts: direct.accounts,
+      keyConfigured: true,
+      translationEngine: "llm",
+    });
+    expect(model.requests).toHaveLength(0);
+  });
+});
+
+test("removes an unused retired supplier without requesting access to its old endpoint", async () => {
+  await fixture(async ({ options, restart, model }) => {
+    await options.evaluate(async () => {
+      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+        .chrome;
+      const current = await api.runtime.sendMessage({
+        action: "provider-catalog",
+        mode: "direct",
+      });
+      const reply = await api.runtime.sendMessage({
+        action: "provider-update",
+        mode: "direct",
+        update: {
+          target: "account",
+          newAccount: true,
+          accountName: "待移除账户",
+          apiKey: "fixture-retired-key",
+          model: {
+            ...current.model,
+            accountId: undefined,
+            endpoint: "https://retired-provider.test/v1",
+          },
+        },
+      });
+      if (!reply.ok) throw Error(reply.error);
+      const { providerAccounts } =
+        await api.storage.local.get("providerAccounts");
+      // A removed catalog provider must not prevent deleting an old unused account.
+      (providerAccounts as AccountState).accounts.at(-1)!.model.provider =
+        "retired-provider";
+      await api.storage.local.set({ providerAccounts });
+    });
+    await options.addInitScript(() => {
+      const host = globalThis as typeof globalThis & {
+        chrome: ExtensionApi;
+        permissionRequests: number;
+      };
+      host.permissionRequests = 0;
+      host.chrome.permissions.request = (async () => {
+        host.permissionRequests++;
+        return false;
+      }) as typeof host.chrome.permissions.request;
+    });
+    await options.goto(`${options.url()}#accounts`);
+    await options.reload();
+    const account = options
+      .locator(".ls-account")
+      .filter({ hasText: "待移除账户" });
+    await account.click();
+    await options
+      .getByRole("button", { name: "移除供应商", exact: true })
+      .click();
+    await expect(account).toHaveCount(0);
+    expect(
+      await options.evaluate(
+        () =>
+          (globalThis as typeof globalThis & { permissionRequests: number })
+            .permissionRequests,
+      ),
+    ).toBe(0);
+    const reopened = await restart();
+    const restored = await reopened.evaluate(async () =>
+      (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
+      ).chrome.runtime.sendMessage({
+        action: "provider-catalog",
+        mode: "direct",
+      }),
+    );
+    expect(restored.accounts).toHaveLength(1);
+    expect(restored.keyConfigured).toBe(true);
+    expect(restored.translationEngine).toBe("llm");
+    expect(model.requests).toHaveLength(0);
   });
 });
 

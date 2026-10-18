@@ -53,11 +53,13 @@ export function ProviderPage() {
         update: import("@lingo-sofa/protocol").ProviderUpdate,
       ) => {
         const origins =
-          update.target === "translation-engine"
-            ? update.engine === "llm"
-              ? []
-              : [webTranslationOrigins[update.engine]]
-            : [`${new URL(update.model.endpoint).origin}/*`];
+          update.target === "remove-account"
+            ? []
+            : update.target === "translation-engine"
+              ? update.engine === "llm"
+                ? []
+                : [webTranslationOrigins[update.engine]]
+              : [`${new URL(update.model.endpoint).origin}/*`];
         if (
           mode === "direct" &&
           origins.length > 0 &&

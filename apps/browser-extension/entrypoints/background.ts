@@ -831,6 +831,7 @@ export default defineBackground(() => {
         if (
           data.mode !== "bridge" &&
           update.target !== "translation-engine" &&
+          update.target !== "remove-account" &&
           update.model.authMode === "subscription"
         )
           throw new Error("ChatGPT 订阅登录需要选择本地助手");
@@ -866,12 +867,15 @@ export default defineBackground(() => {
           );
           return { ok: true };
         }
-        if (update.target !== "translation-engine") resolveModel(update.model);
-        else if (
-          update.engine === "llm" &&
-          !(await directKey(settings, settings.model))
-        )
-          throw new Error("请先添加大模型账户，再选择大模型翻译");
+        if (update.target === "translation-engine") {
+          const stored = await directAccounts(settings);
+          if (
+            update.engine === "llm" &&
+            !(await directKey(settings, stored.translation))
+          )
+            throw new Error("请先添加大模型账户，再选择大模型翻译");
+        } else if (update.target !== "remove-account")
+          resolveModel(update.model);
         const state = await updateDirectAccounts(settings, update);
         const next = {
           ...settings,
