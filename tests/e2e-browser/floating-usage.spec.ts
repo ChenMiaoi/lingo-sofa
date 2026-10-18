@@ -22,6 +22,8 @@ async function fixture(
     id: string;
     model: Awaited<ReturnType<typeof modelServer>>;
     url: string;
+    extension: string;
+    configure: () => Promise<void>;
   }) => Promise<void>,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "lingo-floating-usage-"));
@@ -49,44 +51,53 @@ async function fixture(
       headless: true,
       viewport: { width: 1200, height: 900 },
       args: [
+        "--enable-unsafe-extension-debugging",
         `--disable-extensions-except=${extension}`,
-        `--load-extension=${extension}`,
       ],
     },
   );
   try {
+    const session = await context.browser()!.newBrowserCDPSession();
+    try {
+      await session.send("Extensions.loadUnpacked", { path: extension });
+    } finally {
+      await session.detach();
+    }
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
     const id = new URL(worker.url()).host;
-    const setup = await context.newPage();
-    await setup.goto(`chrome-extension://${id}/options.html`);
-    await setup.evaluate(async (endpoint) => {
-      const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
-        .chrome;
-      const current = await api.runtime.sendMessage({ action: "state" });
-      const reply = await api.runtime.sendMessage({
-        action: "save",
-        settings: {
-          ...current.settings,
-          mode: "direct",
-          model: {
-            ...current.settings.model,
-            provider: "openai-compatible",
-            model: "fixture",
-            endpoint,
-            prices: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0 },
+    const configure = async () => {
+      const setup = await context.newPage();
+      await setup.goto(`chrome-extension://${id}/options.html`);
+      await setup.evaluate(async (endpoint) => {
+        const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+          .chrome;
+        const current = await api.runtime.sendMessage({ action: "state" });
+        const reply = await api.runtime.sendMessage({
+          action: "save",
+          settings: {
+            ...current.settings,
+            mode: "direct",
+            model: {
+              ...current.settings.model,
+              provider: "openai-compatible",
+              model: "fixture",
+              endpoint,
+              prices: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0 },
+            },
           },
-        },
-        apiKey: "fixture-floating-secret",
-      });
-      if (!reply.ok) throw new Error(reply.error);
-    }, model.endpoint);
-    await setup.close();
+          apiKey: "fixture-floating-secret",
+        });
+        if (!reply.ok) throw new Error(reply.error);
+      }, model.endpoint);
+      await setup.close();
+    };
+    await configure();
     const page = await context.newPage();
     const url = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
     await page.goto(url);
-    await run({ page, context, id, model, url });
+    await run({ page, context, id, model, url, extension, configure });
   } finally {
     await context.close();
     await model.close();
@@ -96,6 +107,227 @@ async function fixture(
   }
 }
 const launcherName = "LingoSofa 页面控制，可拖动或用方向键移动";
+
+async function installUpdatedFixture(
+  context: BrowserContext,
+  id: string,
+  extension: string,
+) {
+  const worker = context
+    .serviceWorkers()
+    .find((worker) => new URL(worker.url()).host === id);
+  const restarted = context.waitForEvent(
+    "serviceworker",
+    (next) => new URL(next.url()).host === id && next !== worker,
+  );
+  void restarted.catch(() => undefined);
+  const manifestPath = join(extension, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.version = "9.9.9";
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  const session = await context.browser()!.newBrowserCDPSession();
+  try {
+    expect(
+      await session.send("Extensions.loadUnpacked", { path: extension }),
+    ).toEqual({ id });
+  } finally {
+    await session.detach();
+  }
+  const next = await restarted;
+  await expect
+    .poll(() =>
+      next.evaluate(() =>
+        (
+          globalThis as typeof globalThis & { chrome: ExtensionApi }
+        ).chrome.runtime.onMessage.hasListeners(),
+      ),
+    )
+    .toBe(true);
+}
+
+test("recovers an already-open page after an extension update without starting a model request", async () => {
+  await fixture({}, async ({ page, context, id, model, extension }) => {
+    const controls = page.locator("[data-lingo-sofa=controls]");
+    const launcher = page.getByRole("button", {
+      name: launcherName,
+      exact: true,
+    });
+    await expect(launcher).toBeVisible();
+    await controls.evaluate((element) => {
+      element.dataset.beforeReload = "true";
+      document.documentElement.dataset.beforeReload = "same-document";
+    });
+    await test.step("install an updated extension without navigating the website", async () => {
+      await installUpdatedFixture(context, id, extension);
+    });
+    await expect(controls).toHaveCount(1);
+    await expect(controls).not.toHaveAttribute("data-before-reload", "true");
+    expect(model.requests).toHaveLength(0);
+    await launcher.click();
+    await page.getByRole("button", { name: "翻译整页", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "整页翻译进度" }),
+    ).toContainText("可见内容已翻译");
+    await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(3);
+    await expect(
+      page.getByRole("region", { name: "整页翻译进度" }),
+    ).not.toContainText("sendMessage");
+    await expect(controls).toHaveCount(1);
+    await expect(controls).not.toHaveAttribute("data-before-reload", "true");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-before-reload",
+      "same-document",
+    );
+  });
+});
+
+test("stops invalid content after uninstall and replaces orphaned UI on a fresh installation", async () => {
+  await fixture(
+    {},
+    async ({ page, context, id, model, extension, configure }) => {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await expect(
+        page.getByRole("button", { name: launcherName }),
+      ).toBeVisible();
+      const session = await context.browser()!.newBrowserCDPSession();
+      try {
+        await session.send("Extensions.uninstall", { id });
+      } finally {
+        await session.detach();
+      }
+      await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(0);
+      await page.evaluate(() => {
+        // Older installations left these nodes behind without a working message receiver.
+        const orphan = document.createElement("div");
+        orphan.setAttribute("data-lingo-sofa", "controls");
+        orphan.dataset.orphaned = "true";
+        document.body.append(orphan);
+        document.documentElement.dataset.beforeReload = "same-document";
+      });
+      await installUpdatedFixture(context, id, extension);
+      // Uninstall deletes browser-local accounts. Configure a fresh fixture account explicitly.
+      await configure();
+      const controls = page.locator("[data-lingo-sofa=controls]");
+      await expect(controls).toHaveCount(1);
+      await expect(controls).not.toHaveAttribute("data-orphaned", "true");
+      expect(model.requests).toHaveLength(0);
+      await page.getByRole("button", { name: launcherName }).click();
+      await page.getByRole("button", { name: "翻译整页", exact: true }).click();
+      await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(
+        3,
+      );
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-before-reload",
+        "same-document",
+      );
+      expect(errors).toEqual([]);
+    },
+  );
+});
+
+test("cancels an in-flight translation on update and waits for a new user action before sending again", async () => {
+  let release!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await fixture(
+    { responseGate },
+    async ({ page, context, id, model, extension }) => {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      try {
+        const launcher = page.getByRole("button", { name: launcherName });
+        await launcher.click();
+        await page
+          .getByRole("button", { name: "阅读偏好", exact: true })
+          .click();
+        await page.getByRole("switch", { name: "自动翻译此网站" }).check();
+        await expect.poll(() => model.requests.length).toBe(1);
+        await installUpdatedFixture(context, id, extension);
+        release();
+        await expect
+          .poll(async () => ({
+            notice: await page
+              .locator("[data-lingo-sofa=controls] .command-menu .notice")
+              .textContent(),
+            requests: model.requests.length,
+          }))
+          .toEqual({
+            notice: "扩展连接已恢复。点击“翻译整页”继续翻译。",
+            requests: 1,
+          });
+        await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(
+          0,
+        );
+        await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(1);
+        expect(model.requests).toHaveLength(1);
+        await launcher.click();
+        await page
+          .getByRole("button", { name: "翻译整页", exact: true })
+          .click();
+        await expect(page.locator("[data-lingo-sofa=translation]")).toHaveCount(
+          3,
+        );
+        expect(model.requests).toHaveLength(2);
+        expect(errors).toEqual([]);
+      } finally {
+        release();
+      }
+    },
+  );
+});
+
+test("still sends cancellation when a live content context is replaced during translation", async () => {
+  let release!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await fixture({ responseGate }, async ({ page, context, id, model, url }) => {
+    const setup = await context.newPage();
+    await setup.goto(`chrome-extension://${id}/options.html`);
+    try {
+      await setup.evaluate(() => {
+        const host = globalThis as typeof globalThis & {
+          chrome: ExtensionApi;
+          fixtureCancels: number;
+        };
+        host.fixtureCancels = 0;
+        host.chrome.runtime.onMessage.addListener(
+          (message: { kind?: string }) => {
+            if (message.kind === "cancel") host.fixtureCancels++;
+          },
+        );
+      });
+      await page.getByRole("button", { name: launcherName }).click();
+      await page.getByRole("button", { name: "翻译整页", exact: true }).click();
+      await expect.poll(() => model.requests.length).toBe(1);
+      await setup.evaluate(async (url) => {
+        const api = (globalThis as typeof globalThis & { chrome: ExtensionApi })
+          .chrome;
+        const [tab] = await api.tabs.query({ url: `${url}/*` });
+        await api.scripting.executeScript({
+          target: { tabId: tab!.id! },
+          files: ["/content-scripts/content.js"],
+        });
+      }, url);
+      await expect
+        .poll(() =>
+          setup.evaluate(
+            () =>
+              (globalThis as typeof globalThis & { fixtureCancels: number })
+                .fixtureCancels,
+          ),
+        )
+        .toBe(1);
+      await expect(page.locator("[data-lingo-sofa=controls]")).toHaveCount(1);
+      expect(model.requests).toHaveLength(1);
+    } finally {
+      release();
+      await setup.close();
+    }
+  });
+});
 
 test("stops without removing translations, resumes remaining content and reuses a persisted cache after refresh", async () => {
   await fixture({}, async ({ page, model, context, id }) => {

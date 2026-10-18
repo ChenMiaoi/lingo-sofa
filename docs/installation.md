@@ -18,6 +18,10 @@
 
 浏览器「模型直连」和「本地助手」是两个独立的账户配置位置。在连接页预览另一位置后，需要点击「使用本地助手」或「使用模型直连」，才会保存实际使用的连接方式。「本地助手已连接」只说明连接可用。Key 输入框不会回显已保存的密钥，留空也不会删除原有 Key。
 
+安装、更新或重新加载扩展后，已打开网页若提示 `Extension context invalidated` 或读取 `sendMessage` 失败，先刷新该网页，再重新发起翻译。无需清空账户、删除扩展或重装助手。
+
+扩展接管已有阅读控件的网页后，会提示再次点击“翻译整页”继续，避免重发更新前尚未完成的请求。网站的自动翻译设置仍保留；新打开或刷新的网页继续按已授权的网站规则运行。
+
 浏览器 ZIP 和源码构建通过同一份 manifest 公钥固定扩展 ID：`ahbkbjlbljldmlgkdppdkeeemlajjhgh`。后续版本与加载目录变化不会改变这个 ID。新版助手安装器会自动将它写入服务白名单与 Chrome/Edge Native Messaging 注册，保留原有自定义 ID，无需每次升级后复制 ID 或重新授权。不要在每次构建时重新生成公钥。未来商店发行需另外核对商店实际 ID，再加入助手白名单，不能直接替换现有侧载身份。
 
 旧版使用目录生成的 ID，首次切换到固定 ID 时会产生一次身份变化：共享助手中的账户、Key 和用量保留；旧扩展 ID 下的浏览器直连账户、网站权限和阅读偏好不会自动转移。保留旧扩展及其数据，先确认新扩展能连接助手，再迁移浏览器偏好。旧助手须升级一次，或用设置页的命令授权新 ID；此后同 ID 的版本更新无需再授权。卸载扩展仍会删除浏览器本地数据；后续更新应保留扩展条目，原目录覆盖后「重新加载」，并确认 ID 未变。可参考 [Edge 本地扩展更新步骤](https://learn.microsoft.com/en-us/microsoft-edge/extensions/getting-started/extension-sideloading#locally-updating-an-extension-reload) 和 [Chrome 扩展 ID 说明](https://developer.chrome.com/docs/extensions/reference/manifest/key)。

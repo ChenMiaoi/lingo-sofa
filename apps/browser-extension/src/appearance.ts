@@ -42,8 +42,15 @@ export function bindAppearance(target: HTMLElement): () => void {
   browser.storage.onChanged.addListener(changed);
   return () => {
     active = false;
-    browser.storage.onChanged.removeListener(changed);
-    browser.runtime.onMessage.removeListener(notified);
+    for (const remove of [
+      () => browser.storage?.onChanged.removeListener(changed),
+      () => browser.runtime?.onMessage.removeListener(notified),
+    ])
+      try {
+        remove();
+      } catch {
+        // An expired extension context must not prevent the remaining UI cleanup.
+      }
   };
 }
 

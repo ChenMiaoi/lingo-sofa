@@ -551,6 +551,9 @@ ${themeStyles(":host")}
   };
   document.addEventListener("pointerdown", outside, true);
   return {
+    get connected() {
+      return host.isConnected;
+    },
     open() {
       floating.reveal();
       toggle(false);

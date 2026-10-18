@@ -59,15 +59,12 @@ export function syncReadingAccess(): Promise<void> {
           }))
         )
           continue;
-        // WXT invalidates the previous context on reinjection; preserve open controls.
-        const existing = await browser.scripting
-          .executeScript({
-            target: { tabId: tab.id },
-            func: () =>
-              Boolean(document.querySelector('[data-lingo-sofa="controls"]')),
-          })
-          .catch(() => []);
-        if (existing[0]?.result) continue;
+        // Old UI can survive an update after its extension connection has expired.
+        // Preserve only a reader that still answers this extension in the top frame.
+        const peer = (await browser.tabs
+          .sendMessage(tab.id, { action: "context-token" }, { frameId: 0 })
+          .catch(() => undefined)) as { documentToken?: unknown } | undefined;
+        if (typeof peer?.documentToken === "string") continue;
         await browser.scripting
           .executeScript({
             target: { tabId: tab.id },

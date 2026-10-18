@@ -10,6 +10,7 @@ const fake = vi.hoisted(() => ({
     async () => true,
   ),
   execute: vi.fn<(injection: unknown) => Promise<unknown[]>>(async () => []),
+  send: vi.fn(),
 }));
 vi.mock("wxt/browser", () => ({
   browser: {
@@ -20,6 +21,7 @@ vi.mock("wxt/browser", () => ({
       request: fake.request,
     },
     tabs: {
+      sendMessage: fake.send,
       query: async () => [
         { id: 1, url: "https://one.test/article" },
         { id: 2, url: "https://two.test/article" },
@@ -56,6 +58,8 @@ beforeEach(() => {
   fake.scripts = [];
   fake.execute.mockReset();
   fake.execute.mockResolvedValue([]);
+  fake.send.mockReset();
+  fake.send.mockRejectedValue(new Error("Receiving end does not exist"));
   fake.request.mockClear();
   fake.request.mockResolvedValue(true);
   fake.contains.mockImplementation(async (permission) =>
@@ -73,13 +77,18 @@ it("migrates automatic-only injection to a persistent launcher on authorized sit
       persistAcrossSessions: true,
     }),
   ]);
-  expect(fake.execute.mock.calls[1]).toEqual([
+  expect(fake.execute.mock.calls[0]).toEqual([
     { target: { tabId: 1 }, files: ["/content-scripts/content.js"] },
   ]);
-  fake.execute.mockResolvedValue([{ result: true }]);
+  fake.send.mockResolvedValue({ documentToken: "live-reader" });
   await syncReadingAccess();
   expect(fake.scripts).toHaveLength(1);
-  expect(fake.execute).toHaveBeenCalledTimes(3);
+  expect(fake.execute).toHaveBeenCalledTimes(1);
+  expect(fake.send).toHaveBeenCalledWith(
+    1,
+    { action: "context-token" },
+    { frameId: 0 },
+  );
   expect(fake.request).not.toHaveBeenCalled();
 });
 it("updates and removes launchers after permission changes without enabling automatic translation", async () => {
@@ -146,8 +155,20 @@ it("does not repeat a permission request when the launcher already has site acce
 
 it("preserves existing controls when newly granted access changes script matches", async () => {
   fake.origins = ["https://one.test/*"];
-  fake.execute.mockResolvedValueOnce([{ result: true }]);
+  fake.send.mockResolvedValueOnce({ documentToken: "live-reader" });
   await syncReadingAccess();
-  expect(fake.execute).toHaveBeenCalledTimes(1);
-  expect(fake.execute.mock.calls[0]?.[0]).not.toHaveProperty("files");
+  expect(fake.execute).not.toHaveBeenCalled();
+});
+
+it("replaces orphaned controls when no current reader answers the liveness probe", async () => {
+  fake.origins = ["https://one.test/*"];
+  fake.send.mockResolvedValue({ documentToken: undefined });
+  // DOM left by an old installation is not evidence of a working connection.
+  fake.execute.mockResolvedValue([{ result: true }]);
+  await syncReadingAccess();
+  expect(fake.execute).toHaveBeenCalledExactlyOnceWith({
+    target: { tabId: 1 },
+    files: ["/content-scripts/content.js"],
+  });
+  expect(fake.request).not.toHaveBeenCalled();
 });

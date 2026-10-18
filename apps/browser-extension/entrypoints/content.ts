@@ -26,12 +26,32 @@ import {
 export default defineContentScript({
   registration: "runtime",
   main(ctx) {
-    const lifecycle = globalThis as typeof globalThis & {
-      lingoSofaLoaded?: boolean;
-    };
-    if (lifecycle.lingoSofaLoaded) return;
-    lifecycle.lingoSofaLoaded = true;
+    if (ctx.isInvalid) return;
+    const restoringReader =
+      document.documentElement.hasAttribute("data-lingo-sofa-reader") ||
+      Boolean(document.querySelector('[data-lingo-sofa="controls"]'));
+    // Keep this document marker across context replacement, including successful cleanup.
+    document.documentElement.setAttribute("data-lingo-sofa-reader", "");
+    // A previous installation may have left UI behind after losing its APIs.
+    for (const node of document.querySelectorAll("[data-lingo-sofa]"))
+      node.remove();
     const documentToken = crypto.randomUUID();
+    async function send(message: unknown) {
+      const expired = () => new Error("扩展已更新或关闭，请刷新页面后重试。");
+      const cleanup =
+        message &&
+        typeof message === "object" &&
+        "kind" in message &&
+        (message.kind === "cancel" || message.kind === "clear-session");
+      // Reinjection aborts this context while its background can still accept cancellation.
+      if (ctx.isInvalid && !cleanup) throw expired();
+      try {
+        return await browser.runtime?.sendMessage(message);
+      } catch (error) {
+        if (ctx.isInvalid) throw expired();
+        throw error;
+      }
+    }
     let translator: PageTranslator | undefined;
     let automaticMode = false;
     let readingEnabled = false;
@@ -55,7 +75,7 @@ export default defineContentScript({
     let targetLanguage = "简体中文";
     let maxOutputTokens = Number.MAX_SAFE_INTEGER;
     async function readConfiguration() {
-      const reply = await browser.runtime.sendMessage({
+      const reply = await send({
         action: "page-controls",
       });
       if (!reply.ok) throw new Error(reply.error);
@@ -122,12 +142,12 @@ export default defineContentScript({
     ): Promise<TranslationResult> {
       const requestId = crypto.randomUUID();
       const cancel = () => {
-        void browser.runtime.sendMessage({ kind: "cancel", requestId });
+        void send({ kind: "cancel", requestId }).catch(() => undefined);
       };
       signal.addEventListener("abort", cancel, { once: true });
       try {
         signal.throwIfAborted();
-        const reply = (await browser.runtime.sendMessage({
+        const reply = (await send({
           kind: "translate",
           requestId,
           units: [unit],
@@ -146,7 +166,7 @@ export default defineContentScript({
       }
     }
     function start(language: string, automatic = false, manual = false) {
-      if (!readingEnabled) return;
+      if (ctx.isInvalid || !readingEnabled) return;
       targetLanguage = language;
       if (translator && mode === "manual" && !manual) {
         automaticMode = automatic;
@@ -161,12 +181,12 @@ export default defineContentScript({
         async (units, signal) => {
           const requestId = crypto.randomUUID();
           const cancel = () => {
-            void browser.runtime.sendMessage({ kind: "cancel", requestId });
+            void send({ kind: "cancel", requestId }).catch(() => undefined);
           };
           signal.addEventListener("abort", cancel, { once: true });
           try {
             signal.throwIfAborted();
-            const reply = (await browser.runtime.sendMessage({
+            const reply = (await send({
               kind: "translate",
               requestId,
               units,
@@ -217,7 +237,7 @@ export default defineContentScript({
           : undefined;
     }
     function askSelection(fallback?: HTMLElement) {
-      if (!readingEnabled) return false;
+      if (ctx.isInvalid || !readingEnabled) return false;
       captureSelection();
       const preview =
         selectedPreview ??
@@ -240,13 +260,10 @@ export default defineContentScript({
           (!preview ||
             (preview.root.isConnected &&
               textOf(preview.root) === preview.original)),
-        async (request) =>
-          (await browser.runtime.sendMessage(request)) as Reply,
+        async (request) => (await send(request)) as Reply,
         () => askCleanups.delete(cleanup),
         async () =>
-          providerCatalogSchema.parse(
-            await browser.runtime.sendMessage({ action: "ask-catalog" }),
-          ),
+          providerCatalogSchema.parse(await send({ action: "ask-catalog" })),
         preview
           ? () =>
               preview.root.isConnected
@@ -299,23 +316,23 @@ export default defineContentScript({
           });
       },
       usage: async () => {
-        const reply = await browser.runtime.sendMessage({
+        const reply = await send({
           action: "usage-summary",
         });
         if (!reply.ok) throw new Error(reply.error);
         return reply;
       },
       usageSettings: () =>
-        browser.runtime.sendMessage({
+        send({
           action: "open-options",
           section: "usage",
         }),
       ask: () => {
         askSelection();
       },
-      settings: () => browser.runtime.sendMessage({ action: "open-options" }),
+      settings: () => send({ action: "open-options" }),
       enabled: async (enabled) => {
-        const reply = await browser.runtime.sendMessage({
+        const reply = await send({
           action: "page-enabled",
           enabled,
         });
@@ -327,7 +344,7 @@ export default defineContentScript({
         translator?.translateElement(element);
       },
       language: async (language) => {
-        const reply = (await browser.runtime.sendMessage({
+        const reply = (await send({
           action: "page-language",
           targetLanguage: language,
         })) as Reply;
@@ -340,14 +357,14 @@ export default defineContentScript({
       },
       configuration: readConfiguration,
       model: async (model) => {
-        const reply = await browser.runtime.sendMessage({
+        const reply = await send({
           action: "page-model",
           model,
         });
         if (!reply.ok) throw new Error(reply.error);
       },
       automatic: async (enabled) => {
-        const reply = await browser.runtime.sendMessage({
+        const reply = await send({
           action: "page-auto",
           enabled,
         });
@@ -355,27 +372,27 @@ export default defineContentScript({
         return reply;
       },
     });
-    const readingReady = browser.runtime
-      .sendMessage({ action: "auto-state" })
-      .then(
-        async (response: {
-          enabled: boolean;
-          readingEnabled: boolean;
-          targetLanguage: string;
-        }) => {
-          await configurationReady;
-          if (ctx.isInvalid) return;
-          readingEnabled = response.readingEnabled !== false;
-          controls.setEnabled(readingEnabled);
-          if (!readingEnabled) stop();
-          targetLanguage = response.targetLanguage;
-          controls.setLanguage(targetLanguage);
-          controls.setAutomatic(response.enabled);
-          if (response.enabled) start(targetLanguage, true);
-        },
-      );
+    const readingReady = send({ action: "auto-state" }).then(
+      async (response: {
+        enabled: boolean;
+        readingEnabled: boolean;
+        targetLanguage: string;
+      }) => {
+        await configurationReady;
+        if (ctx.isInvalid) return;
+        readingEnabled = response.readingEnabled !== false;
+        controls.setEnabled(readingEnabled);
+        if (!readingEnabled) stop();
+        targetLanguage = response.targetLanguage;
+        controls.setLanguage(targetLanguage);
+        controls.setAutomatic(response.enabled);
+        if (restoringReader)
+          controls.setNotice("扩展连接已恢复。点击“翻译整页”继续翻译。");
+        else if (response.enabled) start(targetLanguage, true);
+      },
+    );
     const onMessage = async (message: unknown) => {
-      await readingReady;
+      if (ctx.isInvalid) return;
       if (!message || typeof message !== "object" || !("action" in message))
         return;
       const data = message as {
@@ -384,6 +401,11 @@ export default defineContentScript({
         automatic?: boolean;
         readingEnabled?: boolean;
       };
+      // Liveness must not wait for model settings or cause translation to start.
+      if (data.action === "context-token")
+        return controls.connected ? { documentToken } : undefined;
+      await readingReady;
+      if (ctx.isInvalid) return;
       if (data.action === "reading-changed") {
         readingEnabled = data.readingEnabled !== false;
         controls.setEnabled(readingEnabled);
@@ -455,8 +477,6 @@ export default defineContentScript({
           pending: Boolean(translator?.progress.pending),
           readingEnabled,
         };
-      if (data.action === "context-token")
-        return Promise.resolve({ documentToken });
       if (data.action === "context")
         return Promise.resolve({
           text: (document.querySelector("article,main")
@@ -558,7 +578,11 @@ export default defineContentScript({
     }
     browser.runtime.onMessage.addListener(onMessage);
     ctx.onInvalidated(() => {
-      browser.runtime.onMessage.removeListener(onMessage);
+      try {
+        browser.runtime?.onMessage.removeListener(onMessage);
+      } catch {
+        // Browser APIs may disappear before invalidation is observed.
+      }
       stop();
       controls.destroy();
       selectionActions.destroy();
@@ -566,7 +590,8 @@ export default defineContentScript({
       document.removeEventListener("pointerover", trackAskParagraph);
       removeAskShortcut();
       selectedPreview = undefined;
-      delete lifecycle.lingoSofaLoaded;
     });
+    // WXT notices API invalidation when a managed timer checks the context.
+    ctx.setInterval(() => undefined, 1_000);
   },
 });
