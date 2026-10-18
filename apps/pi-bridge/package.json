@@ -1,15 +1,15 @@
 {
   "name": "@lingo-sofa/pi-bridge",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "type": "module",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.2.0",
-    "@lingo-sofa/local-runtime": "0.1.12",
-    "@lingo-sofa/protocol": "0.1.12",
-    "@lingo-sofa/provider-pi": "0.1.12",
-    "@lingo-sofa/provider-web": "0.1.12",
-    "@lingo-sofa/translation-core": "0.1.12",
+    "@lingo-sofa/local-runtime": "0.1.13",
+    "@lingo-sofa/protocol": "0.1.13",
+    "@lingo-sofa/provider-pi": "0.1.13",
+    "@lingo-sofa/provider-web": "0.1.13",
+    "@lingo-sofa/translation-core": "0.1.13",
     "proper-lockfile": "4.1.2",
     "zod": "4.6.7"
   },

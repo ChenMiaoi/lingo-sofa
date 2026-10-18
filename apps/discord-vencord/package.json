@@ -1,13 +1,13 @@
 {
   "name": "@lingo-sofa/discord-vencord",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@lingo-sofa/protocol": "0.1.12",
-    "@lingo-sofa/translation-core": "0.1.12",
-    "@lingo-sofa/ui-shared": "0.1.12",
-    "@lingo-sofa/local-runtime": "0.1.12"
+    "@lingo-sofa/protocol": "0.1.13",
+    "@lingo-sofa/translation-core": "0.1.13",
+    "@lingo-sofa/ui-shared": "0.1.13",
+    "@lingo-sofa/local-runtime": "0.1.13"
   },
   "scripts": {
     "build": "node build.mjs",
