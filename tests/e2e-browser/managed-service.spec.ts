@@ -287,6 +287,9 @@ test("auto-starts shared service from MV3 and keeps Discord connected after brow
       });
       if (!reply.ok) throw Error(reply.error);
     });
+    // Keyless reading still shares Ask; only closing the browser releases its client.
+    await expect.poll(async () => (await status()).clients).toBe(2);
+    closeBrowser();
     await expect.poll(async () => (await status()).clients).toBe(1);
     expect(
       (await runtimePost(connection, "https://discord.com", "/v1/provider", {}))
