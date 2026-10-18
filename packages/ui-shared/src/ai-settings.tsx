@@ -32,6 +32,9 @@ export function createAISettings(getReact: () => HostReact) {
   }) {
     const React = getReact();
     const [catalog, setCatalog] = React.useState<ProviderCatalog | null>(null);
+    const [translationEngine, setTranslationEngine] = React.useState<
+      TranslationEngine | undefined
+    >(undefined);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState("");
     const [notice, setNotice] = React.useState("");
@@ -41,18 +44,31 @@ export function createAISettings(getReact: () => HostReact) {
     >(null);
     const trigger = React.useRef<HTMLElement | null>(null);
     const container = React.useRef<HTMLElement | null>(null);
+    const catalogRevision = React.useRef(0);
     const refresh = React.useCallback(async () => {
+      const revision = ++catalogRevision.current;
       setError("");
       try {
-        setCatalog(await client.providers());
+        const next = await client.providers();
+        if (revision !== catalogRevision.current) return;
+        setCatalog(next);
+        setTranslationEngine(next.translationEngine ?? "llm");
         setRefreshFailed(false);
       } catch {
+        if (revision !== catalogRevision.current) return;
         setRefreshFailed(true);
-        setError("无法刷新模型列表，请检查连接后重试。");
+        setError(
+          section === "ask"
+            ? "无法读取已保存的模型配置，请检查连接后重试。"
+            : "无法读取已保存的模型配置，请检查连接后重试；仍可切换免 Key 翻译。",
+        );
       }
-    }, [client]);
+    }, [client, section]);
     React.useEffect(() => {
       void refresh();
+      return () => {
+        catalogRevision.current++;
+      };
     }, [refresh]);
     React.useEffect(() => {
       if (!editor && trigger.current) {
@@ -84,6 +100,7 @@ export function createAISettings(getReact: () => HostReact) {
       try {
         const result = await client.configureProvider({ model, target });
         if (!result.ok) throw new Error(result.error);
+        if (target === "translation") setTranslationEngine("llm");
         onSaved?.(target);
         setCatalog((current) =>
           current
@@ -100,7 +117,7 @@ export function createAISettings(getReact: () => HostReact) {
             ? "翻译模型已保存，不影响 Ask 会话"
             : "Ask 默认模型已保存，已有会话保持原配置",
         );
-        await refresh();
+        void refresh();
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "保存失败，请重试");
       } finally {
@@ -127,12 +144,13 @@ export function createAISettings(getReact: () => HostReact) {
           engine,
         });
         if (!result.ok) throw new Error(result.error);
+        setTranslationEngine(engine);
         setCatalog((current) =>
           current ? { ...current, translationEngine: engine } : current,
         );
         onSaved?.("translation-engine");
         setNotice("翻译引擎已保存，不影响 Ask 会话");
-        await refresh();
+        void refresh();
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "保存失败，请重试");
       } finally {
@@ -304,10 +322,10 @@ export function createAISettings(getReact: () => HostReact) {
               ).map(([engine, icon, label, hint]) => (
                 <button
                   key={engine}
-                  disabled={busy || !catalog || refreshFailed}
-                  aria-pressed={
-                    (catalog?.translationEngine ?? "llm") === engine
+                  disabled={
+                    busy || (engine === "llm" && (!catalog || refreshFailed))
                   }
+                  aria-pressed={translationEngine === engine}
                   onClick={() => {
                     void saveEngine(engine);
                   }}
@@ -320,22 +338,25 @@ export function createAISettings(getReact: () => HostReact) {
                     <small>{hint}</small>
                   </span>
                   <span className="ls-engine-check" aria-hidden>
-                    {(catalog?.translationEngine ?? "llm") === engine
-                      ? "✓"
-                      : ""}
+                    {translationEngine === engine ? "✓" : ""}
                   </span>
                 </button>
               ))}
             </div>
-            {catalog &&
-              catalog.translationEngine !== undefined &&
-              catalog.translationEngine !== "llm" && (
-                <p className="ls-engine-note">
-                  原文发送至所选翻译服务，不使用大模型
-                  Key。服务暂不可用时，可手动切换引擎。
-                </p>
-              )}
-            {(catalog?.translationEngine ?? "llm") === "llm" && (
+            {translationEngine && translationEngine !== "llm" && (
+              <p className="ls-engine-note">
+                原文发送至所选翻译服务，不使用大模型
+                Key。服务暂不可用时，可手动切换引擎。
+              </p>
+            )}
+            {!translationEngine && (
+              <p role="status">
+                {refreshFailed
+                  ? "已保存的翻译配置暂不可用"
+                  : "正在读取已保存的翻译配置…"}
+              </p>
+            )}
+            {translationEngine === "llm" && (
               <>
                 <div className="ls-setting-row">
                   <div>
@@ -351,7 +372,7 @@ export function createAISettings(getReact: () => HostReact) {
                   {catalog ? (
                     modelSelect(catalog.model, "translation", "翻译模型")
                   ) : (
-                    <span>读取连接中…</span>
+                    <span>模型配置暂不可用</span>
                   )}
                 </div>
               </>

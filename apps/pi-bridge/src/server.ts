@@ -308,17 +308,18 @@ export function createBridge(
       }
       await initialized;
       if (request.url === "/v1/provider") {
-        if (
-          config.settings.translationEngine === "llm" &&
-          (config.settings.model.authMode !== "subscription" ||
-            oauth.status().connected)
-        )
-          await sessions.runtime();
-        reply(200, {
-          capabilities: capabilities(
+        // Reading saved settings must work without contacting the model provider.
+        let modelCapabilities = capabilities(config.settings.model);
+        try {
+          modelCapabilities = capabilities(
             config.settings.model,
             resolveModel(config.settings.model).model,
-          ),
+          );
+        } catch {
+          // A saved model may no longer exist in the installed catalog.
+        }
+        reply(200, {
+          capabilities: modelCapabilities,
           model: config.settings.model,
           translationEngine: config.settings.translationEngine,
           askModel: accounts.ask,

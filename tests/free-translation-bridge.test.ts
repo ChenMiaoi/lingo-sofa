@@ -141,3 +141,130 @@ it("shares keyless engines between Discord and browser clients, preserves models
     });
   }
 });
+
+it.each([
+  { provider: "openai-compatible", model: "unavailable-model" },
+  { provider: "deepseek", model: "removed-catalog-model" },
+])(
+  "reads saved $provider settings and switches to free translation when the model is unavailable",
+  async (model) => {
+    const directory = await mkdtemp(join(tmpdir(), "lingo-free-recovery-"));
+    const token = "free-recovery-fixture".padEnd(48, "0");
+    const realFetch = globalThis.fetch;
+    const upstream: string[] = [];
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input, init) => {
+        const url = String(input);
+        if (url.startsWith("http://127.0.0.1:")) return realFetch(input, init);
+        upstream.push(url);
+        if (url.includes("edge.microsoft.com"))
+          return Promise.resolve(
+            Response.json(
+              (JSON.parse(String(init?.body)) as string[]).map(() => ({
+                translations: [{ text: "免费译文" }],
+              })),
+            ),
+          );
+        return Promise.resolve(
+          Response.json({ error: "Invalid API key" }, { status: 401 }),
+        );
+      });
+    const initialConfig = () =>
+      bridgeConfigSchema.parse({
+        allowedExtensions: ["a".repeat(32)],
+        settings: {
+          translationEngine: "llm",
+          model: { ...model, endpoint: "https://unavailable-model.test/v1" },
+        },
+      });
+    let config = initialConfig();
+    let bridge = createBridge(
+      config,
+      "saved-fixture-key",
+      token,
+      Date.now() + 60_000,
+      directory,
+    );
+    const start = async () => {
+      await new Promise<void>((done) =>
+        bridge.server.listen(0, "127.0.0.1", done),
+      );
+      config.port = (bridge.server.address() as AddressInfo).port;
+    };
+    const stop = async () => {
+      bridge.server.closeAllConnections();
+      await new Promise<void>((done) => bridge.server.close(() => done()));
+    };
+    const client = new DiscordBridgeClient({
+      port: () => (bridge.server.address() as AddressInfo).port,
+      token: () => token,
+      origin: "https://discord.com",
+    });
+    const request = {
+      kind: "translate" as const,
+      automatic: false,
+      requestId: crypto.randomUUID(),
+      units: [
+        {
+          id: "recovery",
+          revision: "1",
+          sourceKind: "discord" as const,
+          targetLanguage: "English",
+          text: "你好",
+          protectedParts: [],
+        },
+      ],
+    };
+    await start();
+    try {
+      const failed = await client.request("channel", request);
+      expect(failed.ok).toBe(false);
+      upstream.length = 0;
+      const saved = await client.providers();
+      expect(saved.model).toMatchObject(model);
+      expect(saved.translationEngine).toBe("llm");
+      expect(saved.accounts).toHaveLength(1);
+      expect(saved.keyConfigured).toBe(true);
+      expect(JSON.stringify(saved)).not.toContain("saved-fixture-key");
+      expect(upstream).toEqual([]);
+      expect(
+        await client.configureProvider({
+          target: "translation-engine",
+          engine: "bing",
+        }),
+      ).toEqual({ ok: true });
+      expect(
+        await client.request("channel", {
+          ...request,
+          requestId: crypto.randomUUID(),
+        }),
+      ).toMatchObject({
+        ok: true,
+        results: [
+          { text: "免费译文", billing: { billingMode: "free", cost: 0 } },
+        ],
+      });
+      await stop();
+      config = initialConfig();
+      bridge = createBridge(config, "", token, Date.now() + 60_000, directory);
+      await start();
+      const restored = await client.providers();
+      expect(restored.model).toEqual(saved.model);
+      expect(restored.askModel).toEqual(saved.askModel);
+      expect(restored.accounts).toEqual(saved.accounts);
+      expect(restored.keyConfigured).toBe(true);
+      expect(restored.translationEngine).toBe("bing");
+      expect(upstream).toHaveLength(1);
+    } finally {
+      await stop();
+      spy.mockRestore();
+      await rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+    }
+  },
+);
