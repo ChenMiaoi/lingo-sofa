@@ -188,3 +188,25 @@ OpenAI 新增 ChatGPT 订阅 / API Key 两种方式，网页本地助手模式�
 - `npm run verify:vencord`：对 Vencord `16ec4ea838899706019e7f472e45f055070abeb1` 构建验证通过。
 
 界面截图由 `independent-models.spec.ts` 生成在 `.cache/ui/ai-workspace-*.png`；设置页、账户页及 Ask 选择器已做视觉核对。本轮未调用真实付费供应商，未将改动部署到原 Discord 客户端；真实账号与宿主人工验收不以构建或模拟调用替代。
+
+## Windows 全流程复查（2026-10-18）
+
+环境：Windows x64、Node 24.15.0、Chromium 156.0.8078.4。本轮覆盖浏览器首次使用、账户编辑、连接切换、配置跨重启与更新保留、翻译与 Ask、共享助手生命周期、Windows 组合安装和失败恢复。候选包仅用于本地验证，未发布或替换原 Discord / 助手安装。
+
+本轮确认并修复三处问题：
+
+- 从共享助手切回模型直连时，错误地使用助手账户校验浏览器凭证。现在使用浏览器已保存的直连翻译账户；切换及完整重启后保留账户、翻译默认值和 Ask 默认值。
+- 移除未使用的旧供应商时，错误地要求重新授权旧地址并验证旧模型目录。移除不再依赖该地址的访问权限或供应商支持状态，仍保留默认账户不可直接移除的检查。
+- Windows 自动安装测试会清空 `NODE_OPTIONS`，导致原来的预加载隔离失效，并修改真实 Native Messaging 登记。测试现在从自己的安装夹具显式加载隔离，逐项核对 Chrome / Edge 登记操作；真实登记已恢复到现有助手的 manifest，完整检查后再次核对未被测试改写。
+
+新增回归在实际 MV3 中复现前两项问题，修复后验证切换、移除及重启恢复，期间没有发送模型请求。共享助手测试补齐 Windows 支持，并使用独立的 `com.lingosofa.test_*` 登记，不替换正式 host：实际运行打包的 Native Host 和私有 Node 服务，使用 Discord native 层同一 `RuntimeClient` 验证两端连接同一实例、关闭浏览器后另一客户端仍可使用、阅读关闭时重新启动浏览器自动连接，以及切回直连后释放浏览器租约。该证据不等于原 Discord 界面的操作验收。
+
+验证入口和结果：
+
+- `npm run check`：48 个文件、281 项单元 / 集成测试，以及 lint、格式、类型检查、三端构建和 MV3 审计通过。
+- 完整浏览器回归同时启用下述两项联网开关：67 项中 65 项通过、2 项跳过，分别为 Windows 不适用的旧脚本式启动探针和被 HTTP 403 阻断的 Stack Overflow。实际 Windows Native Host 共享、冷启动、浏览器退出与重开均通过，清理改动后另行复测也通过。
+- 开启 `LINGO_SOFA_LIVE_TRANSLATION=1` 运行浏览器回归：实际必应 / 谷歌免 Key 翻译、引擎切换和保存通过。
+- 开启 `LINGO_SOFA_PUBLIC_ACCEPTANCE=1` 运行公开网页回归：14 个场景中 13 项通过（含一个本地论坛夹具），Stack Overflow 被站点以 HTTP 403 拒绝，保留为未验收。公开网页的模型译文使用本机合成响应，只验证布局、交互和内容恢复。
+- `npm run package:windows -- .cache/flow-audit-windows-input .cache/flow-audit-windows-output`：固定 Vencord 宿主类型检查和构建、组合包完整性、直接安装 / 重装、EXE 成功安装与完成后重启、无效目标拒绝且不重启、账户保留及安装 / 更新回归通过。安装目标、用户数据和登记操作均使用隔离夹具。
+
+本轮没有重验原 Discord 的多账号和真实长频道，也没有执行真实付费模型请求或真人 OAuth 登录；macOS / Linux 的安装与原生启动仍需对应环境验证。Windows 的旧脚本式启动探针按平台跳过；实际 Native Host 冷启动由本轮跨客户端共享服务测试覆盖。

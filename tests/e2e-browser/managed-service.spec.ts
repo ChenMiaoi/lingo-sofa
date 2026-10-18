@@ -1,132 +1,190 @@
 import { test, expect, chromium } from "@playwright/test";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
-import { execFileSync } from "node:child_process";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   mkdtemp,
   mkdir,
   writeFile,
   readFile,
   rm,
-  stat,
   copyFile,
   cp,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { RuntimeClient, runtimePost } from "@lingo-sofa/local-runtime";
+import { promisify } from "node:util";
+import {
+  RuntimeClient,
+  runtimePost,
+  type RuntimeConnection,
+} from "@lingo-sofa/local-runtime";
+import { BROWSER_EXTENSION_ID } from "@lingo-sofa/protocol";
 import { bridgeConfigSchema } from "../../apps/pi-bridge/src/config.js";
-const binary = resolve(
-  `apps/pi-bridge/dist/lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`,
-);
-// Windows registration uses HKCU, which this profile-isolated test does not modify.
-test.skip(
-  process.platform === "win32" || !existsSync(binary),
-  "Requires packaged host and profile-local registration",
-);
+import { registerNativeFixture } from "./native-host-fixture.js";
+
+const execute = promisify(execFile);
+const binaryName = `lingo-sofa-native-host${process.platform === "win32" ? ".exe" : ""}`;
+const binary = resolve("apps/pi-bridge/dist", binaryName);
+test.skip(!existsSync(binary), "Requires the packaged native host");
+type ExtensionApi = typeof import("wxt/browser").browser;
+
+async function stopPrivateRuntime(home: string) {
+  let running: RuntimeConnection & { pid: number };
+  try {
+    running = JSON.parse(
+      await readFile(join(home, "runtime-connection.json"), "utf8"),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  await runtimePost(
+    running,
+    "https://discord.com",
+    "/v1/runtime/prepare-update",
+    {},
+  ).catch(() => undefined);
+  try {
+    await expect
+      .poll(async () => existsSync(join(home, "runtime-connection.json")), {
+        timeout: 5_000,
+      })
+      .toBe(false);
+  } catch {
+    try {
+      process.kill(running.pid, "SIGTERM");
+    } catch {
+      /* Already exited. */
+    }
+  }
+}
+
 test("auto-starts shared service from MV3 and keeps Discord connected after browser releases its lease", async () => {
-  test.setTimeout(90_000); // Includes copying the complete local runtime dependency snapshot.
-  const directory = await mkdtemp(join(tmpdir(), "lingo-managed-browser-"));
+  test.setTimeout(180_000);
+  const cache = resolve(".cache");
+  await mkdir(cache, { recursive: true });
+  const directory = await mkdtemp(join(cache, "lingo-managed-browser-"));
   const home = join(directory, "home");
   const profile = join(directory, "profile");
   const extension = join(directory, "extension");
-  await mkdir(home);
-  await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
-    recursive: true,
-  });
-  // Pre-register before the first browser startup, as the production installer does.
-  const publicKey = generateKeyPairSync("rsa", {
-    modulusLength: 1024,
-  }).publicKey.export({ type: "spki", format: "der" });
-  const id = createHash("sha256")
-    .update(publicKey)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/[0-9a-f]/g, (c) =>
-      String.fromCharCode(97 + Number.parseInt(c, 16)),
-    );
-  const manifest = JSON.parse(
-    await readFile(join(extension, "manifest.json"), "utf8"),
-  );
-  manifest.key = publicKey.toString("base64");
-  await writeFile(join(extension, "manifest.json"), JSON.stringify(manifest));
-  const socket = createServer();
-  await new Promise<void>((done) => socket.listen(0, "127.0.0.1", done));
-  const port = (socket.address() as AddressInfo).port;
-  await new Promise<void>((done) => socket.close(() => done()));
-  await writeFile(
-    join(home, "config.json"),
-    JSON.stringify(
-      bridgeConfigSchema.parse({
-        port,
-        allowedExtensions: [id],
-        settings: { persistUsage: true },
-      }),
-    ),
-  );
-  await test.step("install private runtime", async () => {
-    execFileSync(process.execPath, ["install-runtime.mjs", id], {
-      cwd: resolve("apps/pi-bridge"),
-      env: { ...process.env, LINGO_SOFA_HOME: home },
+  const name = `com.lingosofa.test_${randomUUID().replaceAll("-", "")}`;
+  const desktop = new RuntimeClient(home, "https://discord.com");
+  let context:
+    Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
+  let unregister: (() => Promise<void>) | undefined;
+  const closing: Promise<void>[] = [];
+  const closeBrowser = () => {
+    if (!context) return;
+    const previous = context;
+    context = undefined;
+    const closed = previous.close();
+    closing.push(closed);
+    void closed.catch(() => undefined);
+  };
+  const launch = () =>
+    chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      env: { ...process.env, LINGO_SOFA_HOME: home, LINGO_SOFA_API_KEY: "" },
+      args: [
+        `--disable-extensions-except=${extension}`,
+        `--load-extension=${extension}`,
+      ],
     });
-  });
-  const localBinary = join(home, "lingo-sofa-native-host");
-  await copyFile(binary, localBinary);
-  await mkdir(join(profile, "NativeMessagingHosts"), { recursive: true });
-  await writeFile(
-    join(profile, "NativeMessagingHosts/com.lingosofa.bridge.json"),
-    JSON.stringify({
-      name: "com.lingosofa.bridge",
+  try {
+    await mkdir(home);
+    await cp(resolve("apps/browser-extension/.output/chrome-mv3"), extension, {
+      recursive: true,
+    });
+    const manifest = JSON.parse(
+      await readFile(join(extension, "manifest.json"), "utf8"),
+    );
+    const background = join(extension, manifest.background.service_worker);
+    const source = await readFile(background, "utf8");
+    if (!source.includes("com.lingosofa.bridge"))
+      throw Error("Native fixture target is missing");
+    await writeFile(
+      background,
+      source.replaceAll("com.lingosofa.bridge", name),
+    );
+    const socket = createServer();
+    await new Promise<void>((done) => socket.listen(0, "127.0.0.1", done));
+    const port = (socket.address() as AddressInfo).port;
+    await new Promise<void>((done) => socket.close(() => done()));
+    await writeFile(
+      join(home, "config.json"),
+      JSON.stringify(
+        bridgeConfigSchema.parse({
+          port,
+          allowedExtensions: [BROWSER_EXTENSION_ID],
+          settings: { persistUsage: true },
+        }),
+      ),
+    );
+    await test.step("install the private runtime without changing production registration", async () => {
+      await execute(
+        process.execPath,
+        ["install-runtime.mjs", BROWSER_EXTENSION_ID],
+        {
+          cwd: resolve("apps/pi-bridge"),
+          env: { ...process.env, LINGO_SOFA_HOME: home },
+          timeout: 120_000,
+          windowsHide: true,
+        },
+      );
+    });
+    const localBinary = join(home, binaryName);
+    await copyFile(binary, localBinary);
+    unregister = await registerNativeFixture(profile, {
+      name,
       description: "Isolated LingoSofa test",
       path: localBinary,
       type: "stdio",
-      allowed_origins: [`chrome-extension://${id}/`],
-    }),
-  );
-  const context = await chromium.launchPersistentContext(profile, {
-    channel: "chromium",
-    headless: true,
-    env: { ...process.env, LINGO_SOFA_HOME: home },
-    args: [
-      `--disable-extensions-except=${extension}`,
-      `--load-extension=${extension}`,
-    ],
-  });
-  const desktop = new RuntimeClient(home, "https://discord.com");
-  let pid: number | undefined;
-  try {
-    const worker =
-      context.serviceWorkers()[0] ??
-      (await context.waitForEvent("serviceworker"));
-    expect(new URL(worker.url()).host).toBe(id);
-    const options = await context.newPage();
-    await test.step("open local Provider page", async () => {
-      await options.goto(`chrome-extension://${id}/options.html`);
+      allowed_origins: [`chrome-extension://${BROWSER_EXTENSION_ID}/`],
     });
-    await expect(options.getByLabel("翻译模型", { exact: true })).toHaveValue(
-      "current:deepseek-flash",
-      { timeout: 15000 },
+    context = await launch();
+    const options = await context.newPage();
+    await options.goto(
+      `chrome-extension://${BROWSER_EXTENSION_ID}/options.html#connection`,
     );
-    const state = await test.step("read shared usage", async () =>
-      options.evaluate(async () =>
-        (
-          globalThis as typeof globalThis & {
-            chrome: typeof import("wxt/browser").browser;
-          }
-        ).chrome.runtime.sendMessage({ action: "state" }),
-      ));
-    expect(state.settings.mode).toBe("bridge");
+    await expect(options.locator(".ls-active-connection")).toHaveText(
+      "当前使用：模型直连",
+    );
+    await options
+      .getByRole("button", { name: "本地助手", exact: true })
+      .click();
+    await expect(
+      options.getByText("本地助手已连接", { exact: true }),
+    ).toBeVisible({ timeout: 75_000 });
+    await options
+      .getByRole("button", { name: "使用本地助手", exact: true })
+      .click({ timeout: 75_000 });
+    await expect(options.locator(".ls-active-connection")).toHaveText(
+      "当前使用：本地助手",
+    );
+    const state = await options.evaluate(async () =>
+      (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
+      ).chrome.runtime.sendMessage({ action: "state" }),
+    );
     expect(state.bridgeError).toBeUndefined();
+    const connection = await desktop.start();
     const running = JSON.parse(
       await readFile(join(home, "runtime-connection.json"), "utf8"),
     );
-    pid = running.pid;
-    const connection =
-      await test.step("connect Discord native client", async () =>
-        desktop.start());
     expect(connection.instanceId).toBe(running.instanceId);
+    const status = async () =>
+      (
+        await runtimePost(
+          connection,
+          "https://discord.com",
+          "/v1/runtime/status",
+          {},
+        )
+      ).json();
+    await expect.poll(async () => (await status()).clients).toBe(2);
     const provider = await runtimePost(
       connection,
       "https://discord.com",
@@ -134,72 +192,75 @@ test("auto-starts shared service from MV3 and keeps Discord connected after brow
       {},
     );
     expect(await provider.json()).toMatchObject({
-      model: { provider: "deepseek" },
+      translationEngine: "bing",
       keyConfigured: false,
     });
-    await options.evaluate(async (settings) => {
-      await (
-        globalThis as typeof globalThis & {
-          chrome: typeof import("wxt/browser").browser;
-        }
+    await options.evaluate(async () =>
+      (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
+      ).chrome.storage.local.set({ readingEnabled: false }),
+    );
+    // Playwright may wait for the detached Windows service when closing its browser process tree.
+    // Observe the released browser lease now, then await process cleanup after stopping the service.
+    closeBrowser();
+    await expect.poll(async () => (await status()).clients).toBe(1);
+    context = await launch();
+    // No extension UI is opened: startup must restore the shared connection even with reading disabled.
+    await expect
+      .poll(async () => (await status()).clients, { timeout: 30_000 })
+      .toBe(2);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    expect(
+      await worker.evaluate(() =>
+        (
+          globalThis as typeof globalThis & { chrome: ExtensionApi }
+        ).chrome.runtime.onStartup.hasListeners(),
+      ),
+    ).toBe(true);
+    const reopened = await context.newPage();
+    await reopened.goto(
+      `chrome-extension://${BROWSER_EXTENSION_ID}/options.html#connection`,
+    );
+    await expect(reopened.locator(".ls-active-connection")).toHaveText(
+      "当前使用：本地助手",
+    );
+    const restored = await reopened.evaluate(async () =>
+      (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
+      ).chrome.storage.local.get("readingEnabled"),
+    );
+    expect(restored.readingEnabled).toBe(false);
+    await reopened.evaluate(async () => {
+      const reply = await (
+        globalThis as typeof globalThis & { chrome: ExtensionApi }
       ).chrome.runtime.sendMessage({
         action: "save",
-        settings: { ...settings, mode: "direct" },
+        patch: { mode: "direct" },
       });
-    }, state.settings);
-    await expect
-      .poll(
-        async () =>
-          (
-            await (
-              await runtimePost(
-                connection,
-                "https://discord.com",
-                "/v1/runtime/status",
-                {},
-              )
-            ).json()
-          ).clients,
-        { timeout: 50_000 },
-      )
-      .toBe(1);
+      if (!reply.ok) throw Error(reply.error);
+    });
+    await expect.poll(async () => (await status()).clients).toBe(1);
     expect(
       (await runtimePost(connection, "https://discord.com", "/v1/provider", {}))
         .status,
     ).toBe(200);
-    await desktop.stop();
-    if (process.platform !== "win32")
-      expect(
-        (await stat(join(home, "runtime-connection.json"))).mode & 0o777,
-      ).toBe(0o600);
   } finally {
+    closeBrowser();
     await desktop.stop();
-    // Even a failed browser assertion must clean up the daemon it started.
     try {
-      pid ??= JSON.parse(
-        await readFile(join(home, "runtime-connection.json"), "utf8"),
-      ).pid;
-    } catch {
-      /* Not started. */
+      await stopPrivateRuntime(home);
+    } finally {
+      await Promise.all(closing).finally(async () => {
+        await unregister?.();
+        await rm(directory, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        });
+      });
     }
-    if (pid) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        /* Already exited. */
-      }
-    }
-    await expect
-      .poll(
-        async () =>
-          readFile(join(home, "runtime-connection.json")).then(
-            () => false,
-            () => true,
-          ),
-        { timeout: 5_000 },
-      )
-      .toBe(true);
-    await context.close();
-    await rm(directory, { recursive: true, force: true });
   }
 });

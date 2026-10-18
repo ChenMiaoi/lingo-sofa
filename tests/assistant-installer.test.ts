@@ -112,9 +112,16 @@ it("installs with a private bundled runtime, preserves user data, merges browser
       bundle: true,
     });
     await writeFile(join(runtime, "package.json"), '{"type":"module"}');
-    await cp(
-      resolve("apps/pi-bridge/installer.mjs"),
+    const preload = join(work, "isolate.mjs");
+    const registryLog = join(work, "registry.jsonl");
+    await writeFile(
+      preload,
+      `import os from 'node:os'; import cp from 'node:child_process'; import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; os.homedir = () => process.env.TEST_USER_HOME; cp.execFileSync = (file, args) => {if(file !== 'reg')throw Error('Unexpected process in installer fixture');fs.appendFileSync(process.env.TEST_REGISTRY_LOG, JSON.stringify([file,args])+'\\n');}; syncBuiltinESMExports();`,
+    );
+    // Automatic installation clears NODE_OPTIONS. Load isolation from the fixture itself.
+    await writeFile(
       join(payload, "install.mjs"),
+      `await import(${JSON.stringify(pathToFileURL(preload).href)});\n${await readFile(resolve("apps/pi-bridge/installer.mjs"), "utf8")}`,
     );
     for (const file of [
       "authorization-entry.mjs",
@@ -165,14 +172,8 @@ it("installs with a private bundled runtime, preserves user data, merges browser
       .fn<typeof fetch>()
       .mockImplementation(async () => new Response(archiveBytes));
     vi.stubGlobal("fetch", download);
-    const preload = join(work, "isolate.mjs");
-    await writeFile(
-      preload,
-      `import os from 'node:os'; import cp from 'node:child_process'; import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; os.homedir = () => process.env.TEST_USER_HOME; cp.execFileSync = (file, args) => {if(file !== 'reg')throw Error('Unexpected process in installer fixture');fs.appendFileSync(process.env.TEST_REGISTRY_LOG, JSON.stringify([file,args])+'\\n');}; syncBuiltinESMExports();`,
-    );
-    vi.stubEnv("NODE_OPTIONS", `--import="${pathToFileURL(preload).href}"`);
     vi.stubEnv("TEST_USER_HOME", join(work, "automatic-user"));
-    vi.stubEnv("TEST_REGISTRY_LOG", join(work, "registry.jsonl"));
+    vi.stubEnv("TEST_REGISTRY_LOG", registryLog);
     const automaticHome = join(work, "automatic");
     const progress: string[] = [];
     const automatic = new AssistantInstaller(
@@ -195,6 +196,27 @@ it("installs with a private bundled runtime, preserves user data, merges browser
         await readFile(join(automaticHome, "runtime-install.json"), "utf8"),
       ).executable,
     ).toContain(automaticHome);
+    if (process.platform === "win32") {
+      const calls = (await readFile(registryLog, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(calls).toEqual(
+        ["Google\\Chrome", "Microsoft\\Edge"].map((browser) => [
+          "reg",
+          [
+            "ADD",
+            `HKCU\\Software\\${browser}\\NativeMessagingHosts\\com.lingosofa.bridge`,
+            "/ve",
+            "/t",
+            "REG_SZ",
+            "/d",
+            join(automaticHome, "native/com.lingosofa.bridge.json"),
+            "/f",
+          ],
+        ]),
+      );
+    }
     vi.unstubAllGlobals();
     const env = {
       ...process.env,
