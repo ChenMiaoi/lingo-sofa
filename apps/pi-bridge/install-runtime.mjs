@@ -86,6 +86,7 @@ if (!installed) {
       "node_modules/@earendil-works/pi-coding-agent",
       "node_modules/@earendil-works/pi-ai",
       "node_modules/zod",
+      "node_modules/proper-lockfile",
     ];
     const copied = new Set();
     while (pending.length) {

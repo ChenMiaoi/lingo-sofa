@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
+export const RUNTIME_LOCK_STALE_MS = 5_000;
 export interface RuntimeConnection {
   version: 1;
   instanceId: string;
@@ -43,7 +44,7 @@ export async function runtimePost(
     signal: AbortSignal.timeout(3_000),
   });
 }
-async function discover(
+export async function discoverRuntime(
   directory: string,
   origin: string,
 ): Promise<RuntimeConnection | null> {
@@ -77,7 +78,7 @@ export async function ensureRuntime(
   directory: string,
   origin: string,
 ): Promise<RuntimeConnection> {
-  const running = await discover(directory, origin);
+  const running = await discoverRuntime(directory, origin);
   if (running) return running;
   let installation: { executable: string; entrypoint: string };
   try {
@@ -92,28 +93,41 @@ export async function ensureRuntime(
   } catch {
     throw new Error("请先安装 LingoSofa 本地助手");
   }
-  const child = spawn(
-    installation.executable,
-    [installation.entrypoint, "--service"],
-    {
-      detached: true,
-      cwd: dirname(installation.entrypoint),
-      stdio: "ignore",
-      windowsHide: true,
-      env: { ...process.env, LINGO_SOFA_HOME: directory },
-    },
-  );
   let launchError = false;
-  child.on("error", () => {
-    launchError = true;
-  });
-  child.unref();
+  let exited = false;
+  let retryAt = 0;
+  const launch = () => {
+    exited = false;
+    retryAt = Date.now() + RUNTIME_LOCK_STALE_MS + 1_000;
+    const child = spawn(
+      installation.executable,
+      [installation.entrypoint, "--service"],
+      {
+        detached: true,
+        cwd: dirname(installation.entrypoint),
+        stdio: "ignore",
+        windowsHide: true,
+        env: { ...process.env, LINGO_SOFA_HOME: directory },
+      },
+    );
+    child.once("error", () => {
+      launchError = true;
+    });
+    child.once("exit", () => {
+      exited = true;
+    });
+    child.unref();
+  };
+  launch();
   // First Windows launch may scan the dependency snapshot before the service can bind.
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline && !launchError) {
     await delay(100);
-    const connection = await discover(directory, origin);
+    const connection = await discoverRuntime(directory, origin);
     if (connection) return connection;
+    // A crashed owner can leave a lease lock briefly. Retry only the fixed service
+    // executable after that lock expires; model requests are never replayed here.
+    if (exited && Date.now() >= retryAt) launch();
   }
   throw new Error("本地助手启动失败，请检查安装、版本或端口占用");
 }
@@ -180,7 +194,7 @@ export class RuntimeClient {
     await this.pending?.catch(() => undefined);
     if (this.id === id) this.cached = undefined;
     // Discovery does not launch a service during shutdown.
-    const connection = await discover(this.directory, this.origin);
+    const connection = await discoverRuntime(this.directory, this.origin);
     if (connection)
       await runtimePost(connection, this.origin, "/v1/runtime/lease", {
         id,

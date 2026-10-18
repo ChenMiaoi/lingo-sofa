@@ -111,12 +111,20 @@ export async function stop(event: unknown) {
 }
 export async function connection(event: unknown) {
   void event;
-  if (!enabled || pending) return null;
+  if (!enabled) return null;
+  if (pending) {
+    const result = await pending;
+    if (!enabled) return null;
+    if (!result.ok) throw new Error(result.error);
+  }
   try {
     const { port, token } = await runtime.connection();
+    if (!enabled) return null;
     message = "已连接共享本地助手";
     return { port, token };
-  } catch {
-    return null;
+  } catch (error) {
+    message =
+      error instanceof Error ? error.message : "本地助手连接失败，请重试";
+    throw new Error(message, { cause: error });
   }
 }

@@ -1,5 +1,6 @@
 import { it, expect, vi } from "vitest";
 import { createServer } from "node:net";
+import { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
   mkdtemp,
@@ -179,6 +180,11 @@ it("shares the service and provider, rejects outsiders, and drains paid work bef
 it("launches a single daemon concurrently from two hosts, recovers a dead instance, and never clears recorded unknown usage", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-bootstrap-"));
   const configured = await config(directory);
+  const occupied = createServer();
+  await new Promise<void>((done, reject) => {
+    occupied.once("error", reject);
+    occupied.listen(configured.port, "127.0.0.1", done);
+  });
   configured.settings.dailyTokens = 100;
   // Exercise unavailable model credentials explicitly; keyless translation is now usable.
   configured.settings.translationEngine = "llm";
@@ -217,6 +223,7 @@ it("launches a single daemon concurrently from two hosts, recovers a dead instan
       ensureRuntime(directory, discord),
     ]);
     expect(one.instanceId).toBe(two.instanceId);
+    expect(one.port).not.toBe(configured.port);
     pid = JSON.parse(
       await readFile(join(directory, "runtime-connection.json"), "utf8"),
     ).pid;
@@ -265,6 +272,7 @@ it("launches a single daemon concurrently from two hosts, recovers a dead instan
       }
     }
     await delay(200);
+    await new Promise<void>((done) => occupied.close(() => done()));
     await rm(directory, { recursive: true, force: true });
   }
 }, 20_000);
@@ -275,6 +283,120 @@ it("does not start anything on stop or accept an uninstalled native runtime", as
     await client.stop();
     await expect(ensureRuntime(directory, discord)).rejects.toThrow("安装");
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+it.each(["EACCES", "EADDRINUSE"])(
+  "recovers from an unavailable port (%s) and advertises the actual listener without changing saved settings",
+  async (code) => {
+    const directory = await mkdtemp(join(tmpdir(), "lingo-reserved-port-"));
+    const configured = await config(directory);
+    const saved = await readFile(join(directory, "config.json"), "utf8");
+    const originalListen = Server.prototype.listen;
+    const attempts: number[] = [];
+    const listen = vi
+      .spyOn(Server.prototype, "listen")
+      .mockImplementation(function (
+        this: Server,
+        ...args: Parameters<typeof originalListen>
+      ) {
+        const port = args[0] as unknown as number;
+        attempts.push(port);
+        if (port === configured.port) {
+          queueMicrotask(() =>
+            this.emit(
+              "error",
+              Object.assign(new Error("Unavailable port"), { code }),
+            ),
+          );
+          return this;
+        }
+        return originalListen.apply(this, args);
+      });
+    let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+    const desktop = new RuntimeClient(directory, discord);
+    const browser = new RuntimeClient(directory, web);
+    try {
+      daemon = await startDaemon(directory);
+      const [one, two] = await Promise.all([desktop.start(), browser.start()]);
+      expect(attempts).toEqual([configured.port, 0]);
+      expect(one).toEqual(two);
+      expect(one.port).toBe((daemon.server.address() as AddressInfo).port);
+      expect(one.port).not.toBe(configured.port);
+      expect((await runtimePost(one, discord, "/v1/provider", {})).status).toBe(
+        200,
+      );
+      expect((await runtimePost(two, web, "/v1/provider", {})).status).toBe(
+        200,
+      );
+      const descriptor = await readFile(
+        join(directory, "runtime-connection.json"),
+        "utf8",
+      );
+      await expect(startDaemon(directory)).rejects.toMatchObject({
+        code: "ELOCKED",
+      });
+      expect(
+        await readFile(join(directory, "runtime-connection.json"), "utf8"),
+      ).toBe(descriptor);
+      expect(await readFile(join(directory, "config.json"), "utf8")).toBe(
+        saved,
+      );
+    } finally {
+      listen.mockRestore();
+      await Promise.all([desktop.stop(), browser.stop()]);
+      await daemon?.stop();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+it("releases service ownership after failed initialization and after a normal stop", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-runtime-lock-"));
+  await config(directory);
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  try {
+    await writeFile(join(directory, "usage.json"), "invalid JSON");
+    await expect(startDaemon(directory)).rejects.toThrow();
+    await writeFile(join(directory, "usage.json"), "[]");
+    daemon = await startDaemon(directory);
+    await daemon.stop();
+    daemon = await startDaemon(directory);
+    expect(daemon.server.listening).toBe(true);
+  } finally {
+    await daemon?.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+it("preserves a live older assistant that has no directory lock", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-legacy-owner-"));
+  await config(directory);
+  const instanceId = crypto.randomUUID();
+  const token = "a".repeat(64);
+  const server = new Server((request, response) => {
+    expect(request.url).toBe("/v1/runtime/status");
+    expect(request.headers.authorization).toBe(`Bearer ${token}`);
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ version: 1, instanceId }));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const descriptor = JSON.stringify({
+    version: 1,
+    instanceId,
+    token,
+    port: (server.address() as AddressInfo).port,
+  });
+  await writeFile(join(directory, "runtime-connection.json"), descriptor);
+  try {
+    await expect(startDaemon(directory)).rejects.toMatchObject({
+      code: "ELOCKED",
+    });
+    expect(
+      await readFile(join(directory, "runtime-connection.json"), "utf8"),
+    ).toBe(descriptor);
+    expect(server.listening).toBe(true);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((done) => server.close(() => done()));
     await rm(directory, { recursive: true, force: true });
   }
 });

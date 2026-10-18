@@ -23,7 +23,9 @@ export class DiscordBridgeClient {
     body: unknown,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    signal?.throwIfAborted();
     const connection = await this.options.connect?.();
+    signal?.throwIfAborted();
     const token = connection?.token ?? this.options.token();
     if (token.length < 32)
       throw new Error("本地助手尚未连接，请检查助手安装后重试");

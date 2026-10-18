@@ -1,9 +1,15 @@
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, mkdir, writeFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ClientLeases } from "@lingo-sofa/local-runtime/leases";
+import {
+  discoverRuntime,
+  RUNTIME_LOCK_STALE_MS,
+} from "@lingo-sofa/local-runtime";
+import { lock } from "proper-lockfile";
 import { bridgeConfigSchema } from "./config.js";
 import { readProviderSettings } from "./provider-settings.js";
 import { createBridge } from "./server.js";
@@ -22,30 +28,55 @@ export async function startDaemon(
   const config = await readConfig();
   const saved = await readProviderSettings(directory);
   if (saved) config.settings.model = saved.model;
-  // Bind first: simultaneous launchers cannot initialize competing history writers.
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(config.port, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  // Service ownership must survive port changes without competing history writers.
+  const release = await lock(directory, {
+    lockfilePath: join(directory, "runtime.lock"),
+    stale: RUNTIME_LOCK_STALE_MS,
+    update: 1_000,
   });
-  const instanceId = randomUUID();
-  const token = randomBytes(32).toString("hex");
-  const { leases } = lifecycle;
-  const runtime = {
-    instanceId,
-    server,
-    leases,
-    accepting: true,
-    ...(typeof LINGO_SOFA_VERSION === "string"
-      ? { appVersion: LINGO_SOFA_VERSION }
-      : {}),
-    updateRequested: false,
-    readAllowedExtensions: async () => (await readConfig()).allowedExtensions,
-  };
+  const server = createServer();
   try {
+    // Older installed assistants do not hold the directory lock yet.
+    if (await discoverRuntime(directory, "https://discord.com"))
+      throw Object.assign(new Error("Local runtime is already running"), {
+        code: "ELOCKED",
+      });
+    const listen = (port: number) =>
+      new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+    try {
+      await listen(config.port);
+    } catch (error) {
+      if (
+        !["EACCES", "EADDRINUSE"].includes(
+          (error as NodeJS.ErrnoException).code ?? "",
+        )
+      )
+        throw error;
+      // Windows reservations and other listeners can invalidate a saved port.
+      await listen(0);
+    }
+    config.port = (server.address() as AddressInfo).port;
+    const instanceId = randomUUID();
+    const token = randomBytes(32).toString("hex");
+    const { leases } = lifecycle;
+    const runtime = {
+      instanceId,
+      server,
+      leases,
+      accepting: true,
+      ...(typeof LINGO_SOFA_VERSION === "string"
+        ? { appVersion: LINGO_SOFA_VERSION }
+        : {}),
+      updateRequested: false,
+      readAllowedExtensions: async () => (await readConfig()).allowedExtensions,
+    };
     const bridge = createBridge(
       config,
       saved?.apiKey ?? process.env.LINGO_SOFA_API_KEY ?? "",
@@ -61,7 +92,6 @@ export async function startDaemon(
       port: config.port,
       token,
     };
-    await mkdir(directory, { recursive: true, mode: 0o700 });
     await writeFile(
       join(directory, "runtime-connection.json.tmp"),
       JSON.stringify(descriptor),
@@ -76,16 +106,17 @@ export async function startDaemon(
       (stopping ??= (async () => {
         clearInterval(timer);
         runtime.accepting = false;
-        await bridge.cancelOAuth();
-        // Keep the port reserved until paid work and checkpoints have drained.
-        while (bridge.busy) await delay(25);
         try {
+          await bridge.cancelOAuth();
+          // Keep the port reserved until paid work and checkpoints have drained.
+          while (bridge.busy) await delay(25);
           await bridge.flush();
           await rm(join(directory, "runtime-connection.json"), { force: true });
         } finally {
           // A failed checkpoint must not leave an authenticated, unusable listener.
           server.closeIdleConnections();
           await new Promise<void>((resolve) => server.close(() => resolve()));
+          await release();
         }
       })());
     const timer = setInterval(() => {
@@ -112,7 +143,9 @@ export async function startDaemon(
     };
   } catch (error) {
     server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server.listening)
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    await release();
     throw error;
   }
 }

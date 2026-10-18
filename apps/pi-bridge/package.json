@@ -5,12 +5,13 @@
   "type": "module",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.2.0",
+    "@lingo-sofa/local-runtime": "0.1.11",
     "@lingo-sofa/protocol": "0.1.11",
     "@lingo-sofa/provider-pi": "0.1.11",
     "@lingo-sofa/provider-web": "0.1.11",
     "@lingo-sofa/translation-core": "0.1.11",
-    "zod": "4.6.7",
-    "@lingo-sofa/local-runtime": "0.1.11"
+    "proper-lockfile": "4.1.2",
+    "zod": "4.6.7"
   },
   "scripts": {
     "build": "node build.mjs",
@@ -23,6 +24,7 @@
     "package:assistant": "node package-assistant.mjs"
   },
   "devDependencies": {
+    "@types/proper-lockfile": "4.1.4",
     "postject": "1.0.0-alpha.6"
   },
   "license": "GPL-3.0-or-later"

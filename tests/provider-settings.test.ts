@@ -201,7 +201,9 @@ it("connects Discord only to a valid, authenticated runtime descriptor", async (
     );
   try {
     await start(undefined);
-    expect(await connection(undefined)).toBeNull();
+    await expect(connection(undefined)).rejects.toThrow(
+      "请先安装 LingoSofa 本地助手",
+    );
     await stop(undefined);
     await writeFile(join(directory, "runtime-install.json"), "{}");
     await write(descriptor);
@@ -222,12 +224,16 @@ it("connects Discord only to a valid, authenticated runtime descriptor", async (
     ]) {
       await write(invalid);
       await start(undefined);
-      expect(await connection(undefined)).toBeNull();
+      await expect(connection(undefined)).rejects.toThrow(
+        "请先安装 LingoSofa 本地助手",
+      );
       await stop(undefined);
     }
     await writeFile(join(directory, "runtime-connection.json"), "malformed");
     await start(undefined);
-    expect(await connection(undefined)).toBeNull();
+    await expect(connection(undefined)).rejects.toThrow(
+      "请先安装 LingoSofa 本地助手",
+    );
   } finally {
     await stop(undefined);
     server.closeAllConnections();

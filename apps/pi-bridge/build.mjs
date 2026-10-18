@@ -15,6 +15,7 @@ await build({
     "@earendil-works/pi-ai",
     "@earendil-works/pi-ai/*",
     "zod",
+    "proper-lockfile",
   ],
   outdir: "dist",
 });
