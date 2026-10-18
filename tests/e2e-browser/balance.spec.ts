@@ -85,6 +85,9 @@ test("queries balance with the shared account and preserves the last display whe
     await options
       .getByRole("button", { name: "查询余额", exact: true })
       .click();
+    await expect(
+      options.getByRole("button", { name: "查询余额", exact: true }),
+    ).toBeEnabled();
     expect(calls).toBe(1);
     offset += 31_000;
     fail = true;

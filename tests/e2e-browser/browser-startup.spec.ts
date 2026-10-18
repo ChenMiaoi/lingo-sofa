@@ -33,6 +33,19 @@ test("registers profile startup and bootstraps native with reading disabled", as
   );
   manifest.key = key.toString("base64");
   await writeFile(join(extension, "manifest.json"), JSON.stringify(manifest));
+  // The full first-install settings page reads shared accounts. This probe isolates
+  // startup from that UI-triggered connection with an inert extension page.
+  await writeFile(
+    join(extension, "startup-welcome.html"),
+    "<!doctype html><title>Startup probe</title>",
+  );
+  const background = join(extension, manifest.background.service_worker);
+  const source = await readFile(background, "utf8");
+  expect(source).toContain("/options.html?setup=reading");
+  await writeFile(
+    background,
+    source.replaceAll("/options.html?setup=reading", "/startup-welcome.html"),
+  );
   // An immediately exiting native probe avoids CDP's persistent-port shutdown
   // limitation. It cannot connect to the user's service or send model requests.
   await writeFile(
@@ -75,7 +88,7 @@ test("registers profile startup and bootstraps native with reading disabled", as
       ),
     ).toBe(true);
     const page = await context.newPage();
-    await page.goto(`chrome-extension://${id}/popup.html`);
+    await page.goto(`chrome-extension://${id}/startup-welcome.html`);
     // Wait for initialization before changing modes, so migration cannot
     // overwrite the explicit shared-assistant setting.
     const settings = await page.evaluate(async () => {

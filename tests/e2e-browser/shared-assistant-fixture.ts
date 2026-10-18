@@ -22,10 +22,48 @@ type TestGlobal = typeof globalThis & {
   browser?: typeof import("wxt/browser").browser;
   testConnectNative?: typeof import("wxt/browser").browser.runtime.connectNative;
   nativeFixture: {
+    active: boolean;
     pending: Envelope[];
     respond: (portId: number, response: unknown) => void;
   };
 };
+function installTestNative() {
+  const root = globalThis as TestGlobal;
+  if (root.nativeFixture) return;
+  const listeners = new Map<number, ((value: unknown) => void)[]>();
+  let sequence = 0;
+  root.nativeFixture = {
+    active: false,
+    pending: [],
+    respond: (portId, response) => {
+      listeners.get(portId)?.forEach((listener) => listener(response));
+    },
+  };
+  root.testConnectNative = ((name: string) => {
+    if (!root.nativeFixture.active)
+      throw new Error("Test assistant is offline");
+    const portId = ++sequence;
+    const messages: ((value: unknown) => void)[] = [];
+    const disconnects: (() => void)[] = [];
+    listeners.set(portId, messages);
+    return {
+      name,
+      onMessage: {
+        addListener: (listener: (value: unknown) => void) =>
+          messages.push(listener),
+      },
+      onDisconnect: {
+        addListener: (listener: () => void) => disconnects.push(listener),
+      },
+      postMessage: (envelope: Omit<Envelope, "portId">) =>
+        root.nativeFixture.pending.push({ ...envelope, portId }),
+      disconnect: () => {
+        listeners.delete(portId);
+        disconnects.forEach((listener) => listener());
+      },
+    };
+  }) as unknown as typeof root.chrome.runtime.connectNative;
+}
 const cleanups: (() => Promise<void>)[] = [];
 test.afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
@@ -44,7 +82,7 @@ export async function prepareTestExtension(extension: string) {
     throw new Error("Expected one native connection factory");
   await writeFile(
     path,
-    source.replace(pattern, "globalThis.testConnectNative("),
+    `(${installTestNative.toString()})();\n${source.replace(pattern, "globalThis.testConnectNative(")}`,
   );
 }
 
@@ -172,38 +210,9 @@ export async function connectTestAssistant(
     return task;
   }
   async function attachWorker(target: Worker) {
+    await target.evaluate(installTestNative);
     await target.evaluate(() => {
-      const root = globalThis as TestGlobal;
-      const listeners = new Map<number, ((value: unknown) => void)[]>();
-      let sequence = 0;
-      root.nativeFixture = {
-        pending: [],
-        respond: (portId, response) => {
-          listeners.get(portId)?.forEach((listener) => listener(response));
-        },
-      };
-      root.testConnectNative = ((name: string) => {
-        const portId = ++sequence;
-        const messages: ((value: unknown) => void)[] = [];
-        const disconnects: (() => void)[] = [];
-        listeners.set(portId, messages);
-        return {
-          name,
-          onMessage: {
-            addListener: (listener: (value: unknown) => void) =>
-              messages.push(listener),
-          },
-          onDisconnect: {
-            addListener: (listener: () => void) => disconnects.push(listener),
-          },
-          postMessage: (envelope: Omit<Envelope, "portId">) =>
-            root.nativeFixture.pending.push({ ...envelope, portId }),
-          disconnect: () => {
-            listeners.delete(portId);
-            disconnects.forEach((listener) => listener());
-          },
-        };
-      }) as unknown as typeof root.chrome.runtime.connectNative;
+      (globalThis as TestGlobal).nativeFixture.active = true;
     });
     pumps.push(pump(target));
   }
