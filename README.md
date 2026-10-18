@@ -20,7 +20,7 @@ LingoSofa brings inline bilingual translation and contextual AI chat to webpages
 
 [Preview](#preview) · [Get started](#get-started) · [Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **Development preview.** The project has been tested with a real browser, Discord and model provider on macOS. Release CI targets five OS/CPU combinations; that does not mean every platform has completed client acceptance. Packages are currently unsigned. See [compatibility](docs/compatibility.md) and [release readiness](docs/release-readiness.md) for details.
+> **Development preview.** The browser extension and Discord integration have been tested on macOS and Windows. Release CI targets five OS/CPU combinations; that does not mean every platform has completed client acceptance. Packages are currently unsigned. See [compatibility](docs/compatibility.md) and [release readiness](docs/release-readiness.md) for details.
 
 ## Preview
 

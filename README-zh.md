@@ -20,7 +20,7 @@ LingoSofa 为网页和 Discord 提供原位双语翻译与上下文问答。保�
 
 [效果预览](#效果预览) · [开始使用](#开始使用) · [下载版本](https://github.com/ChenMiaoi/lingo-sofa/releases) · [文档](#文档) · [反馈问题](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **开发预览版。** 已在 macOS 上完成真实浏览器、Discord 和模型供应商验证。Release CI 面向五种系统/芯片组合构建，但不代表每个平台都已完成客户端验收。当前安装包尚未签名，具体状态见 [兼容性清单](docs/compatibility.md) 和 [发布准备](docs/release-readiness.md)。
+> **开发预览版。** 已在 macOS 和 Windows 上完成浏览器扩展与 Discord 集成验证。Release CI 面向五种系统/芯片组合构建，但不代表每个平台都已完成客户端验收。当前安装包尚未签名，具体状态见 [兼容性清单](docs/compatibility.md) 和 [发布准备](docs/release-readiness.md)。
 
 ## 效果预览
 
