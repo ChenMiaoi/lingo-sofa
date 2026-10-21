@@ -1,7 +1,7 @@
 import { basename, resolve } from "node:path";
 import { bundleInputs, requireBundleInputs } from "./bundle-inputs";
 import { runtime } from "./platform";
-import { root, run } from "./process";
+import { root, run, desktopToolCommand } from "./process";
 
 const args = process.argv.slice(2);
 const native = Bun.resolveSync(
@@ -17,6 +17,6 @@ await requireBundleInputs(
   ),
 );
 await run(
-  [process.execPath, "x", "tauri", "bundle", ...args],
+  [...desktopToolCommand("tauri"), "bundle", ...args],
   resolve(root, "apps/desktop"),
 );

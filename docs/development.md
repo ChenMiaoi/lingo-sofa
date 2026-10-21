@@ -12,6 +12,8 @@ npm run dev
 
 Windows x64 需要 Visual Studio C++ Build Tools 和 WebView2，使用 MSVC 工具链。开发入口会准备 worker 和选区助手，再启动前端与桌面应用。
 
+拉取更新后先执行 `bun install --frozen-lockfile` 同步工作区依赖。开发入口会检查桌面依赖，缺失时提示安装命令；只有本次启动的前端服务监听成功后才会打开桌面应用。端口 1420 被占用、前端启动失败或超时会中止启动。Windows 开发会话由系统作业对象约束，按 Ctrl+C 或终端强制结束后仍会回收本次启动的前端、桌面及其子进程。
+
 | 命令                             | 用途                                                                 |
 | -------------------------------- | -------------------------------------------------------------------- |
 | `npm run check`                  | lint、格式、类型、TS 与 Rust 回归、Clippy、worker/前端/桌面构建      |
@@ -49,6 +51,8 @@ macOS 使用与当前架构匹配的 Bun worker 和 OMP 原生模块。数据位
 `npm run build` 准备 worker、选区助手和前端，再构建并打包桌面应用。Windows 安装包输出在 `target/debug/bundle/nsis/` 或 `target/release/bundle/nsis/`。
 
 完成 `npm run check` 后，可用 `npm run bundle -- --debug` 复用桌面二进制、前端、worker、选区助手和原生 addon。该命令只调用独立打包入口，不重新构建；输入缺失时失败。修改源码后应重新构建或执行完整检查。省略 `--debug` 会要求已有 release 产物。
+
+worker 和独立 SDK 探针共用 Bun 构建 API，支持 Windows 原生路径以及路径中的空格和中文。开发与打包入口直接用 Node.js 调用已安装的 Vite/Tauri CLI。编译后的程序不会自动加载工作目录的 `.env`、`bunfig.toml`、`tsconfig.json` 或 `package.json`，运行配置由宿主显式提供；`npm test` 包含独立程序的路径、CLI 启动与配置隔离回归。
 
 ## CI
 

@@ -8,7 +8,8 @@ export function runtimePlatform(
   ))
     throw new Error(`Unsupported runtime platform: ${platform}-${arch}`);
   return {
-    target: `bun-${platform === "win32" ? "windows" : "darwin"}-${arch}`,
+    target:
+      `bun-${platform === "win32" ? "windows" : "darwin"}-${arch}` as const,
     nativePackage: `@oh-my-pi/pi-natives-${platform}-${arch}`,
     executableSuffix: platform === "win32" ? ".exe" : "",
   };

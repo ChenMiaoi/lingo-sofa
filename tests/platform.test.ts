@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test";
+import { readdir } from "node:fs/promises";
+import ts from "typescript";
 import { runtimePlatform } from "../scripts/platform";
+
+test("worker declares its imported SDK packages as runtime dependencies", async () => {
+  const directory = new URL("../apps/omp-worker/", import.meta.url);
+  const manifest = await Bun.file(new URL("package.json", directory)).json();
+  const sourceDirectory = new URL("src/", directory);
+  for (const file of await readdir(sourceDirectory)) {
+    if (!file.endsWith(".ts")) continue;
+    const source = await Bun.file(new URL(file, sourceDirectory)).text();
+    for (const { fileName } of ts.preProcessFile(source, true, true)
+      .importedFiles) {
+      if (!fileName.startsWith("@oh-my-pi/")) continue;
+      const packageName = fileName.split("/").slice(0, 2).join("/");
+      expect(manifest.dependencies).toHaveProperty(packageName);
+    }
+  }
+});
 
 test("builds use matching executable names, Bun targets and native addons", () => {
   expect(runtimePlatform("win32", "x64")).toEqual({

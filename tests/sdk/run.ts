@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { compile } from "../../scripts/process";
 
 const repository = resolve(import.meta.dir, "../..");
 const output = join(repository, ".cache/sdk-tests");
@@ -43,28 +44,7 @@ let directory = repository;
 let packaging: unknown;
 if (packaged) {
   const executable = join(output, `omp-probe${runtime.executableSuffix}`);
-  const build = Bun.spawn(
-    [
-      process.execPath,
-      "build",
-      "--no-env-file",
-      "--compile",
-      `--target=${runtime.target}`,
-      "--external",
-      "omp-legacy-pi-modules",
-      "--outfile",
-      executable,
-      join(import.meta.dir, "probe.ts"),
-    ],
-    { cwd: repository, env, stdout: "pipe", stderr: "pipe" },
-  );
-  const [buildOut, buildErr, buildCode] = await Promise.all([
-    new Response(build.stdout).text(),
-    new Response(build.stderr).text(),
-    build.exited,
-  ]);
-  if (buildCode !== 0)
-    throw new Error(`Bun compile failed: ${buildOut}\n${buildErr}`);
+  await compile(join(import.meta.dir, "probe.ts"), executable);
   directory = await mkdtemp(join(tmpdir(), "lingo-sofa-omp-detached-"));
   const native = Bun.resolveSync(
     runtime.nativePackage,

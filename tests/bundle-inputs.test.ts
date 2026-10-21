@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { bundleInputs, requireBundleInputs } from "../scripts/bundle-inputs";
 
 test("macOS bundles its native OCR helper and Windows keeps the existing runtime inputs", () => {
   expect(
     bundleInputs("/fixture", true, "", "pi_natives.darwin-arm64.node").some(
-      (file) => file.endsWith("/ocr-helper"),
+      (file) => basename(file) === "ocr-helper",
     ),
   ).toBe(true);
   expect(

@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
-import { root, run, cleanEnv } from "./process";
+import { root, run, desktopToolCommand } from "./process";
+import { requireDesktopDependencies } from "./dev-session";
 import {
   localIdentity,
   signedCargoArguments,
@@ -8,12 +9,8 @@ import {
 const mode = process.argv[2];
 if (mode !== "dev" && mode !== "build")
   throw new Error("Expected dev or build");
-await run([
-  process.execPath,
-  "run",
-  "--no-env-file",
-  "scripts/build-worker.ts",
-]);
+await requireDesktopDependencies();
+await run([process.execPath, "--no-env-file", "./scripts/build-worker.ts"]);
 let cargoSigningArgs: string[] = [];
 if (mode === "dev" && process.platform === "darwin") {
   const identity = await localIdentity();
@@ -25,27 +22,46 @@ if (mode === "dev" && process.platform === "darwin") {
       "Run npm run signing:setup once to keep macOS development signatures stable.",
     );
 }
-let server: ReturnType<typeof Bun.spawn> | undefined;
-if (mode === "dev")
-  server = Bun.spawn(
-    [process.execPath, "x", "vite", "--config", "apps/desktop/vite.config.ts"],
-    { cwd: root, env: cleanEnv(), stdout: "inherit", stderr: "inherit" },
-  );
-else await run([process.execPath, "run", "--no-env-file", "build:web"]);
-try {
+const appCommand = [
+  ...desktopToolCommand("tauri"),
+  mode,
+  ...process.argv.slice(3),
+  ...(mode === "dev"
+    ? ["--", "--no-default-features", ...cargoSigningArgs]
+    : []),
+];
+if (mode === "dev") {
+  const session = [
+    "node",
+    resolve(root, "scripts/dev-session.ts"),
+    JSON.stringify({
+      server: ["node", resolve(root, "scripts/dev-server.ts")],
+      app: appCommand,
+      cwd: resolve(root, "apps/desktop"),
+    }),
+  ];
   await run(
-    [
-      process.execPath,
-      "x",
-      "tauri",
-      mode,
-      ...process.argv.slice(3),
-      ...(mode === "dev"
-        ? ["--", "--no-default-features", ...cargoSigningArgs]
-        : []),
-    ],
-    resolve(root, "apps/desktop"),
+    process.platform === "win32"
+      ? [
+          "cargo",
+          "run",
+          "--locked",
+          "--quiet",
+          "-p",
+          "lingo-sofa-omp-client",
+          "--example",
+          "dev-session",
+          "--",
+          ...session,
+        ]
+      : session,
   );
-} finally {
-  server?.kill();
+} else {
+  await run([
+    ...desktopToolCommand("vite"),
+    "build",
+    "--config",
+    "apps/desktop/vite.config.ts",
+  ]);
+  await run(appCommand, resolve(root, "apps/desktop"));
 }
