@@ -54,7 +54,7 @@ const cards = previews
   })
   .join("");
 const css = await readFile(resolve(root, "apps/desktop/src/style.css"), "utf8");
-const directory = resolve(root, "docs/validation/v3-ui");
+const directory = resolve(root, ".cache/ui-preview");
 await mkdir(directory, { recursive: true });
 await writeFile(
   resolve(directory, "component-preview.html"),

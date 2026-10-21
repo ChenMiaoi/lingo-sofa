@@ -14,7 +14,7 @@
 | `@oh-my-pi/pi-coding-agent` | AgentSession、SessionManager、AuthStorage、ModelRegistry、Settings | worker 内嵌；限制工具、资源发现、重试/回退及后台行为               |
 | OMP Rust native addon       | SDK 使用的原生能力                                                 | 按所选版本审查 Windows 二进制/ABI与许可，不能只打包 Bun 和 TS 文件 |
 
-正式 workspace 已移除原版 Pi 1.2.0，锁定 OMP 18.12.3 与 Bun 1.3.14。生产入口为 `apps/omp-worker/src/worker.ts`，Rust 应用服务在 `crates/app-services`；原型已删除，历史证据保留在 `docs/validation/evidence`。当前桌面只开放 DeepSeek API Key，OAuth 和其他 provider 仍属于后续目标。
+正式 workspace 已移除原版 Pi 1.2.0，锁定 OMP 18.12.3 与 Bun 1.3.14。生产入口为 `apps/omp-worker/src/worker.ts`，Rust 应用服务在 `crates/app-services`。当前桌面只开放 DeepSeek API Key，OAuth 和其他 provider 仍属于后续目标。
 
 本次核对的 OMP main 文档要求 Bun ≥1.3.14。会话入口为 `createAgentSession`，会话/账户通过 SessionManager、AuthStorage 和 ModelRegistry 接入，模型目录还涉及 pi-catalog。main 上的 API 和版本不是项目依赖锁定；W0 固定可复现的 OMP 发布版本或 commit、Bun、原生 addon 与协议。[SDK](https://github.com/can1357/oh-my-pi/blob/main/docs/sdk.md)、[provider](https://github.com/can1357/oh-my-pi/blob/main/docs/providers.md)、[包与运行时声明](https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/package.json)。
 
@@ -96,7 +96,7 @@ OMP 的登录与推理行为仍需与官方流程核对，SDK 的存在不能代
 
 ## OMP worker 的必需契约
 
-正式实现已有 Rust 私有 IPC、Windows Job 回收、DPAPI/SQLite、持久化用量账本、有界队列和全局双并发限制。真实 DeepSeek 路径覆盖流式、取消和压缩内部调用计量；取消时缺失最终 usage 保留 unknown，价格尚未实现。已测结果与原始证据见 [验收状态](acceptance.md)。合成 OAuth 刷新验证不代表真实 OAuth 通过；下列生产契约仍需逐项核对。
+正式实现已有 Rust 私有 IPC、Windows Job 回收、DPAPI/SQLite、持久化用量账本、有界队列和全局双并发限制。真实 DeepSeek 路径覆盖流式、取消和压缩内部调用计量；取消时缺失最终 usage 保留 unknown，价格尚未实现。兼容范围与待验项见 [验收状态](acceptance.md)。合成 OAuth 刷新验证不代表真实 OAuth 通过；下列生产契约仍需逐项核对。
 
 - 按需启动、版本握手、关闭应用后退出；失败不影响取文和已完成卡片，不能自动重发未知生成。
 - JSON 记录含 requestId/sessionId，stdout 只输出协议、stderr 脱敏；消费流与背压不阻塞进程。OMP RPC 的“接受命令”与“会话完成”分开映射，终态以锁定版本为准。

@@ -2,7 +2,7 @@
 
 2026-10-21。本文描述现有代码；[总方案](lingo-sofa-plan.md) 与 Windows 设计文档还包括未实现目标。
 
-界面沿用 v3 的阅读与 Ask 工作流，按后续确认改为中性灰黑、半透明表面。Ask、输入、菜单与设置使用 Windows 原生 Acrylic，CSS 提供灰黑底色与细边框；系统未提供背景效果时仍可读取文字。输入面板为 620 × 324，编辑区随内容增长并在上限内滚动，不再使用固定的大文本框。原设计参考保留，配色以当前实现为准。
+界面沿用 v3 的阅读与 Ask 工作流，按后续确认改为中性灰黑、半透明表面。Ask、输入、菜单与设置使用 Windows 原生 Acrylic，CSS 提供灰黑底色与细边框；系统未提供背景效果时仍可读取文字。输入面板为 620 × 324，编辑区随内容增长并在上限内滚动，不再使用固定的大文本框。[交互设计原型](design/desktop-v3/DESIGN-NOTES.md)保留阅读与 Ask 的设计约束，配色以当前实现为准。
 
 ```text
 React → Tauri commands → Service actor → scheduler → Host → private pipes → Bun/OMP

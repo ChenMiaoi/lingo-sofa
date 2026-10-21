@@ -20,14 +20,14 @@ LingoSofa is a floating translator for Windows. Select text, read its translatio
 
 [Preview](#preview) · [Get started](#get-started) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; screenshot OCR, additional providers and OAuth are not yet available. See the [verification records](docs/acceptance.md) for tested applications and remaining work.
+> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; screenshot OCR, additional providers and OAuth are not yet available. See the [compatibility and acceptance status](docs/acceptance.md) for tested applications and remaining work.
 
 ## Preview
 
 **Translate or ask, in one place.** A compact charcoal glass panel for text you want to understand.
 
 <p align="center">
-  <img src="docs/validation/input-panel/input-empty.png" width="620" alt="LingoSofa's translucent dark input panel with translation and independent question actions">
+  <img src="assets/screenshots/input-panel.png" width="620" alt="LingoSofa's translucent dark input panel with translation and independent question actions">
 </p>
 
 <details>
@@ -36,7 +36,7 @@ LingoSofa is a floating translator for Windows. Select text, read its translatio
 **Keep your shortcuts close.** Change each combination, check whether it is enabled, and restore the defaults when needed.
 
 <p align="center">
-  <img src="docs/validation/shortcuts/settings.png" width="550" alt="LingoSofa global shortcut settings with all three default combinations enabled">
+  <img src="assets/screenshots/shortcut-settings.png" width="550" alt="LingoSofa global shortcut settings with all three default combinations enabled">
 </p>
 
 </details>
@@ -82,7 +82,7 @@ Reported usage describes calls observed by LingoSofa, not your entire provider b
 
 ## Development
 
-macOS (Apple Silicon and Intel) build instructions, platform differences, and validation limits: [macOS validation](docs/macos-validation.md).
+macOS (Apple Silicon and Intel) build instructions, platform differences, and validation limits: [development guide](docs/development.md#macos).
 
 Runtime checks also require [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/) 0.9.149. CI installs the pinned prebuilt tool; local installation from crates.io: `cargo install cargo-nextest --version 0.9.149 --locked`.
 
@@ -115,20 +115,22 @@ apps/
   omp-worker/    Embedded oh-my-pi model and session worker
 crates/          Rust application services, scheduling and system adapters
 tests/           UI, SDK and process integration regressions
-docs/            Product design, setup and verification records
+docs/            Product design, setup and contributor guides
 ```
 
 ## Documentation
 
-| Guide                                      | Contents                                       |
-| ------------------------------------------ | ---------------------------------------------- |
-| [Installation](docs/installation.md)       | Setup, everyday use and shortcut settings.     |
-| [Privacy](docs/privacy.md)                 | Content boundaries, credentials and retention. |
-| [Architecture](docs/architecture.md)       | Desktop components, processes and storage.     |
-| [Verification records](docs/acceptance.md) | Tested workflows and remaining acceptance.     |
-| [Technical plan](docs/lingo-sofa-plan.md)  | Product direction and planned capabilities.    |
+| Guide                                              | Contents                                       |
+| -------------------------------------------------- | ---------------------------------------------- |
+| [Installation](docs/installation.md)               | Setup, everyday use and shortcut settings.     |
+| [Privacy](docs/privacy.md)                         | Content boundaries, credentials and retention. |
+| [Architecture](docs/architecture.md)               | Desktop components, processes and storage.     |
+| [Compatibility and acceptance](docs/acceptance.md) | Tested workflows and remaining acceptance.     |
+| [Technical plan](docs/lingo-sofa-plan.md)          | Product direction and planned capabilities.    |
 
 Most detailed technical documents are currently in Chinese.
+
+Development commands, CI reports and platform details: [Development guide](docs/development.md).
 
 ## Contributing
 

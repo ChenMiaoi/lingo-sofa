@@ -2,7 +2,7 @@
 
 实施版 v0.9 · 2026-10-21。
 
-现已迁移到 Windows 独立桌面工程，Rust + Tauri 2 + OMP 正式实现见 [当前架构](architecture.md) 和 [本轮验收](acceptance.md)。旧浏览器/Discord/Bridge 源码已删除。W0 模型链路的既有证据保留，UIA 已有记事本、独立 VS Code 与 Discord 实测，浏览器未通过；OCR 与完整 W0–W4 验收仍未完成；以下总体规划包含后续目标。
+现已迁移到 Windows 独立桌面工程，Rust + Tauri 2 + OMP 正式实现见 [当前架构](architecture.md) 和 [兼容与验收状态](acceptance.md)。旧浏览器/Discord/Bridge 源码已删除。W0 模型链路已有实现，UIA 已有记事本、独立 VS Code 与 Discord 实测，浏览器未通过；OCR 与完整 W0–W4 验收仍未完成；以下总体规划包含后续目标。
 
 ## 细化设计入口
 

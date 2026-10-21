@@ -31,3 +31,10 @@ These guidelines apply to the entire repository. The technical plan is in [docs/
 - Use names that express domain meaning and define clear types and error boundaries. Comments should explain necessary constraints and tradeoffs rather than repeat the code.
 - Keep changes focused. Refactor only as needed for the current task, preserve verifiable behavior, and avoid rewriting unrelated modules.
 - Test observable behavior, edge cases, and failure paths. Avoid tests that merely mirror implementation details or add little value for low-impact changes.
+
+## Documentation
+
+- Keep `docs/` for maintained user guides, contributor guides, architecture, product/design decisions, and reusable acceptance criteria. Do not add per-run logs, benchmark results, artifact hashes, or progress diaries.
+- Write generated previews and local validation reports to `.cache/`; publish CI reports as workflow artifacts. Summarize check results in commit or pull request descriptions.
+- Store README screenshots in `assets/screenshots/` and reusable test inputs in `tests/fixtures/`. Keep editable design sources; omit duplicate exports and archives.
+- Update references when moving or removing documents. Preserve known compatibility limits and pending acceptance items without presenting historical checks as current results.

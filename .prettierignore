@@ -5,7 +5,6 @@ node_modules/
 .cache/
 **/resources/
 **/gen/
-docs/validation/evidence/
 Cargo.lock
 bun.lock
 

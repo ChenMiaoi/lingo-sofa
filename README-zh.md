@@ -20,14 +20,14 @@ LingoSofa 是 Windows 上的悬浮翻译工具。选中文字，在旁边阅读�
 
 [效果预览](#效果预览) · [开始使用](#开始使用) · [文档](#文档) · [反馈问题](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **开发预览版。** 当前桌面版面向 Windows 11 x64，安装包尚未签名。浏览器选区仍待人工验收；截图 OCR、更多供应商和 OAuth 尚未提供。已验证的应用范围与剩余工作见 [验证记录](docs/acceptance.md)。
+> **开发预览版。** 当前桌面版面向 Windows 11 x64，安装包尚未签名。浏览器选区仍待人工验收；截图 OCR、更多供应商和 OAuth 尚未提供。已验证的应用范围与剩余工作见 [兼容与验收状态](docs/acceptance.md)。
 
 ## 效果预览
 
 **翻译与提问，收进一个轻量面板。** 灰黑半透明界面，需要理解一段文字时再展开。
 
 <p align="center">
-  <img src="docs/validation/input-panel/input-empty.png" width="620" alt="LingoSofa 灰黑半透明输入面板，提供翻译和独立提问两项操作">
+  <img src="assets/screenshots/input-panel.png" width="620" alt="LingoSofa 灰黑半透明输入面板，提供翻译和独立提问两项操作">
 </p>
 
 <details>
@@ -36,7 +36,7 @@ LingoSofa 是 Windows 上的悬浮翻译工具。选中文字，在旁边阅读�
 **让快捷键顺手。** 修改每项组合，查看启用状态，需要时恢复默认。
 
 <p align="center">
-  <img src="docs/validation/shortcuts/settings.png" width="550" alt="LingoSofa 全局快捷键设置，三项默认组合均已启用">
+  <img src="assets/screenshots/shortcut-settings.png" width="550" alt="LingoSofa 全局快捷键设置，三项默认组合均已启用">
 </p>
 
 </details>
@@ -82,7 +82,7 @@ LingoSofa 在本机运行，不要求部署专门的云端后台。主动提交�
 
 ## 开发
 
-macOS（Apple Silicon 与 Intel）的构建方式、平台差异和验证边界见 [macOS 验证](docs/macos-validation.md)。
+macOS（Apple Silicon 与 Intel）的构建方式、平台差异和验证边界见 [开发指南](docs/development.md#macos)。
 
 运行时检查还需要 [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/) 0.9.149。CI 安装固定版本的预编译工具；本机可从 crates.io 安装：`cargo install cargo-nextest --version 0.9.149 --locked`。
 
@@ -115,18 +115,20 @@ apps/
   omp-worker/    内嵌的 oh-my-pi 模型与会话 worker
 crates/          Rust 应用服务、调度与系统适配
 tests/           界面、SDK 与进程集成回归
-docs/            产品设计、安装说明与验证记录
+docs/            产品设计、使用说明与开发指南
 ```
 
 ## 文档
 
-| 文档                                | 内容                         |
-| ----------------------------------- | ---------------------------- |
-| [安装说明](docs/installation.md)    | 设置、日常使用与快捷键配置。 |
-| [隐私说明](docs/privacy.md)         | 内容边界、凭证与数据保留。   |
-| [架构与协议](docs/architecture.md)  | 桌面模块、进程与存储。       |
-| [验证记录](docs/acceptance.md)      | 已验证的流程与剩余验收。     |
-| [技术方案](docs/lingo-sofa-plan.md) | 产品方向与后续能力规划。     |
+| 文档                                 | 内容                         |
+| ------------------------------------ | ---------------------------- |
+| [安装说明](docs/installation.md)     | 设置、日常使用与快捷键配置。 |
+| [隐私说明](docs/privacy.md)          | 内容边界、凭证与数据保留。   |
+| [架构与协议](docs/architecture.md)   | 桌面模块、进程与存储。       |
+| [兼容与验收状态](docs/acceptance.md) | 已验证的流程与剩余验收。     |
+| [技术方案](docs/lingo-sofa-plan.md)  | 产品方向与后续能力规划。     |
+
+开发命令、CI 报告与平台说明见 [开发指南](docs/development.md)。
 
 ## 参与贡献
 
