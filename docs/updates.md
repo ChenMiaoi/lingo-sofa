@@ -21,9 +21,11 @@
 - `TAURI_SIGNING_PRIVATE_KEY`：与 `tauri.conf.json` 内公钥匹配的 updater 私钥内容。
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码，无密码时留空。
 
+发布不要求 Apple Developer 会员或公证凭证。本机固定开发签名仍可使用，见 [macOS 应用代码签名](macos-signing.md)。
+
 私钥必须保存在仓库外并备份；不要提交、打印或放入打包资源。更换公钥会使已安装客户端无法验证新密钥签署的更新，必须规划迁移。签名凭证只传给发布打包步骤，不传给模型 worker 或前端构建。
 
-普通开发构建不生成 updater 签名包；发布工作流通过 `tauri.release.conf.json` 启用签名产物。Tauri updater 签名不同于 Windows 代码签名或 Apple Developer 签名、公证；系统分发签名仍需单独配置，不能将 updater 签名视为已完成系统信任验收。
+普通开发构建不生成 updater 签名包；发布工作流通过 `tauri.release.conf.json` 启用签名产物。Tauri updater 签名不同于 Windows 代码签名或 Apple Developer 签名、公证；当前发布包尚无 Apple Developer ID 签名、公证或 Windows 代码签名，系统分发信任仍须另行配置和验收。
 
 ## 验收边界
 

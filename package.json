@@ -24,7 +24,10 @@
     "verify:live:dual": "bun --env-file=.env tests/sdk/run-live-host.ts --live --dual",
     "test:sdk": "bun tests/sdk/run.ts",
     "verify:selection": "powershell.exe -NoProfile -STA -File tests/selection-system.ps1",
-    "bundle": "bun scripts/bundle.ts"
+    "bundle": "bun scripts/bundle.ts",
+    "signing:setup": "bun scripts/macos-signing.ts setup",
+    "signing:verify": "bun scripts/verify-local-signing.ts",
+    "app:local": "bun scripts/local-macos-app.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
