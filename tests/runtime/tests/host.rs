@@ -1238,3 +1238,25 @@ fn live_dual_saturation_queue_cancellation_and_compaction_share_the_global_limit
     assert_eq!(ledger.records(), calls);
     assert_eq!(ledger.active(), 0);
 }
+
+#[test]
+fn delayed_durable_admission_ack_does_not_terminate_the_worker() {
+    let (directory, mut host) = setup(None);
+    configure(&mut host);
+    let session = create(&mut host);
+    let request = host
+        .send(
+            "prompt",
+            json!({"sessionId":session,"text":"Delayed durable acknowledgement"}),
+        )
+        .unwrap();
+    host.wait_event(request, "call_requested", Duration::from_secs(5))
+        .unwrap();
+    // A slow host must retain a bounded opportunity to commit before the provider starts.
+    std::thread::sleep(Duration::from_secs(4));
+    assert!(!directory.path().join("synthetic-http-count").exists());
+    let response = host.wait(request, Duration::from_secs(10)).unwrap();
+    assert_eq!(response["status"], "stop");
+    assert_eq!(host.usage.records().len(), 1);
+    assert_eq!(host.usage.records()[0]["usageState"], "reported");
+}

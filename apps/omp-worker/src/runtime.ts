@@ -61,6 +61,10 @@ export interface WorkerOptions {
     handle(frame: Frame): Promise<Record<string, unknown>>;
   }>;
 }
+// Durable host acknowledgements may include OS credential-store and disk work.
+// Match the host request budget while retaining a finite failure deadline.
+const CONTROL_REQUEST_TIMEOUT_MS = 10_000;
+
 export async function runWorker(options: WorkerOptions) {
   const { provider, modelId, outputCap, nativeApi } = options;
   let selection = { provider, modelId };
@@ -195,7 +199,7 @@ export async function runWorker(options: WorkerOptions) {
     pendingAdmissions.set(id, deferred);
     const timer = setTimeout(
       () => deferred.reject(new Error("admission_timeout")),
-      3000,
+      CONTROL_REQUEST_TIMEOUT_MS,
     );
     try {
       await sendFrame({
@@ -352,6 +356,10 @@ export async function runWorker(options: WorkerOptions) {
     const id = ++nextCredentialId;
     const deferred = Promise.withResolvers<Record<string, unknown>>();
     pendingCredentials.set(id, deferred);
+    const timer = setTimeout(
+      () => deferred.reject(new Error("credential_timeout")),
+      CONTROL_REQUEST_TIMEOUT_MS,
+    );
     try {
       await sendFrame({
         v: 1,
@@ -361,13 +369,9 @@ export async function runWorker(options: WorkerOptions) {
         method,
         payload,
       });
-      return await Promise.race([
-        deferred.promise,
-        Bun.sleep(3000).then(() => {
-          throw new Error("credential_timeout");
-        }),
-      ]);
+      return await deferred.promise;
     } finally {
+      clearTimeout(timer);
       pendingCredentials.delete(id);
     }
   }
