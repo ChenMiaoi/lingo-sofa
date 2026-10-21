@@ -4,7 +4,7 @@
 
 ## 开发与构建
 
-安装 Xcode Command Line Tools、Bun 1.3.14 和 Node.js 24。仓库通过 `rust-toolchain.toml` 固定 Rust 与检查组件。Intel Mac 使用本机 x64 工具链；Apple Silicon 使用 arm64，不依赖 Rosetta。
+安装 Xcode Command Line Tools、Bun 1.3.14、Node.js 24 和 cargo-nextest 0.9.149。仓库通过 `rust-toolchain.toml` 固定 Rust 与检查组件。Intel Mac 使用本机 x64 工具链；Apple Silicon 使用 arm64，不依赖 Rosetta。
 
 ```sh
 bun install --frozen-lockfile
@@ -12,6 +12,8 @@ npm run check
 npm run test:sdk
 npm run test:sdk -- --packaged
 npm run test:runtime:packaged
+# 复用上面检查生成的产物，只进行打包
+npm run bundle -- --debug
 npm run dev
 npm run build -- --debug
 ```
@@ -42,3 +44,5 @@ npm run verify:live:dual
 ```
 
 CI 使用 Windows x64、macOS 26 Apple Silicon（`macos-26`）和 macOS 26 Intel（`macos-26-intel`）三组本机 runner，执行完整检查、SDK 源码与独立编译检查、独立 worker 运行时测试及原生应用打包，并保留测试报告。本机 arm64 已运行验证，另通过 `cargo check --locked --target x86_64-apple-darwin --workspace --all-targets` 检查 Intel 目标；Windows 与 Intel 的实际运行结果以远端 CI 为准。CI 不加载 `.env`，不进行付费模型调用，也不替代跨应用人工验收。
+
+CI 的逐项计时、有限并行、构建复用和缓存观察见 [CI 耗时与优化验证](ci-performance.md)。

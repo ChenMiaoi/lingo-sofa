@@ -31,13 +31,35 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
+        with:
+          key: ${{ matrix.os }}
+          cache-bin: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.149
       - run: bun install --frozen-lockfile
-      - run: npm run check
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: cargo fmt --all --check
+      - run: npm run test:runtime
+      - run: npm run build:worker
+      - run: npm run build:web
+      - run: cargo test --locked -p lingo-sofa-desktop --timings
+      - run: cargo clippy --workspace --all-targets --timings -- -D warnings
+      - run: cargo build --locked -p lingo-sofa-desktop --timings
       - run: npm run test:sdk
       - run: npm run test:sdk -- --packaged
       - run: npm run test:runtime:packaged
       - name: Build native application bundle
-        run: npm run build -- --debug
+        run: npm run bundle -- --debug
+      - name: Record Rust cache result
+        if: always()
+        shell: bash
+        run: |
+          echo "Rust cache exact match: ${{ steps.rust-cache.outputs.cache-hit }}" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -46,5 +68,8 @@ jobs:
           path: |
             .cache/sdk-tests/*.json
             .cache/runtime-tests/*.json
+            .cache/runtime-tests/*.junit.xml
+            .cache/runtime-tests/*-build.html
+            target/cargo-timings/*.html
           include-hidden-files: true
           if-no-files-found: warn

@@ -84,6 +84,8 @@ LingoSofa 在本机运行，不要求部署专门的云端后台。主动提交�
 
 macOS（Apple Silicon 与 Intel）的构建方式、平台差异和验证边界见 [macOS 验证](docs/macos-validation.md)。
 
+运行时检查还需要 [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/) 0.9.149。CI 安装固定版本的预编译工具；本机可从 crates.io 安装：`cargo install cargo-nextest --version 0.9.149 --locked`。
+
 Windows x64 开发环境需要 **Bun 1.3.14**、**Node.js 24**、**Rust 1.98.1 MSVC**、Visual Studio C++ Build Tools 和 WebView2。在项目目录运行：
 
 ```powershell

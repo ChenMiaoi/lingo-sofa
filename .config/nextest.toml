@@ -1,0 +1,10 @@
+[profile.default]
+test-threads = 2
+retries = 0
+fail-fast = false
+
+[profile.source.junit]
+path = "junit.xml"
+
+[profile.packaged.junit]
+path = "junit.xml"

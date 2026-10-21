@@ -84,6 +84,8 @@ Reported usage describes calls observed by LingoSofa, not your entire provider b
 
 macOS (Apple Silicon and Intel) build instructions, platform differences, and validation limits: [macOS validation](docs/macos-validation.md).
 
+Runtime checks also require [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/) 0.9.149. CI installs the pinned prebuilt tool; local installation from crates.io: `cargo install cargo-nextest --version 0.9.149 --locked`.
+
 On Windows x64, use **Bun 1.3.14**, **Node.js 24**, **Rust 1.98.1 MSVC**, Visual Studio C++ Build Tools and WebView2. From the project directory:
 
 ```powershell
