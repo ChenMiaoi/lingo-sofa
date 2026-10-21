@@ -12,11 +12,25 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-fn master_key() -> Result<&'static Zeroizing<Vec<u8>>> {
-    static KEY: OnceLock<Zeroizing<Vec<u8>>> = OnceLock::new();
-    if let Some(key) = KEY.get() {
-        return Ok(key);
+fn cached_key<F>(
+    cache: &OnceLock<Result<Zeroizing<Vec<u8>>>>,
+    load: F,
+) -> Result<&Zeroizing<Vec<u8>>>
+where
+    F: FnOnce() -> Result<Zeroizing<Vec<u8>>>,
+{
+    match cache.get_or_init(load) {
+        Ok(key) => Ok(key),
+        Err(error) => Err(*error),
     }
+}
+fn master_key() -> Result<&'static Zeroizing<Vec<u8>>> {
+    // A denial is also remembered: background operations must not repeatedly
+    // present authentication dialogs. Restarting the app permits a fresh attempt.
+    static KEY: OnceLock<Result<Zeroizing<Vec<u8>>>> = OnceLock::new();
+    cached_key(&KEY, load_master_key)
+}
+fn load_master_key() -> Result<Zeroizing<Vec<u8>>> {
     // Serialize first-use creation across desktop and test processes. Never
     // replace a key when Keychain is locked or access was denied.
     #[cfg(feature = "test-keychain")]
@@ -66,8 +80,7 @@ fn master_key() -> Result<&'static Zeroizing<Vec<u8>>> {
     if key.len() != 32 {
         return Err("keychain_key_invalid");
     }
-    let _ = KEY.set(key);
-    Ok(KEY.get().expect("master key initialized"))
+    Ok(key)
 }
 
 pub fn protect(bytes: &[u8], entropy: &[u8], decrypt: bool) -> Result<Zeroizing<Vec<u8>>> {
@@ -135,5 +148,50 @@ impl Drop for Job {
     fn drop(&mut self) {
         drop(self.0.stdin.take());
         let _ = self.0.wait();
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[test]
+    fn denied_keychain_access_does_not_prompt_again_until_a_new_process_cache() {
+        let cache = OnceLock::new();
+        let attempts = AtomicUsize::new(0);
+        for _ in 0..3 {
+            assert_eq!(
+                cached_key(&cache, || {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    Err("keychain_read_failed")
+                })
+                .unwrap_err(),
+                "keychain_read_failed"
+            );
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        let next_launch = OnceLock::new();
+        assert!(cached_key(&next_launch, || Ok(Zeroizing::new(vec![7; 32]))).is_ok());
+    }
+    #[test]
+    fn concurrent_first_use_reads_the_keychain_once() {
+        let cache = OnceLock::new();
+        let attempts = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    assert_eq!(
+                        cached_key(&cache, || {
+                            attempts.fetch_add(1, Ordering::SeqCst);
+                            Ok(Zeroizing::new(vec![7; 32]))
+                        })
+                        .unwrap()
+                        .len(),
+                        32
+                    );
+                });
+            }
+        });
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }
