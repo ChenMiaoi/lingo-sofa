@@ -2,6 +2,7 @@
 mod shell;
 mod shortcuts;
 mod subscription;
+mod updates;
 use lingo_sofa_app_services::{LoginRequest, ModelSelection, Service, Settings, SettingsPatch};
 use shell::{Mode, Shell};
 use std::sync::Mutex;
@@ -17,6 +18,7 @@ struct DesktopSnapshot {
     #[serde(flatten)]
     state: shell::State,
     shortcuts: shortcuts::Snapshot,
+    updates: updates::Snapshot,
 }
 fn allowed(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() != "main" {
@@ -30,11 +32,13 @@ fn desktop_state(
     shell: tauri::State<Shell>,
     service: tauri::State<Service>,
     shortcuts: tauri::State<Mutex<shortcuts::Manager>>,
+    updates: tauri::State<updates::Updates>,
 ) -> Result<DesktopSnapshot, String> {
     allowed(&window)?;
     Ok(DesktopSnapshot {
         state: shell.state(&service),
         shortcuts: shortcuts.lock().unwrap().snapshot(),
+        updates: updates.snapshot(),
     })
 }
 #[tauri::command]
@@ -350,7 +354,45 @@ fn resource(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, St
     }
     Ok(path)
 }
+#[tauri::command]
+async fn check_updates(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    updates: tauri::State<'_, updates::Updates>,
+) -> Result<(), String> {
+    allowed(&window)?;
+    updates.check(&app, false).await;
+    Ok(())
+}
+#[tauri::command]
+async fn download_update(
+    window: tauri::WebviewWindow,
+    updates: tauri::State<'_, updates::Updates>,
+) -> Result<(), String> {
+    allowed(&window)?;
+    updates.download().await;
+    Ok(())
+}
+#[tauri::command]
+async fn install_update(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    updates: tauri::State<'_, updates::Updates>,
+) -> Result<(), String> {
+    allowed(&window)?;
+    updates.install(&app)
+}
+#[tauri::command]
+fn set_auto_update(
+    window: tauri::WebviewWindow,
+    updates: tauri::State<updates::Updates>,
+    enabled: bool,
+) -> Result<(), String> {
+    allowed(&window)?;
+    updates.set_auto(enabled)
+}
 fn main() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(shell) = app.try_state::<Shell>() {
@@ -358,6 +400,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -397,6 +440,10 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             desktop_state,
+            check_updates,
+            download_update,
+            install_update,
+            set_auto_update,
             set_mode,
             back_reading,
             capture_selection,
@@ -436,6 +483,10 @@ fn main() {
             let shortcuts = shortcuts::Manager::open(&data.join("shortcuts.sqlite"))?;
             app.manage(Mutex::new(shortcuts));
             let shell = Shell::new(resource(app.handle(), &executable("selection-helper"))?);
+            app.manage(updates::Updates::open(
+                &data.join("updates.sqlite"),
+                &app.package_info().version.to_string(),
+            )?);
             app.manage(service);
             app.manage(shell);
             app.state::<Mutex<shortcuts::Manager>>()
@@ -467,6 +518,7 @@ fn main() {
                 })
                 .build(app)?;
             app.state::<Shell>().position(app.handle());
+            updates::schedule(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

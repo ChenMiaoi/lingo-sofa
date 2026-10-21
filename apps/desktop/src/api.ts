@@ -56,6 +56,7 @@ export function errorMessage(error: unknown, macos = false): string {
     provider_unsupported: "该服务商暂不支持 API Key 配置。",
     model_not_verified: "所选模型不可用，请刷新模型列表后重试。",
     invalid_model: "请选择有效模型。",
+    update_task_active: "请等待当前翻译或 Ask 任务结束后安装更新。",
     settings_write_failed: "设置保存失败，原配置继续生效。",
     service_timeout: "模型服务响应超时，请重试。",
     service_busy: "操作较多，请稍后再试。",
@@ -99,7 +100,28 @@ export interface ReadingContext {
   anchor: { x: number; y: number; width: number; height: number } | null;
   anchorValid: boolean;
 }
+export interface UpdateSnapshot {
+  currentVersion: string;
+  autoCheck: boolean;
+  phase:
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "installing"
+    | "up-to-date"
+    | "no-release"
+    | "error";
+  availableVersion: string | null;
+  notes: string | null;
+  downloaded: number;
+  total: number | null;
+  lastChecked: number | null;
+  error: string | null;
+}
 export interface DesktopState {
+  updates: UpdateSnapshot;
   shortcuts: ShortcutSnapshot;
   desktop: {
     mode: Mode;
@@ -130,6 +152,17 @@ export const defaultShortcuts: ShortcutBindings = {
   clipboard: "Alt+Shift+T",
 };
 export const initialState: DesktopState = {
+  updates: {
+    currentVersion: "",
+    autoCheck: true,
+    phase: "idle",
+    availableVersion: null,
+    notes: null,
+    downloaded: 0,
+    total: null,
+    lastChecked: null,
+    error: null,
+  },
   shortcuts: {
     macos: false,
     bindings: defaultShortcuts,

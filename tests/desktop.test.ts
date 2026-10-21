@@ -228,6 +228,10 @@ test("slash commands parse configuration locally and preserve nested model IDs",
     kind: "model",
     model: { provider: "openrouter", modelId: "anthropic/claude-test" },
   });
+  expect(parseCommand("/settings updates")).toEqual({
+    kind: "settings",
+    page: "updates",
+  });
   expect(parseCommand("/settings shortcuts")).toEqual({
     kind: "settings",
     page: "shortcuts",

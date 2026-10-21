@@ -20,6 +20,10 @@ lingo-sofa-core = {path="../../../crates/core"}
 lingo-sofa-omp-client = {path="../../../crates/omp-client"}
 serde_json.workspace = true
 rusqlite = {version="0.37",features= ["bundled"] }
+tauri-plugin-updater = "~2.14.0"
+reqwest = {version="0.13",default-features=false,features= ["json", "rustls-no-provider"] }
+rustls = {version="0.23",default-features=false,features= ["ring"] }
+tokio = {version="1",features= ["time"] }
 [dev-dependencies]
 tempfile = "3"
 

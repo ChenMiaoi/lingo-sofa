@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { formatShortcut } from "./keyboard";
 import { isImeKey, type DesktopState } from "./api";
 import { ModelProviders, type LoadModelCatalog } from "./model-providers";
+import { UpdateSettings, updateSummary } from "./updates";
 import { ShortcutSettings } from "./shortcuts";
 import type { Perform } from "./view";
 
@@ -9,6 +10,7 @@ const categories = [
   { id: "models", title: "模型与服务商", detail: "配置多个服务商与默认模型" },
   { id: "preferences", title: "翻译偏好", detail: "默认语言与窗口置顶" },
   { id: "shortcuts", title: "快捷键", detail: "全局组合与启用状态" },
+  { id: "updates", title: "关于与更新", detail: "版本信息与自动检查更新" },
 ] as const;
 export type SettingsPage = "home" | (typeof categories)[number]["id"];
 
@@ -59,6 +61,7 @@ export function Settings({
   const title =
     categories.find((category) => category.id === page)?.title ?? "设置";
   const values = {
+    updates: updateSummary(state.updates),
     models: `${model.defaultModel.provider} / ${model.defaultModel.modelId}`,
     preferences: model.settings.target,
     shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/3 已启用`,
@@ -107,7 +110,13 @@ export function Settings({
             }}
           >
             <span className="action-copy">
-              <strong>{category.title}</strong>
+              <strong>
+                {category.title}
+                {category.id === "updates" &&
+                  ["available", "downloading", "ready"].includes(
+                    state.updates.phase,
+                  ) && <span className="update-dot" aria-label="有可用更新" />}
+              </strong>
               <small>{category.detail}</small>
             </span>
             <span className="setting-current-value" title={values[category.id]}>
@@ -168,6 +177,9 @@ export function Settings({
             Ask 与输入窗口保持置顶
           </label>
         </section>
+        <div hidden={page !== "updates"}>
+          <UpdateSettings state={state} perform={perform} />
+        </div>
         <div hidden={page !== "shortcuts"}>
           <ShortcutSettings
             key={state.shortcuts.revision}

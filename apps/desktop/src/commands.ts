@@ -5,7 +5,7 @@ export const slashCommands = [
   {
     command: "/settings",
     label: "打开设置",
-    detail: "/settings [models|preferences|shortcuts]",
+    detail: "/settings [models|preferences|shortcuts|updates]",
   },
   {
     command: "/model",
@@ -78,9 +78,11 @@ export function parseCommand(text: string): ParsedCommand | null {
       const page = args[0] ?? "home";
       if (
         args.length > 1 ||
-        !["home", "models", "preferences", "shortcuts"].includes(page)
+        !["home", "models", "preferences", "shortcuts", "updates"].includes(
+          page,
+        )
       )
-        return invalid("/settings [models|preferences|shortcuts]");
+        return invalid("/settings [models|preferences|shortcuts|updates]");
       return { kind: "settings", page: page as SettingsPage };
     }
     case "/model": {

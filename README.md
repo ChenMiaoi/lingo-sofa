@@ -50,6 +50,7 @@ Screenshots show the native Windows desktop application using an isolated test p
 - **Translate what you type or copy.** Open the input panel for translation or an independent question, or explicitly translate the current clipboard text.
 - **Make shortcuts your own.** Open the panel from another application, change all three global bindings, and keep them across restarts. Conflicts are reported before replacing the previous configuration.
 - **Use your own model account.** Configure multiple API Key or subscription accounts from the oh-my-pi catalog and choose a default model for translation and Ask. Existing DeepSeek credentials and the `deepseek-flash` default are preserved. Credentials remain encrypted locally.
+- **Keep the app updated.** Settings → About & updates provides automatic checks, download progress and an explicit install-and-restart action. See [Application updates](docs/updates.md) for signed release setup and acceptance limits.
 - **See observed usage.** Track reported tokens and incomplete usage. Unknown usage stays unknown, and interrupted requests are not automatically replayed.
 
 ## Get started

@@ -1367,3 +1367,101 @@ test("SDK browser-session prompts open a private window without exposing a cooki
     await ui.close();
   }
 });
+
+test("updates follow settings navigation, preserve input drafts and dispatch explicit actions", async () => {
+  const current = state("input");
+  const ui = await mount(current);
+  try {
+    await ui.type("unfinished translation");
+    await ui.click("设置");
+    const settings: DesktopState = {
+      ...current,
+      desktop: { ...current.desktop, mode: "settings" },
+    };
+    await ui.render(settings);
+    await ui.click("关于与更新");
+    await ui.click("检查更新");
+    expect(ui.calls.at(-1)?.command).toBe("check_updates");
+    const available: DesktopState = {
+      ...settings,
+      updates: {
+        ...current.updates,
+        currentVersion: "0.1.0",
+        phase: "available",
+        availableVersion: "0.2.0",
+        notes: "New improvements",
+      },
+    };
+    await ui.render(available);
+    await ui.click("下载更新");
+    expect(ui.calls.at(-1)?.command).toBe("download_update");
+    const checkbox =
+      ui.element.querySelector<HTMLInputElement>("#auto-update")!;
+    await act(async () => checkbox.click());
+    expect(ui.calls.at(-1)).toEqual({
+      command: "set_auto_update",
+      args: { enabled: false },
+    });
+    await ui.render({
+      ...available,
+      updates: {
+        ...available.updates,
+        phase: "downloading",
+        downloaded: 2048,
+        total: null,
+      },
+    });
+    expect(ui.element.querySelector("progress")?.hasAttribute("value")).toBe(
+      false,
+    );
+    await ui.click("下载中…");
+    expect(
+      ui.calls.filter((call) => call.command === "download_update"),
+    ).toHaveLength(1);
+    const ready: DesktopState = {
+      ...available,
+      updates: { ...available.updates, phase: "ready" },
+    };
+    await ui.render({ ...ready, model: { ...ready.model, phase: "running" } });
+    await ui.click("安装并重启");
+    expect(ui.calls.some((call) => call.command === "install_update")).toBe(
+      false,
+    );
+    await ui.render(ready);
+    await ui.click("安装并重启");
+    expect(ui.calls.at(-1)?.command).toBe("install_update");
+    await ui.click("返回设置");
+    await ui.click("返回导航窗口");
+    await ui.render(current);
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe("unfinished translation");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("updates distinguish unpublished releases from network failures and retry", async () => {
+  const current = state("settings");
+  const ui = await mount(current);
+  try {
+    await ui.click("关于与更新");
+    await ui.render({
+      ...current,
+      updates: { ...current.updates, phase: "no-release" },
+    });
+    expect(ui.element.textContent).toContain("尚未发布可用更新");
+    expect(ui.element.textContent).not.toContain("已是最新版本");
+    await ui.render({
+      ...current,
+      updates: { ...current.updates, phase: "error", error: "network" },
+    });
+    expect(ui.element.querySelector('[role="alert"]')?.textContent).toContain(
+      "无法连接更新服务",
+    );
+    await ui.click("检查更新");
+    expect(ui.calls.at(-1)?.command).toBe("check_updates");
+  } finally {
+    await ui.close();
+  }
+});

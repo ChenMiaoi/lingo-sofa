@@ -682,11 +682,20 @@ export function Desktop({
           </span>
           <button
             className="icon-button"
-            title="设置"
             aria-label="设置"
+            title={
+              ["available", "downloading", "ready"].includes(
+                state.updates.phase,
+              )
+                ? "设置 · 有可用更新"
+                : "设置"
+            }
             onClick={() => openSettings()}
           >
             <Icon name="settings" />
+            {["available", "downloading", "ready"].includes(
+              state.updates.phase,
+            ) && <span className="update-dot" aria-label="有可用更新" />}
           </button>
         </div>
         {sourceOpen && context && !isInput && (
