@@ -152,3 +152,44 @@ test("publication identifies drafts by ID and refuses published or mismatched re
   ).toThrow();
   expect(() => verifyReleaseDraft(draft, 123, "v1.2.3-rc2")).toThrow();
 });
+
+test("draft attachments use temporary URLs but updater links use the final release tag", () => {
+  const tag = "v1.2.3";
+  const draftAssets = assets(tag).map((asset) => ({
+    ...asset,
+    browser_download_url: asset.browser_download_url.replace(
+      `/download/${tag}/`,
+      "/download/untagged-abc123/",
+    ),
+  }));
+  const manifest = updaterManifest(
+    repo,
+    tag,
+    draftAssets,
+    signatures("1.2.3"),
+    "",
+    "2026-10-21T00:00:00Z",
+  );
+  expect(
+    Object.values(manifest.platforms).every(
+      (platform) =>
+        platform.url.includes(`/download/${tag}/`) &&
+        !platform.url.includes("untagged"),
+    ),
+  ).toBe(true);
+  for (const replacement of ["v1.2.2", "untagged-", "untagged-abc123/extra"]) {
+    expect(() =>
+      verifyReleaseAssets(
+        repo,
+        tag,
+        draftAssets.map((asset) => ({
+          ...asset,
+          browser_download_url: asset.browser_download_url.replace(
+            "untagged-abc123",
+            replacement,
+          ),
+        })),
+      ),
+    ).toThrow();
+  }
+});

@@ -47,6 +47,34 @@ export function requiredAssets(version: string) {
     `LingoSofa_${version}_darwin_x64.dmg`,
   ];
 }
+function validAssetURL(
+  repo: string,
+  tag: string,
+  name: string,
+  source: string,
+) {
+  let url: URL;
+  try {
+    url = new URL(source);
+  } catch {
+    return false;
+  }
+  const prefix = `/${repo}/releases/download/`;
+  const [sourceTag, sourceName, ...rest] = url.pathname
+    .slice(prefix.length)
+    .split("/");
+  return (
+    url.origin === "https://github.com" &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash &&
+    url.pathname.startsWith(prefix) &&
+    (sourceTag === tag || /^untagged-[a-f0-9]+$/.test(sourceTag ?? "")) &&
+    sourceName === name &&
+    !rest.length
+  );
+}
 export function verifyReleaseAssets(
   repo: string,
   tag: string,
@@ -61,8 +89,7 @@ export function verifyReleaseAssets(
       !asset ||
       asset.size <= 0 ||
       asset.state !== "uploaded" ||
-      asset.browser_download_url !==
-        `https://github.com/${repo}/releases/download/${tag}/${name}`
+      !validAssetURL(repo, tag, name, asset.browser_download_url)
     )
       throw new Error(`Missing or invalid release asset: ${name}`);
   }
@@ -95,7 +122,7 @@ export function updaterManifest(
       );
     platforms[target] = {
       signature,
-      url: assets.find((asset) => asset.name === name)!.browser_download_url,
+      url: `https://github.com/${repo}/releases/download/${tag}/${name}`,
     };
   }
   if (!Number.isFinite(Date.parse(date)))
