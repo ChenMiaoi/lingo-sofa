@@ -1,3 +1,5 @@
+import { testKeychain } from "./test-keychain";
+import { runtime } from "../../scripts/platform";
 import { resolve, join } from "node:path";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -12,7 +14,7 @@ for (const [name, variable] of [
 ] as const) {
   const source = resolve(root, `tests/fixtures/${name}.ts`);
   if (packaged) {
-    const program = join(output, `${name}.exe`);
+    const program = join(output, `${name}${runtime.executableSuffix}`);
     await compile(source, program);
     env[`W0_${variable}_PROGRAM`] = program;
     env[`W0_${variable}_ARGS`] = "[]";
@@ -39,9 +41,14 @@ const cargoTest = [
   "lingo-sofa-app-services",
   "-p",
   "lingo-sofa-runtime-tests",
+  ...(process.platform === "darwin"
+    ? ["--features", "lingo-sofa-omp-client/test-keychain"]
+    : []),
 ];
 // A cold dependency build must not consume the test execution deadline.
 await run([...cargoTest, "--no-run"]);
+const keychain = await testKeychain();
+if (keychain) env.LINGOSOFA_TEST_KEYCHAIN = keychain.path;
 const child = Bun.spawn([...cargoTest, "--", "--test-threads=1"], {
   cwd: root,
   env,
@@ -58,9 +65,21 @@ const [stdout, stderr, code] = await Promise.all([
   child.exited,
 ]);
 clearTimeout(timer);
+await keychain?.dispose();
 const tests = [...stdout.matchAll(/^test ([\w:]+) \.\.\. (ok|FAILED)$/gm)].map(
   (m) => ({ name: m[1], passed: m[2] === "ok" }),
 );
+const requiredTests = [
+  "operating_system_reaps_worker_and_descendant_when_rust_host_is_killed",
+  "actual_host_crash_recovers_pending_and_preserves_committed_terminal",
+];
+const passed =
+  code === 0 &&
+  tests.length > 0 &&
+  tests.every((t) => t.passed) &&
+  requiredTests.every((name) =>
+    tests.some((test) => test.name === name && test.passed),
+  );
 const files = [
   "Cargo.toml",
   "Cargo.lock",
@@ -87,7 +106,9 @@ await writeFile(
   join(output, `${packaged ? "packaged" : "source"}.json`),
   JSON.stringify(
     {
-      passed: code === 0 && tests.length > 0 && tests.every((t) => t.passed),
+      passed,
+      platform: process.platform,
+      arch: process.arch,
       packaged,
       tests,
       hashes,
@@ -98,4 +119,8 @@ await writeFile(
 );
 process.stdout.write(stdout);
 process.stderr.write(stderr);
-process.exit(code ?? 1);
+if (!passed)
+  process.stderr.write(
+    "Runtime validation failed or required host tests did not run.\n",
+  );
+process.exit(passed ? 0 : code || 1);

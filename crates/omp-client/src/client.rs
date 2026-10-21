@@ -1,14 +1,17 @@
 use crate::{
     Result,
+    platform::Job,
     protocol::{Frame, MAX_PENDING, read_frame, write_frame},
     vault::Vault,
-    windows::Job,
 };
 use serde_json::{Value, json};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
-    os::windows::process::CommandExt,
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver, SyncSender},
@@ -61,8 +64,14 @@ impl Process {
                 command.env(name, value);
             }
         }
+        #[cfg(windows)]
         let system = std::env::var("SystemRoot").map_err(|_| "windows_environment_missing")?;
+        #[cfg(windows)]
         command.env("PATH", format!("{system}\\System32;{system}"));
+        #[cfg(unix)]
+        command
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+            .process_group(0);
         command
             .env("HOME", config.directory.join("home"))
             .env("USERPROFILE", config.directory.join("home"));
@@ -70,8 +79,9 @@ impl Process {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .creation_flags(0x08000000);
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
         let mut child = command.spawn().map_err(|_| "worker_spawn_failed")?;
         let job = match Job::attach(&child) {
             Ok(job) => job,

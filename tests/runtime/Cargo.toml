@@ -9,4 +9,6 @@ serde_json.workspace = true
 tempfile = "3"
 zeroize = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
+
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

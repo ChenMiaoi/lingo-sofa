@@ -538,7 +538,7 @@ export async function runWorker(options: WorkerOptions) {
           name: selected.name,
           contextWindow: selected.context_window,
           requestOutputCap: options.outputCap,
-          credentialSource: "rust-dpapi",
+          credentialSource: "rust-vault",
         };
       }
       case "stats":

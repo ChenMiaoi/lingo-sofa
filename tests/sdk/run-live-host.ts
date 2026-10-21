@@ -1,3 +1,5 @@
+import { runtime } from "../../scripts/platform";
+import { testKeychain } from "./test-keychain";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -48,15 +50,23 @@ await prepare([
   "lingo-sofa-runtime-tests",
   "--bin",
   "w0-live",
+  ...(process.platform === "darwin"
+    ? ["--features", "lingo-sofa-omp-client/test-keychain"]
+    : []),
 ]);
 await mkdir(output, { recursive: true });
 await compile(
   join(repository, "apps/omp-worker/src/worker.ts"),
-  join(output, "live-worker.exe"),
+  join(output, `live-worker${runtime.executableSuffix}`),
 );
-env.W0_WORKER_PROGRAM = join(output, "live-worker.exe");
+env.W0_WORKER_PROGRAM = join(output, `live-worker${runtime.executableSuffix}`);
 env.W0_WORKER_ARGS = "[]";
-const executable = join(repository, "target/debug/w0-live.exe");
+const executable = join(
+  repository,
+  `target/debug/w0-live${runtime.executableSuffix}`,
+);
+const keychain = await testKeychain([executable]);
+if (keychain) env.LINGOSOFA_TEST_KEYCHAIN = keychain.path;
 const child = Bun.spawn([executable, ...(dual ? ["--dual"] : [])], {
   cwd: repository,
   env,
@@ -73,9 +83,12 @@ const [stdout, stderr, code] = await Promise.all([
   child.exited,
 ]);
 clearTimeout(timer);
+await keychain?.dispose();
 const report = JSON.parse(redact(stdout));
 report.recordedAt = new Date().toISOString();
 report.execution = {
+  platform: process.platform,
+  arch: process.arch,
   scenario: dual ? "dual-saturation" : "queued",
   compiledWorker: true,
   rustHost: true,
@@ -96,10 +109,10 @@ for (const file of inputs)
   report.hashes[file] = createHash("sha256")
     .update(await readFile(join(repository, file)))
     .digest("hex");
-report.hashes["worker.exe"] = createHash("sha256")
+report.hashes[`worker${runtime.executableSuffix}`] = createHash("sha256")
   .update(await readFile(env.W0_WORKER_PROGRAM))
   .digest("hex");
-report.hashes["w0-live.exe"] = createHash("sha256")
+report.hashes[`w0-live${runtime.executableSuffix}`] = createHash("sha256")
   .update(await readFile(executable))
   .digest("hex");
 await writeFile(

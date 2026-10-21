@@ -5,8 +5,20 @@ on:
 permissions:
   contents: read
 jobs:
-  windows:
-    runs-on: windows-2025
+  desktop:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-2025
+          - name: macOS 26 Apple Silicon
+            os: macos-26
+          - name: macOS 26 Intel
+            os: macos-26-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -18,7 +30,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
       - run: npm run check
       - run: npm run test:sdk
+      - run: npm run test:sdk -- --packaged
       - run: npm run test:runtime:packaged
+      - name: Build native application bundle
+        run: npm run build -- --debug
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: |
+            .cache/sdk-tests/*.json
+            .cache/runtime-tests/*.json
+          include-hidden-files: true
+          if-no-files-found: warn

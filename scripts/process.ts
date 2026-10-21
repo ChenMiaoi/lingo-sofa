@@ -1,3 +1,4 @@
+import { runtime } from "./platform";
 import { mkdir, copyFile } from "node:fs/promises";
 import { resolve, basename } from "node:path";
 export const root = resolve(import.meta.dirname, "..");
@@ -26,7 +27,7 @@ export async function compile(source: string, output: string) {
     "build",
     "--no-env-file",
     "--compile",
-    "--target=bun-windows-x64",
+    `--target=${runtime.target}`,
     "--external",
     "omp-legacy-pi-modules",
     "--outfile",
@@ -34,7 +35,7 @@ export async function compile(source: string, output: string) {
     source,
   ]);
   const native = Bun.resolveSync(
-    "@oh-my-pi/pi-natives-win32-x64",
+    runtime.nativePackage,
     resolve(root, "apps/omp-worker/src/worker.ts"),
   );
   await copyFile(native, resolve(output, "..", basename(native)));

@@ -2,9 +2,12 @@ use lingo_sofa_app_services::{Service, View};
 use lingo_sofa_core::overlay::{Rect, SelectionFrame, place};
 use lingo_sofa_omp_client::Job;
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     io::{BufRead, BufReader, Read},
-    os::windows::process::CommandExt,
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
@@ -15,7 +18,19 @@ use std::{
     time::Duration,
 };
 use tauri::Manager;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
+
+// AX returns screen points; Tauri's window placement uses physical pixels.
+#[cfg(any(target_os = "macos", test))]
+fn physical_anchor(anchor: Rect, scale: f64) -> Rect {
+    Rect {
+        x: anchor.x * scale,
+        y: anchor.y * scale,
+        width: anchor.width * scale,
+        height: anchor.height * scale,
+    }
+}
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "kebab-case")]
@@ -262,20 +277,45 @@ impl Shell {
         Ok(())
     }
     pub fn capture(&self, app: tauri::AppHandle, service: Service) {
-        let host = unsafe { GetForegroundWindow() };
-        let Some(window) = app.get_webview_window("main") else {
-            return;
+        #[cfg(windows)]
+        let (host, own, origin) = {
+            let host = unsafe { GetForegroundWindow() };
+            let Some(window) = app.get_webview_window("main") else {
+                return;
+            };
+            let Ok(own) = window.hwnd() else {
+                return;
+            };
+            if host.0.is_null() || host.0 == own.0 {
+                self.failure(&app, "selection_unavailable");
+                return;
+            }
+            let mut title = [0u16; 256];
+            let len = unsafe { GetWindowTextW(host, &mut title) };
+            let origin = String::from_utf16_lossy(&title[..len.max(0) as usize]);
+            (host.0 as usize, own.0 as usize, origin)
         };
-        let Ok(own) = window.hwnd() else {
-            return;
+        #[cfg(target_os = "macos")]
+        let (host, own, origin) = {
+            use objc2_app_kit::NSWorkspace;
+            let Some(source) = NSWorkspace::sharedWorkspace().frontmostApplication() else {
+                self.failure(&app, "selection_unavailable");
+                return;
+            };
+            let pid = source.processIdentifier() as usize;
+            if pid == std::process::id() as usize {
+                self.failure(&app, "selection_unavailable");
+                return;
+            }
+            (
+                pid,
+                std::process::id() as usize,
+                source
+                    .localizedName()
+                    .map(|name| name.to_string())
+                    .unwrap_or_default(),
+            )
         };
-        if host.0.is_null() || host.0 == own.0 {
-            self.failure(&app, "selection_unavailable");
-            return;
-        }
-        let mut title = [0u16; 256];
-        let len = unsafe { GetWindowTextW(host, &mut title) };
-        let origin = String::from_utf16_lossy(&title[..len.max(0) as usize]);
         let _ = service.cancel();
         let epoch = {
             let mut v = self.view.lock().unwrap();
@@ -287,8 +327,6 @@ impl Shell {
             v.epoch
         };
         let this = self.clone();
-        let host = host.0 as usize;
-        let own = own.0 as usize;
         std::thread::spawn(move || {
             let result = this.watch(&app, &service, epoch, host, own, origin);
             if let Err(code) = result
@@ -330,12 +368,17 @@ impl Shell {
         own: usize,
         origin: String,
     ) -> Result<(), &'static str> {
-        let mut child = Command::new(&self.helper)
+        let mut command = Command::new(&self.helper);
+        command
             .args([host.to_string(), own.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .creation_flags(0x08000000)
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command
             .spawn()
             .map_err(|_| "selection_helper_unavailable")?;
         // The job is created and dropped on this thread: no unsafe Send for Windows handles.
@@ -422,6 +465,9 @@ impl Shell {
                             "text_too_long" => "text_too_long",
                             "selection_empty" => "selection_empty",
                             "selection_unsupported" => "selection_unsupported",
+                            "accessibility_permission_required" => {
+                                "accessibility_permission_required"
+                            }
                             _ => "selection_unavailable",
                         });
                     }
@@ -465,6 +511,8 @@ impl Shell {
             height: area.size.height as f64,
         };
         let scale = monitor.scale_factor();
+        #[cfg(target_os = "macos")]
+        let anchor = anchor.map(|anchor| physical_anchor(anchor, scale));
         let (width, height) = match v.mode {
             Mode::Idle => (48.0, 48.0),
             Mode::Menu => (264.0, 280.0),
@@ -497,7 +545,11 @@ impl Shell {
         if focus || v.mode == Mode::Menu {
             let _ = window.set_effects(
                 tauri::window::EffectsBuilder::new()
-                    .effect(tauri::window::Effect::Acrylic)
+                    .effect(if cfg!(target_os = "macos") {
+                        tauri::window::Effect::HudWindow
+                    } else {
+                        tauri::window::Effect::Acrylic
+                    })
                     .color(tauri::window::Color(24, 24, 24, 220))
                     .build(),
             );
@@ -519,6 +571,22 @@ impl Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macos_selection_points_scale_for_retina_and_negative_display_origins() {
+        let anchor = Rect {
+            x: -800.0,
+            y: 100.0,
+            width: 220.0,
+            height: 18.0,
+        };
+        let retina = physical_anchor(anchor, 2.0);
+        assert_eq!(retina.x, -1600.0);
+        assert_eq!(retina.y, 200.0);
+        assert_eq!(retina.width, 440.0);
+        assert_eq!(retina.height, 36.0);
+        assert_eq!(physical_anchor(anchor, 1.0), anchor);
+    }
 
     #[test]
     fn source_expiry_collapses_reading_but_never_repositions_ask_or_loses_its_source() {

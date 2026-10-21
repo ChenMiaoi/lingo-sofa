@@ -1,4 +1,4 @@
-use crate::{Result, windows::protect};
+use crate::{Result, platform::protect};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dpapi_roundtrip_tamper_and_account_binding() {
+    fn credential_protection_roundtrip_tamper_and_account_binding() {
         let plaintext = "W0-密钥-secret".as_bytes();
         let protected = protect(plaintext, b"account-a", false).unwrap();
         assert_ne!(protected.as_slice(), plaintext);

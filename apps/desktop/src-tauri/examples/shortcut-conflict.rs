@@ -1,7 +1,9 @@
 //! Hold Ctrl+Alt+F24 for native conflict acceptance without touching another app.
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey, VK_F24,
 };
+#[cfg(windows)]
 fn main() -> windows::core::Result<()> {
     // No HWND: the registration belongs to this thread, and process exit
     // also releases it. The bounded lifetime prevents a stranded test fixture.
@@ -19,4 +21,9 @@ fn main() -> windows::core::Result<()> {
         UnregisterHotKey(None, 0x4c53)?;
     }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("This fixture reserves a Windows hotkey; use a second app on macOS.");
 }

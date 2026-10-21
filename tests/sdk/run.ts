@@ -1,3 +1,4 @@
+import { runtime } from "../../scripts/platform";
 import {
   mkdir,
   mkdtemp,
@@ -7,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
 const repository = resolve(import.meta.dir, "../..");
@@ -32,20 +33,23 @@ for (const key of [
 ]) {
   if (process.env[key]) env[key] = process.env[key]!;
 }
-env.PATH = `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}`;
+env.PATH =
+  process.platform === "win32"
+    ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}`
+    : "/usr/bin:/bin:/usr/sbin:/sbin";
 if (liveKey) env.W0_LIVE_KEY = liveKey;
 let command: string[];
 let directory = repository;
 let packaging: unknown;
 if (packaged) {
-  const executable = join(output, "omp-probe.exe");
+  const executable = join(output, `omp-probe${runtime.executableSuffix}`);
   const build = Bun.spawn(
     [
       process.execPath,
       "build",
       "--no-env-file",
       "--compile",
-      "--target=bun-windows-x64",
+      `--target=${runtime.target}`,
       "--external",
       "omp-legacy-pi-modules",
       "--outfile",
@@ -63,13 +67,13 @@ if (packaged) {
     throw new Error(`Bun compile failed: ${buildOut}\n${buildErr}`);
   directory = await mkdtemp(join(tmpdir(), "lingo-sofa-omp-detached-"));
   const native = Bun.resolveSync(
-    "@oh-my-pi/pi-natives-win32-x64",
+    runtime.nativePackage,
     join(repository, "apps/omp-worker/src/worker.ts"),
   );
-  command = [join(directory, "omp-probe.exe")];
+  command = [join(directory, `omp-probe${runtime.executableSuffix}`)];
   await Promise.all([
     copyFile(executable, command[0]!),
-    copyFile(native, join(directory, "pi_natives.win32-x64-baseline.node")),
+    copyFile(native, join(directory, basename(native))),
   ]);
   const nativeBytes = await readFile(native);
   const exeBytes = await readFile(executable);
@@ -80,7 +84,7 @@ if (packaged) {
     nativeBytes: nativeBytes.length,
     executableSha256: createHash("sha256").update(exeBytes).digest("hex"),
     nativeSha256: createHash("sha256").update(nativeBytes).digest("hex"),
-    layout: ["omp-probe.exe", "pi_natives.win32-x64-baseline.node"],
+    layout: [`omp-probe${runtime.executableSuffix}`, basename(native)],
     legacyExtensionModule:
       "external; disabled legacy-extension path is outside W0 scope",
   };

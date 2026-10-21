@@ -1,0 +1,1035 @@
+{
+  "mode": "offline-and-live",
+  "results": [
+    {
+      "name": "platform-sdk-native-import",
+      "passed": true,
+      "detail": {
+        "platform": "darwin",
+        "architecture": "arm64",
+        "bun": "1.3.14",
+        "sdk": "18.12.3"
+      }
+    },
+    {
+      "name": "auth-custom-store-login-refresh-logout",
+      "passed": true,
+      "detail": {
+        "syntheticOAuth": true,
+        "customStoreWrites": 8,
+        "singleConcurrentRefresh": true,
+        "failedCommitRejected": true,
+        "logout": true,
+        "cancelledLogin": true,
+        "realBrowserOAuth": "not-tested"
+      }
+    },
+    {
+      "name": "isolated-concurrent-session-construction",
+      "passed": true,
+      "detail": {
+        "tools": [],
+        "persistentSessionFile": false
+      }
+    },
+    {
+      "name": "actual-sdk-stream-and-history",
+      "passed": true,
+      "detail": {
+        "requests": 2,
+        "events": [
+          "agent_start",
+          "turn_start",
+          "message_start",
+          "message_end",
+          "message_update",
+          "turn_end",
+          "agent_end"
+        ],
+        "stats": {
+          "sessionId": "01a15c53-7941-7000-b6bb-49f157f2d7fe",
+          "userMessages": 2,
+          "assistantMessages": 2,
+          "toolCalls": 0,
+          "toolResults": 0,
+          "totalMessages": 4,
+          "tokens": {
+            "input": 136,
+            "output": 16,
+            "reasoning": 0,
+            "cacheRead": 24,
+            "cacheWrite": 0,
+            "total": 176
+          },
+          "cost": 0.0001704,
+          "premiumRequests": 0,
+          "contextUsage": {
+            "tokens": 80,
+            "contextWindow": 8192,
+            "percent": 0.9765625
+          }
+        }
+      }
+    },
+    {
+      "name": "second-session-does-not-inherit-history",
+      "passed": true,
+      "detail": {
+        "isolated": true
+      }
+    },
+    {
+      "name": "manual-pi-session-compaction",
+      "passed": true,
+      "detail": {
+        "modelCalls": 3,
+        "summaryPresent": true,
+        "calls": [
+          {
+            "callId": "4",
+            "check": "manual-pi-session-compaction",
+            "purpose": "compaction",
+            "usage": {
+              "input": 68,
+              "output": 8,
+              "cacheRead": 12,
+              "cacheWrite": 0,
+              "totalTokens": 88,
+              "cost": {
+                "input": 0.000068,
+                "output": 0.000016,
+                "cacheRead": 0.0000012000000000000002,
+                "cacheWrite": 0,
+                "total": 0.0000852
+              }
+            },
+            "stopReason": "stop"
+          },
+          {
+            "callId": "5",
+            "check": "manual-pi-session-compaction",
+            "purpose": "compaction",
+            "usage": {
+              "input": 68,
+              "output": 8,
+              "cacheRead": 12,
+              "cacheWrite": 0,
+              "totalTokens": 88,
+              "cost": {
+                "input": 0.000068,
+                "output": 0.000016,
+                "cacheRead": 0.0000012000000000000002,
+                "cacheWrite": 0,
+                "total": 0.0000852
+              }
+            },
+            "stopReason": "stop"
+          }
+        ],
+        "stats": {
+          "sessionId": "01a15c53-7941-7000-b6bb-49f157f2d7fe",
+          "userMessages": 2,
+          "assistantMessages": 3,
+          "toolCalls": 0,
+          "toolResults": 0,
+          "totalMessages": 6,
+          "tokens": {
+            "input": 204,
+            "output": 24,
+            "reasoning": 0,
+            "cacheRead": 36,
+            "cacheWrite": 0,
+            "total": 264
+          },
+          "cost": 0.0002556,
+          "premiumRequests": 0,
+          "contextUsage": {
+            "tokens": 80,
+            "contextWindow": 8192,
+            "percent": 0.9765625
+          }
+        }
+      }
+    },
+    {
+      "name": "failed-compaction-preserves-session",
+      "passed": true,
+      "detail": {
+        "unchangedAfterFailedSummary": true,
+        "noWorkAfterRejection": true,
+        "observationMs": 1800
+      }
+    },
+    {
+      "name": "abort-stream-does-not-resume",
+      "passed": true,
+      "detail": {
+        "aborted": true,
+        "cycles": 6,
+        "stages": ["before-output", "after-output"],
+        "attemptsPerCycle": 1
+      }
+    },
+    {
+      "name": "cancelled-session-401-and-manual-recovery",
+      "passed": true,
+      "detail": {
+        "authFailureAttempts": 1,
+        "explicitRecoveryAttempts": 1,
+        "sessionReused": true
+      }
+    },
+    {
+      "name": "no-automatic-retry-401",
+      "passed": true,
+      "detail": {
+        "attempts": 1
+      }
+    },
+    {
+      "name": "no-automatic-retry-429",
+      "passed": true,
+      "detail": {
+        "attempts": 1
+      }
+    },
+    {
+      "name": "no-unexpected-external-network",
+      "passed": true,
+      "detail": {
+        "destinations": ["127.0.0.1"]
+      }
+    },
+    {
+      "name": "live-deepseek-flash-sdk-session-compaction",
+      "passed": true,
+      "detail": {
+        "requestedModel": "deepseek-flash",
+        "catalogName": "DeepSeek-V4.1-Flash",
+        "realProvider": true,
+        "authenticated": true,
+        "translation": true,
+        "continuityBeforeAndAfterCompaction": true,
+        "callCount": 5,
+        "calls": [
+          {
+            "callId": "23",
+            "check": "live-deepseek-flash-sdk-session-compaction",
+            "purpose": "live-generation",
+            "usage": {
+              "input": 929,
+              "output": 4,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 933,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop"
+          },
+          {
+            "callId": "24",
+            "check": "live-deepseek-flash-sdk-session-compaction",
+            "purpose": "live-generation",
+            "usage": {
+              "input": 184,
+              "output": 6,
+              "cacheRead": 768,
+              "cacheWrite": 0,
+              "totalTokens": 958,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop"
+          },
+          {
+            "callId": "25",
+            "check": "live-deepseek-flash-sdk-session-compaction",
+            "purpose": "live-compaction",
+            "usage": {
+              "input": 189,
+              "output": 180,
+              "cacheRead": 896,
+              "cacheWrite": 0,
+              "totalTokens": 1265,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop"
+          },
+          {
+            "callId": "26",
+            "check": "live-deepseek-flash-sdk-session-compaction",
+            "purpose": "live-compaction",
+            "usage": {
+              "input": 431,
+              "output": 60,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 491,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop"
+          },
+          {
+            "callId": "27",
+            "check": "live-deepseek-flash-sdk-session-compaction",
+            "purpose": "live-generation-after-compaction",
+            "usage": {
+              "input": 339,
+              "output": 6,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 345,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop"
+          }
+        ],
+        "pricing": "not asserted; zero SDK prices in this probe are placeholders, not a free-usage claim"
+      }
+    }
+  ],
+  "passed": true,
+  "network": [
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "127.0.0.1",
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "api.deepseek.com",
+      "path": "/models",
+      "method": "GET"
+    },
+    {
+      "host": "api.deepseek.com",
+      "path": "/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "api.deepseek.com",
+      "path": "/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "api.deepseek.com",
+      "path": "/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "api.deepseek.com",
+      "path": "/chat/completions",
+      "method": "POST"
+    },
+    {
+      "host": "api.deepseek.com",
+      "path": "/chat/completions",
+      "method": "POST"
+    }
+  ],
+  "syntheticRequestCallIds": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "20",
+    "21",
+    "22"
+  ],
+  "calls": [
+    {
+      "callId": "1",
+      "check": "actual-sdk-stream-and-history",
+      "purpose": "generation",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "2",
+      "check": "actual-sdk-stream-and-history",
+      "purpose": "generation",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "3",
+      "check": "second-session-does-not-inherit-history",
+      "purpose": "generation",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "4",
+      "check": "manual-pi-session-compaction",
+      "purpose": "compaction",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "5",
+      "check": "manual-pi-session-compaction",
+      "purpose": "compaction",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "6",
+      "check": "manual-pi-session-compaction",
+      "purpose": "generation",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "7",
+      "check": "failed-compaction-preserves-session",
+      "purpose": "generation",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "8",
+      "check": "failed-compaction-preserves-session",
+      "purpose": "failed-compaction",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "9",
+      "check": "failed-compaction-preserves-session",
+      "purpose": "failed-compaction",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "10",
+      "check": "failed-compaction-preserves-session",
+      "purpose": "failed-compaction",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "11",
+      "check": "failed-compaction-preserves-session",
+      "purpose": "failed-compaction",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "12",
+      "check": "failed-compaction-preserves-session",
+      "purpose": "failed-compaction",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "13",
+      "check": "abort-stream-does-not-resume",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "aborted"
+    },
+    {
+      "callId": "14",
+      "check": "abort-stream-does-not-resume",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "aborted"
+    },
+    {
+      "callId": "15",
+      "check": "abort-stream-does-not-resume",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "aborted"
+    },
+    {
+      "callId": "16",
+      "check": "abort-stream-does-not-resume",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "aborted"
+    },
+    {
+      "callId": "17",
+      "check": "abort-stream-does-not-resume",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "aborted"
+    },
+    {
+      "callId": "18",
+      "check": "abort-stream-does-not-resume",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "aborted"
+    },
+    {
+      "callId": "19",
+      "check": "cancelled-session-401-and-manual-recovery",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "20",
+      "check": "cancelled-session-401-and-manual-recovery",
+      "purpose": "generation",
+      "usage": {
+        "input": 68,
+        "output": 8,
+        "cacheRead": 12,
+        "cacheWrite": 0,
+        "totalTokens": 88,
+        "cost": {
+          "input": 0.000068,
+          "output": 0.000016,
+          "cacheRead": 0.0000012000000000000002,
+          "cacheWrite": 0,
+          "total": 0.0000852
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "21",
+      "check": "no-automatic-retry-401",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "22",
+      "check": "no-automatic-retry-429",
+      "purpose": "generation",
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "error"
+    },
+    {
+      "callId": "23",
+      "check": "live-deepseek-flash-sdk-session-compaction",
+      "purpose": "live-generation",
+      "usage": {
+        "input": 929,
+        "output": 4,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 933,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "24",
+      "check": "live-deepseek-flash-sdk-session-compaction",
+      "purpose": "live-generation",
+      "usage": {
+        "input": 184,
+        "output": 6,
+        "cacheRead": 768,
+        "cacheWrite": 0,
+        "totalTokens": 958,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "25",
+      "check": "live-deepseek-flash-sdk-session-compaction",
+      "purpose": "live-compaction",
+      "usage": {
+        "input": 189,
+        "output": 180,
+        "cacheRead": 896,
+        "cacheWrite": 0,
+        "totalTokens": 1265,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "26",
+      "check": "live-deepseek-flash-sdk-session-compaction",
+      "purpose": "live-compaction",
+      "usage": {
+        "input": 431,
+        "output": 60,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 491,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop"
+    },
+    {
+      "callId": "27",
+      "check": "live-deepseek-flash-sdk-session-compaction",
+      "purpose": "live-generation-after-compaction",
+      "usage": {
+        "input": 339,
+        "output": 6,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 345,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop"
+    }
+  ],
+  "execution": {
+    "compiled": false,
+    "live": true,
+    "exitCode": 0,
+    "elapsedMs": 10596
+  }
+}

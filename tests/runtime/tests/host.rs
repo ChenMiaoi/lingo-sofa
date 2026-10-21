@@ -1,16 +1,17 @@
-#![cfg(windows)]
 use lingo_sofa_omp_client::{
     client::{Config, Host},
     protocol::{Frame, MAX_FRAME, read_frame, write_frame},
     vault::Vault,
 };
 use serde_json::{Value, json};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     io::{self, BufRead, Cursor, Read},
-    os::windows::process::CommandExt,
     path::PathBuf,
     time::Duration,
 };
+#[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{CloseHandle, WAIT_TIMEOUT},
     System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
@@ -86,6 +87,7 @@ fn create(host: &mut Host) -> String {
     assert_eq!(result["tools"], json!([]));
     result["sessionId"].as_str().unwrap().into()
 }
+#[cfg(windows)]
 fn running(pid: u32) -> bool {
     let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
     if process.is_null() {
@@ -96,6 +98,24 @@ fn running(pid: u32) -> bool {
         CloseHandle(process);
     }
     live
+}
+
+#[cfg(target_os = "macos")]
+fn running(pid: u32) -> bool {
+    std::process::Command::new("/bin/ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .is_ok_and(|output| {
+            output.status.success()
+                && output.stdout.iter().any(|c| !c.is_ascii_whitespace())
+                && !output.stdout.contains(&b'Z')
+        })
+}
+
+fn hidden(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    command
 }
 
 #[test]
@@ -394,14 +414,15 @@ fn operating_system_reaps_worker_and_descendant_when_rust_host_is_killed() {
         }
     }
     let mut parent = Parent(
-        std::process::Command::new(env!("CARGO_BIN_EXE_w0-parent"))
-            .arg(dir.path())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(0x08000000)
-            .spawn()
-            .unwrap(),
+        hidden(&mut std::process::Command::new(env!(
+            "CARGO_BIN_EXE_w0-parent"
+        )))
+        .arg(dir.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap(),
     );
     let stdout = parent.0.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -631,14 +652,15 @@ fn disconnect_and_cancel_preserve_unknown_or_partial_usage_without_replay() {
 fn actual_host_crash_recovers_pending_and_preserves_committed_terminal() {
     for mode in ["pending", "completed"] {
         let dir = tempfile::tempdir().unwrap();
-        let mut parent = std::process::Command::new(env!("CARGO_BIN_EXE_w0-parent"))
-            .arg(dir.path())
-            .arg(mode)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(0x08000000)
-            .spawn()
-            .unwrap();
+        let mut parent = hidden(&mut std::process::Command::new(env!(
+            "CARGO_BIN_EXE_w0-parent"
+        )))
+        .arg(dir.path())
+        .arg(mode)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
         let stdout = parent.stdout.take().unwrap();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || {

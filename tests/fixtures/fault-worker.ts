@@ -107,7 +107,9 @@ for await (const frame of readFrames()) {
     await sendFrame(response);
   } else if (mode === "descendant") {
     const child = Bun.spawn(
-      [process.env.COMSPEC!, "/d", "/c", "ping -n 60 127.0.0.1 >nul"],
+      process.platform === "win32"
+        ? [process.env.COMSPEC!, "/d", "/c", "ping -n 60 127.0.0.1 >nul"]
+        : ["/bin/sleep", "60"],
       {
         stdin: "ignore",
         stdout: "ignore",

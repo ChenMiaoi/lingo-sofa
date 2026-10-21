@@ -219,6 +219,9 @@ fn collapse(
     shell.mode(&app, Mode::Idle);
     Ok(())
 }
+fn executable(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
+}
 fn resource(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
     let bundled = app
         .path()
@@ -302,14 +305,21 @@ fn main() {
             collapse
         ])
         .setup(|app| {
+            #[cfg(windows)]
             let data = std::path::PathBuf::from(
                 std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA missing")?,
             )
             .join("LingoSofa");
-            let service = Service::start(data.clone(), resource(app.handle(), "omp-worker.exe")?)?;
+            #[cfg(target_os = "macos")]
+            let data = std::path::PathBuf::from(std::env::var_os("HOME").ok_or("HOME missing")?)
+                .join("Library/Application Support/LingoSofa");
+            let service = Service::start(
+                data.clone(),
+                resource(app.handle(), &executable("omp-worker"))?,
+            )?;
             let shortcuts = shortcuts::Manager::open(&data.join("shortcuts.sqlite"))?;
             app.manage(Mutex::new(shortcuts));
-            let shell = Shell::new(resource(app.handle(), "selection-helper.exe")?);
+            let shell = Shell::new(resource(app.handle(), &executable("selection-helper"))?);
             app.manage(service);
             app.manage(shell);
             app.state::<Mutex<shortcuts::Manager>>()

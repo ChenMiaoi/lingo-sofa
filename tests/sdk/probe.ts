@@ -280,7 +280,7 @@ async function create(
   return result.session;
 }
 try {
-  await check("windows-sdk-native-import", () => ({
+  await check("platform-sdk-native-import", () => ({
     platform: process.platform,
     architecture: process.arch,
     bun: Bun.version,

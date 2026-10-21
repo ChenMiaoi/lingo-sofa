@@ -41,6 +41,8 @@ export function errorMessage(error: unknown): string {
   const code = String(error);
   const messages: Record<string, string> = {
     selection_unsupported: "此应用暂不支持读取选区，可复制后翻译。",
+    accessibility_permission_required:
+      "请在系统设置 → 隐私与安全性 → 辅助功能中允许 LingoSofa 读取选区；也可复制后翻译。",
     selection_empty: "没有选中文字，请先选中一段内容。",
     selection_unavailable: "未能定位选区，可复制后翻译。",
     selection_timeout: "取文超时，已停止辅助进程，可复制后翻译。",

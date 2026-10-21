@@ -82,6 +82,8 @@ Reported usage describes calls observed by LingoSofa, not your entire provider b
 
 ## Development
 
+macOS (Apple Silicon and Intel) build instructions, platform differences, and validation limits: [macOS validation](docs/macos-validation.md).
+
 On Windows x64, use **Bun 1.3.14**, **Node.js 24**, **Rust 1.98.1 MSVC**, Visual Studio C++ Build Tools and WebView2. From the project directory:
 
 ```powershell

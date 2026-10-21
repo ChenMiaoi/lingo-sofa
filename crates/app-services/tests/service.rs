@@ -1,4 +1,3 @@
-#![cfg(windows)]
 use lingo_sofa_app_services::{Service, Settings, View};
 use lingo_sofa_omp_client::client::Config;
 use std::{

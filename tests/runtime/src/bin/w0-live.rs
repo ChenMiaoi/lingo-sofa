@@ -51,6 +51,10 @@ fn run() -> Result<Value> {
         "wrong_model",
     )?;
     require(
+        model["credentialSource"] == "rust-vault",
+        "wrong_credential_source",
+    )?;
+    require(
         host.request("stats", json!({}))?["credentialEnvironmentPresent"] == false,
         "credential_in_worker_environment",
     )?;
@@ -81,7 +85,8 @@ fn run() -> Result<Value> {
         "durable_usage_mismatch",
     )?;
     report["model"] = model;
-    report["checks"]["dpapiPersistedAndReopened"] = json!(true);
+    report["checks"]["credentialPersistedAndReopened"] = json!(true);
+    report["checks"]["credentialSourceIsHostVault"] = json!(true);
     report["checks"]["noPlaintextKeyOnDisk"] = json!(true);
     report["checks"]["keyNotInWorkerEnvironment"] = json!(true);
     report["checks"]["usageLedgerReopened"] = json!(true);
