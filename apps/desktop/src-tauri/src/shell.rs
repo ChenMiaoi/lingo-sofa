@@ -56,6 +56,8 @@ pub struct Context {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopView {
     pub mode: Mode,
+    #[serde(skip)]
+    settings_return: Option<Mode>,
     pub context: Option<Context>,
     pub translation: String,
     pub notice: String,
@@ -64,6 +66,50 @@ pub struct DesktopView {
     pub operation: String,
 }
 impl DesktopView {
+    fn navigate(&mut self, mode: Mode) {
+        if mode == Mode::Settings && self.mode != Mode::Settings {
+            self.settings_return = Some(match self.mode {
+                Mode::Ask | Mode::AskResult | Mode::Input => self.mode,
+                _ => Mode::Input,
+            });
+        } else if mode != Mode::Settings {
+            self.settings_return = None;
+        }
+        self.mode = mode;
+        if mode == Mode::Idle {
+            self.epoch += 1;
+            if let Some(context) = &mut self.context {
+                context.anchor_valid = false;
+            }
+        }
+    }
+    fn back_mode(&self) -> Mode {
+        if self.mode == Mode::Settings {
+            self.settings_return.unwrap_or(Mode::Input)
+        } else if self.context.as_ref().is_some_and(|c| c.anchor_valid)
+            && !self.translation.is_empty()
+        {
+            Mode::Translation
+        } else {
+            Mode::Idle
+        }
+    }
+    fn window_size(&self) -> (f64, f64) {
+        match self.mode {
+            Mode::Idle => (48.0, 48.0),
+            Mode::Menu => (264.0, 280.0),
+            Mode::Translation => (500.0, 178.0),
+            Mode::Ask => (660.0, 390.0),
+            Mode::AskResult => (660.0, 558.0),
+            Mode::Input => (620.0, 324.0),
+            Mode::Settings => match self.settings_return {
+                Some(Mode::Ask) => (660.0, 480.0),
+                Some(Mode::AskResult) => (660.0, 558.0),
+                _ => (620.0, 480.0),
+            },
+        }
+    }
+
     /// Returns whether the window must collapse. Other modes retain their
     /// frozen source without repositioning or requesting foreground focus.
     fn expire_anchor(&mut self) -> bool {
@@ -94,6 +140,7 @@ impl Shell {
         Self {
             view: Arc::new(Mutex::new(DesktopView {
                 mode: Mode::Idle,
+                settings_return: None,
                 context: None,
                 translation: String::new(),
                 notice: String::new(),
@@ -117,27 +164,11 @@ impl Shell {
         }
     }
     pub fn mode(&self, app: &tauri::AppHandle, mode: Mode) {
-        {
-            let mut v = self.view.lock().unwrap();
-            v.mode = mode;
-            if mode == Mode::Idle {
-                v.epoch += 1;
-                if let Some(c) = &mut v.context {
-                    c.anchor_valid = false;
-                }
-            }
-        }
+        self.view.lock().unwrap().navigate(mode);
         self.position(app);
     }
     pub fn back(&self, app: &tauri::AppHandle) {
-        let mode = {
-            let v = self.view.lock().unwrap();
-            if v.context.as_ref().is_some_and(|c| c.anchor_valid) && !v.translation.is_empty() {
-                Mode::Translation
-            } else {
-                Mode::Idle
-            }
-        };
+        let mode = self.view.lock().unwrap().back_mode();
         self.mode(app, mode);
     }
     pub fn shutdown(&self) {
@@ -513,15 +544,7 @@ impl Shell {
         let scale = monitor.scale_factor();
         #[cfg(target_os = "macos")]
         let anchor = anchor.map(|anchor| physical_anchor(anchor, scale));
-        let (width, height) = match v.mode {
-            Mode::Idle => (48.0, 48.0),
-            Mode::Menu => (264.0, 280.0),
-            Mode::Translation => (500.0, 178.0),
-            Mode::Ask => (660.0, 390.0),
-            Mode::AskResult => (660.0, 558.0),
-            Mode::Input => (620.0, 324.0),
-            Mode::Settings => (550.0, 480.0),
-        };
+        let (width, height) = v.window_size();
         let mut r = place(
             if v.mode == Mode::Translation {
                 anchor
@@ -586,6 +609,36 @@ mod tests {
         assert_eq!(retina.width, 440.0);
         assert_eq!(retina.height, 36.0);
         assert_eq!(physical_anchor(anchor, 1.0), anchor);
+    }
+
+    #[test]
+    fn settings_returns_to_the_launcher_without_changing_the_reading_or_width() {
+        let shell = Shell::new(PathBuf::from("unused-test-helper"));
+        let mut view = shell.view.lock().unwrap();
+        for mode in [Mode::Input, Mode::Ask, Mode::AskResult] {
+            view.navigate(mode);
+            let epoch = view.epoch;
+            let size = view.window_size();
+            view.navigate(Mode::Settings);
+            assert_eq!(view.back_mode(), mode);
+            assert_eq!(view.window_size().0, size.0);
+            view.navigate(Mode::Settings); // Repeated tray entry retains the return page.
+            assert_eq!(view.back_mode(), mode);
+            view.expire_anchor();
+            assert_eq!(view.back_mode(), mode);
+            let destination = view.back_mode();
+            view.navigate(destination);
+            assert_eq!(view.epoch, epoch);
+            assert_eq!(view.window_size(), size);
+        }
+        for mode in [Mode::Idle, Mode::Menu, Mode::Translation] {
+            view.navigate(mode);
+            view.navigate(Mode::Settings);
+            assert_eq!(view.back_mode(), Mode::Input);
+            assert_eq!(view.window_size().0, 620.0);
+        }
+        view.navigate(Mode::Idle);
+        assert_eq!(view.back_mode(), Mode::Idle);
     }
 
     #[test]

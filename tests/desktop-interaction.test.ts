@@ -56,8 +56,21 @@ async function mount(initial: DesktopState) {
       await act(async () => root.unmount());
       element.remove();
     },
+    async click(label: string) {
+      const button = [
+        ...element.querySelectorAll<HTMLButtonElement>("button"),
+      ].find(
+        (button) =>
+          !button.closest("[hidden]") &&
+          (button.getAttribute("aria-label") === label ||
+            button.textContent?.trim() === label),
+      );
+      expect(button).toBeDefined();
+      await act(async () => button!.click());
+    },
     async type(value: string, selector = "input, textarea") {
       const input = element.querySelector(selector)!;
+      expect(input.closest("[hidden]")).toBeNull();
       const setter = Object.getOwnPropertyDescriptor(
         input.tagName === "TEXTAREA"
           ? dom.HTMLTextAreaElement.prototype
@@ -80,7 +93,10 @@ async function mount(initial: DesktopState) {
         keyCode?: number;
       } = {},
     ) {
-      const input = element.querySelector("input, textarea")!;
+      const input =
+        [...element.querySelectorAll("input, textarea")].find(
+          (element) => !element.closest("[hidden]"),
+        ) ?? document.activeElement!;
       await act(async () =>
         input.dispatchEvent(
           new dom.KeyboardEvent("keydown", {
@@ -134,6 +150,7 @@ test("shortcut drafts survive polling, save explicitly, and defaults do not appl
   value.shortcuts = { ...value.shortcuts, registered: [true, true, true] };
   const ui = await mount(value);
   try {
+    await ui.click("快捷键");
     await ui.type("Ctrl+Alt+I", "#shortcut-input");
     await ui.render({ ...value, shortcuts: { ...value.shortcuts } });
     expect(
@@ -313,6 +330,7 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
   };
   const ui = await mount(value);
   try {
+    await ui.click("快捷键");
     expect(
       ui.element.querySelector<HTMLInputElement>("#shortcut-input")!.value,
     ).toBe("Option+Command+I");
@@ -379,6 +397,170 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
       command: "ask_text",
       args: { text: "Translate this." },
     });
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings returns to input, Ask and follow-up drafts without submitting or losing focus", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const value = state(mode);
+    const ui = await mount(value);
+    try {
+      await ui.type("Keep my unsent draft.\n第二行");
+      if (mode === "input") await ui.key("ArrowDown", false, { altKey: true });
+      await act(async () =>
+        ui.element
+          .querySelector<HTMLButtonElement>('[aria-label="设置"]')!
+          .click(),
+      );
+      expect(ui.calls).toEqual([
+        { command: "set_mode", args: { mode: "settings" } },
+      ]);
+      const settings = {
+        ...value,
+        desktop: { ...value.desktop, mode: "settings" as const },
+      };
+      await ui.render(settings);
+      expect(
+        ui.element.querySelector(".launcher.settings-launcher"),
+      ).not.toBeNull();
+      expect(
+        ui.element.querySelector("#api-key")!.closest("[hidden]"),
+      ).not.toBeNull();
+      await ui.click("账户");
+      expect(
+        ui.element.querySelector("#api-key")!.closest("[hidden]"),
+      ).toBeNull();
+      expect(ui.element.querySelector(".panel")).toBeNull();
+      await ui.type("UNSAVED_SECRET", "#api-key");
+      // Polling and a model settings update must not erase the suspended draft.
+      await ui.render({
+        ...settings,
+        model: {
+          ...settings.model,
+          settings: { ...settings.model.settings, target: "English" },
+        },
+      });
+      if (mode === "input") {
+        await ui.click("返回设置");
+        expect(ui.calls).toHaveLength(1);
+        await ui.click("返回导航窗口");
+      } else {
+        await ui.key("Escape");
+        expect(ui.calls).toHaveLength(1);
+        await ui.key("Escape");
+      }
+      expect(ui.calls.at(-1)).toEqual({
+        command: "back_reading",
+        args: undefined,
+      });
+      await ui.render(value);
+      const input = ui.element.querySelector<
+        HTMLInputElement | HTMLTextAreaElement
+      >("input, textarea")!;
+      expect(input.value).toBe(
+        mode === "input"
+          ? "Keep my unsent draft.\n第二行"
+          : "Keep my unsent draft.第二行",
+      );
+      expect(document.activeElement).toBe(input);
+      if (mode === "input") {
+        expect(
+          ui.element.querySelector(".action.selected")!.textContent,
+        ).toContain("作为新问题提问");
+        await ui.key("Enter");
+        expect(ui.calls.at(-1)?.command).toBe("ask_text");
+      } else {
+        expect(ui.calls).toHaveLength(2);
+      }
+      await ui.render(settings);
+      await ui.click("账户");
+      expect(
+        ui.element.querySelector<HTMLInputElement>("#api-key")!.value,
+      ).toBe("");
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("returning from settings after a new reading clears the previous draft", async () => {
+  const value = state("input");
+  const ui = await mount(value);
+  try {
+    await ui.type("An old draft");
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, mode: "settings" },
+    });
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, epoch: value.desktop.epoch + 1 },
+    });
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings categories navigate independently and preserve shortcut edits across subpages", async () => {
+  const value = state("settings");
+  const ui = await mount(value);
+  try {
+    expect(
+      ui.element
+        .querySelector('[aria-label="设置分类"]')!
+        .hasAttribute("hidden"),
+    ).toBe(false);
+    expect(
+      ui.element.querySelector(".settings-form")!.hasAttribute("hidden"),
+    ).toBe(true);
+    await ui.click("快捷键");
+    expect(
+      ui.element.querySelector("#api-key")!.closest("[hidden]"),
+    ).not.toBeNull();
+    expect(
+      ui.element.querySelector("#target")!.closest("[hidden]"),
+    ).not.toBeNull();
+    await ui.type("Ctrl+Alt+Q", "#shortcut-input");
+    await ui.key("Escape", true);
+    expect(ui.element.querySelector('[aria-label="返回设置"]')).not.toBeNull();
+    await ui.key("Escape");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("快捷键");
+    const keyButton = document.activeElement!;
+    await act(async () =>
+      keyButton.dispatchEvent(
+        new dom.KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          bubbles: true,
+        }) as unknown as Event,
+      ),
+    );
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("翻译偏好");
+    await ui.click("翻译偏好");
+    expect(ui.element.querySelector("#target")!.closest("[hidden]")).toBeNull();
+    expect(
+      ui.element.querySelector("#shortcut-input")!.closest("[hidden]"),
+    ).not.toBeNull();
+    await ui.click("返回设置");
+    await ui.click("快捷键");
+    await ui.render({ ...value, shortcuts: { ...value.shortcuts } });
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!.value,
+    ).toBe("Ctrl+Alt+Q");
+    expect(ui.calls).toHaveLength(0);
+    await ui.click("保存快捷键");
+    expect(ui.calls).toEqual([
+      {
+        command: "save_shortcuts",
+        args: {
+          bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+Q" },
+        },
+      },
+    ]);
   } finally {
     await ui.close();
   }

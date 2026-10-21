@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { formatShortcut } from "./keyboard";
-import { ShortcutSettings } from "./shortcuts";
+import { Settings } from "./settings";
 import {
   matchingActions,
   contextLabel,
@@ -95,7 +95,11 @@ export function Desktop({
   const [selected, setSelected] = useState(0);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [key, setKey] = useState("");
+  const previousView = useRef({
+    mode,
+    epoch: d.epoch,
+    revision: d.modelRevision,
+  });
   const queryInput = useRef<HTMLInputElement>(null);
   const draftInput = useRef<HTMLTextAreaElement>(null);
   const answer = useRef<HTMLDivElement>(null);
@@ -146,23 +150,35 @@ export function Desktop({
     setSelected(0);
   }, [query]);
   useEffect(() => {
-    // Clear only after Rust accepts a new question; polling and streamed chunks
-    // must leave a follow-up draft intact.
-    if (mode === "ask-result") setQuery("");
-  }, [mode, d.modelRevision]);
-  useEffect(() => {
-    setSourceOpen(false);
-    if (mode === "ask") {
+    const previous = previousView.current;
+    const returningFromSettings =
+      previous.mode === "settings" && previous.epoch === d.epoch;
+    previousView.current = { mode, epoch: d.epoch, revision: d.modelRevision };
+    // Settings temporarily replaces the launcher. Returning must not consume
+    // a draft; a new source or accepted question still resets the right input.
+    if (
+      mode === "ask-result" &&
+      (!returningFromSettings || previous.revision !== d.modelRevision)
+    ) {
       setQuery("");
-      setSelected(0);
     }
-    if (mode === "input") {
-      setInput("");
-      setSelected(0);
-      draftInput.current?.focus();
+    if (
+      !returningFromSettings &&
+      (previous.mode !== mode || previous.epoch !== d.epoch)
+    ) {
+      setSourceOpen(false);
+      if (mode === "ask") {
+        setQuery("");
+        setSelected(0);
+      }
+      if (mode === "input") {
+        setInput("");
+        setSelected(0);
+      }
     }
-    if (isAsk) queryInput.current?.focus();
-  }, [mode, d.epoch, isAsk]);
+    if (mode === "input") draftInput.current?.focus();
+    if (mode === "ask" || mode === "ask-result") queryInput.current?.focus();
+  }, [mode, d.epoch, d.modelRevision]);
   useEffect(() => {
     if (answer.current) answer.current.scrollTop = answer.current.scrollHeight;
   }, [model.output]);
@@ -174,7 +190,7 @@ export function Desktop({
   }, [input, isInput]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || isImeKey(e)) return;
+      if (mode === "settings" || e.key !== "Escape" || isImeKey(e)) return;
       e.preventDefault();
       if (mode === "ask-result") {
         void perform("cancel_task");
@@ -584,93 +600,6 @@ export function Desktop({
       </main>
     );
   return (
-    <main className="panel surface">
-      <header className="panel-header" data-tauri-drag-region>
-        <span data-tauri-drag-region>
-          <Icon name="sofa" />
-          LingoSofa <small>设置</small>
-        </span>
-        <button className="icon-button" aria-label="返回阅读" onClick={back}>
-          <Icon name="close" />
-        </button>
-      </header>
-      <section className="settings-form">
-        <h1>阅读，少一点打扰。</h1>
-        <label htmlFor="api-key">
-          DeepSeek API Key{" "}
-          <span>{model.keyConfigured ? "已加密保存" : "尚未配置"}</span>
-        </label>
-        <div className="key-row">
-          <input
-            id="api-key"
-            type="password"
-            autoComplete="off"
-            placeholder="仅保存在本机，使用 Windows 加密"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-          />
-          <button
-            disabled={!key.trim()}
-            onClick={() => {
-              void perform("save_account", { key: key.trim() });
-              setKey("");
-            }}
-          >
-            保存
-          </button>
-        </div>
-        {model.keyConfigured && (
-          <button
-            className="text-button"
-            onClick={() => void perform("save_account", { key: "" })}
-          >
-            移除账户
-          </button>
-        )}
-        <p>DeepSeek V4.1 Flash · 翻译与提问会将文本发送至 DeepSeek。</p>
-        <label htmlFor="target">默认翻译语言</label>
-        <select
-          id="target"
-          value={model.settings.target}
-          onChange={(e) =>
-            void perform("save_settings", {
-              settings: { ...model.settings, target: e.target.value },
-            })
-          }
-        >
-          {["简体中文", "English", "日本語", "한국어"].map((l) => (
-            <option key={l}>{l}</option>
-          ))}
-        </select>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={model.settings.pinned}
-            onChange={(e) =>
-              void perform("save_settings", {
-                settings: { ...model.settings, pinned: e.target.checked },
-              })
-            }
-          />
-          Ask 与输入窗口保持置顶
-        </label>
-        <small>
-          仅在主动翻译时读取选区；位置失效后收起，不改变原应用排版。
-        </small>
-        <div className="usage">
-          {model.reportedTokens.toLocaleString()} tokens
-          {model.unknownCalls ? ` · ${model.unknownCalls} 次用量不完整` : ""}
-        </div>
-        <ShortcutSettings
-          key={state.shortcuts.revision}
-          snapshot={state.shortcuts}
-          notice={notice}
-          perform={perform}
-        />
-      </section>
-      <footer className="panel-footer" role="status">
-        {message || model.message}
-      </footer>
-    </main>
+    <Settings state={state} notice={message} perform={perform} onBack={back} />
   );
 }

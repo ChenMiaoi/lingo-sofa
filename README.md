@@ -68,6 +68,8 @@ There is no published desktop release yet. [Build from source](#development) to 
 
 On macOS, these defaults appear as **⌥⇧Space**, **⌥⇧S**, and **⌥⇧T**. Custom combinations accept **Command/Cmd/Meta/Super**, **Option/Alt** (also **Opt**), **Control/Ctrl**, and **Shift**, or symbols such as `⌘⌥Q` and `⌘+⌥+Q`. Include Command, Option, or Control with a letter, digit, Space, or F1–F24. Windows keeps its existing Ctrl/Alt combinations.
 
+Settings shares the input and Ask launcher, with a category menu leading to separate account, translation preferences, and shortcut pages. The back button or Esc returns one level at a time: first to Settings, then to your previous input or Ask page with its unsent draft intact.
+
 Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
 Inside the input panel, **Enter** runs the selected action, **Shift+Enter** inserts a new line, **Alt+↑↓** switches actions, and **Esc** returns to reading. On macOS the hints use **↩**, **⇧↩**, and **⌥↑↓**. Reopening an already open input panel with its shortcut preserves the draft.
