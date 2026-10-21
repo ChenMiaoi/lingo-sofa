@@ -1,0 +1,13 @@
+{
+  "scope": "earlier native input translation before the visual revision",
+  "observations": [
+    {
+      "case": "translation-completed",
+      "accessibility": {
+        "document_text": "Ask 问题或动作",
+        "focused_element": "9 文档 LingoSofa Value: http://tauri.localhost/ ID: RootWebArea",
+        "tree": "Window: \"LingoSofa\", App: lingo-sofa-desktop.exe.\n\t0 窗口 LingoSofa Secondary Actions: Raise\n\t\t1 窗格\n\t\t\t2 窗格 LingoSofa\n\t\t\t\t3 窗格 (disabled)\n\t\t\t\t4 区域 LingoSofa - Web 内容\n\t\t\t\t\t5 区域\n\t\t\t\t\t\t6 区域\n\t\t\t\t\t\t7 区域\n\t\t\t\t\t\t\t8 区域\n\t\t\t\t\t\t\t\t9 文档 LingoSofa Value: http://tauri.localhost/ ID: RootWebArea\n\t\t\t\t\t\t\t\t\t13 组 ID: root\n\t\t\t\t\t\t\t\t\t\t10 主要\n\t\t\t\t\t\t\t\t\t\t\t20 章节标题\n\t\t\t\t\t\t\t\t\t\t\t\t35 编辑 (settable, string) Ask 问题或动作 Description: 继续追问这段内容\n\t\t\t\t\t\t\t\t\t\t\t\t22 按钮 返回阅读\n\t\t\t\t\t\t\t\t\t\t\t23 按钮 输入文本\n\t\t\t\t\t\t\t\t\t\t\t36 按钮 移除当前原文 Description: 移除当前原文并新建会话\n\t\t\t\t\t\t\t\t\t\t\t24 文本 输入文本\n\t\t\t\t\t\t\t\t\t\t\t25 文本 · 68 字符\n\t\t\t\t\t\t\t\t\t\t\t26 按钮 设置 Description: 设置\n\t\t\t\t\t\t\t\t\t\t\t28 文本 译文 · 可继续追问\n\t\t\t\t\t\t\t\t\t\t\t37 按钮 返回动作\n\t\t\t\t\t\t\t\t\t\t\t38 组\n\t\t\t\t\t\t\t\t\t\t\t\t39 文本 测试项目代码是 CEDAR-641。 请保持项目代码不变。\n\t\t\t\t\t\t\t\t\t\t\t40 按钮 复制\n\t\t\t\t\t\t\t\t\t\t\t41 按钮 压缩会话 Description: 整理上下文并保留要点，会产生模型调用\n\t\t\t\t\t\t\t\t\t\t\t42 文本 165\n\t\t\t\t\t\t\t\t\t\t\t43 文本 tokens\n\t\t\t\t\t\t\t\t\t\t\t32 章节页脚\n\t\t\t\t\t\t\t\t\t\t\t\t33 文本 输入问题后 Enter 继续 · Esc 返回动作\n\t\t\t\t\t\t\t\t\t\t\t\t34 文本 Ask 模式 · 主动展开\n\t\t\t\t\t\t\t\t12 区域\n\nDocument text: ```\nAsk 问题或动作\n```"
+      }
+    }
+  ]
+}

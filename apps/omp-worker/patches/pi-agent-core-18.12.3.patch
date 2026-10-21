@@ -1,0 +1,30 @@
+diff --git a/src/compaction/compaction.ts b/src/compaction/compaction.ts
+index 1685578..5273a80 100644
+--- a/src/compaction/compaction.ts
++++ b/src/compaction/compaction.ts
+@@ -2188,2 +2188,7 @@
+-		// Generate both summaries in parallel
+-		const [historyResult, turnPrefixResult] = await Promise.all([
++		// A failed summary owns cancellation of its sibling. Drain both branches
++		// before returning so retries cannot outlive the compaction operation.
++		const summaryController = new AbortController();
++		const summarySignal = signal
++			? AbortSignal.any([signal, summaryController.signal])
++			: summaryController.signal;
++		const summaries = [
+@@ -2196 +2201 @@
+-						signal,
++						summarySignal,
+@@ -2202,2 +2207,10 @@
+-			generateTurnPrefixSummary(turnPrefixMessages, model, reserveTokens, apiKey, signal, summaryOptions),
+-		]);
++			generateTurnPrefixSummary(turnPrefixMessages, model, reserveTokens, apiKey, summarySignal, summaryOptions),
++		].map(promise =>
++			promise.catch(error => {
++				summaryController.abort(error);
++				throw error;
++			}),
++		);
++		const [historyResult, turnPrefixResult] = await Promise.all(summaries).finally(() =>
++			Promise.allSettled(summaries),
++		);

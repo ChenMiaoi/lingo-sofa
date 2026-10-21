@@ -1,0 +1,43 @@
+{
+  "recordedAt": "2026-10-20T22:51:07.4910906Z",
+  "mode": "guided Windows native UI acceptance",
+  "tool": "computer-use @oai/sky window2",
+  "realModel": true,
+  "isolatedProfile": true,
+  "applications": [
+    "Notepad 11.2607.14.0",
+    "VS Code with isolated profile, extensions disabled, renderer accessibility enabled"
+  ],
+  "passedCases": [
+    "Notepad selection translation",
+    "Notepad scroll dismissal",
+    "Ask selected source MAPLE-731",
+    "VS Code selection translation",
+    "VS Code scroll dismissal",
+    "Empty selection fails without document fallback",
+    "Clipboard Alt+Shift+T entry and usage terminal",
+    "New selection CEDAR-284 replaces prior context",
+    "Ask preserves source after anchor expiry",
+    "Source focus preserved after scroll",
+    "Accepted question clears input",
+    "Empty Enter does not repeat request",
+    "Esc answer to actions to idle"
+  ],
+  "regressions": {
+    "typescriptAndProtocol": 18,
+    "rustRuntime": 46,
+    "rustShell": 1,
+    "lint": true,
+    "typecheck": true,
+    "format": true,
+    "clippy": true,
+    "fullCheck": true
+  },
+  "limits": [
+    "Two tested applications only",
+    "VS Code accessibility explicitly enabled",
+    "No browser/Discord/PDF/admin or mixed-DPI acceptance",
+    "IME event regression only, no native Chinese IME end-to-end",
+    "Guided native run, not unattended OS regression"
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-21",
+  "packaged": true,
+  "passed": true,
+  "tests": [
+    {
+      "name": "vault::tests::actual_sqlite_write_failure_rolls_back_and_invalid_credentials_are_rejected",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::dpapi_roundtrip_tamper_and_account_binding",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::durable_cas_delete_failure_and_no_plaintext",
+      "passed": true
+    },
+    {
+      "name": "cancel_is_correlated_terminal_and_session_can_be_reused",
+      "passed": true
+    },
+    {
+      "name": "crash_timeout_and_invalid_messages_terminate_without_replay",
+      "passed": true
+    },
+    {
+      "name": "credentials_commit_refresh_logout_restart_and_failure",
+      "passed": true
+    },
+    {
+      "name": "duplicate_response_stderr_backpressure_and_bounded_admission",
+      "passed": true
+    },
+    {
+      "name": "explicit_restart_loses_sessions_and_does_not_replay_generation",
+      "passed": true
+    },
+    {
+      "name": "failed_credential_handshake_cleans_up_partial_initialization",
+      "passed": true
+    },
+    {
+      "name": "job_kills_descendant_on_host_drop",
+      "passed": true
+    },
+    {
+      "name": "lazy_start_handshake_utf8_streaming_and_graceful_recycle",
+      "passed": true
+    },
+    {
+      "name": "logout_fences_an_inflight_refresh_without_resurrecting_credentials",
+      "passed": true
+    },
+    {
+      "name": "operating_system_reaps_worker_and_descendant_when_rust_host_is_killed",
+      "passed": true
+    },
+    {
+      "name": "protocol_fragmented_utf8_limits_and_invalid_frames",
+      "passed": true
+    }
+  ],
+  "hashes": {
+    "src/ipc.ts": "ecf086cbe3acce552568565269ff0be51406b6dfff6bdb9f9772baf4e5ff5323",
+    "src/ipc.test.ts": "84fc7162b31b4a2fea5a50915849874ea8b5034434eca9f5a340fbd0e0244cad",
+    "src/restricted-sdk.ts": "60da71b893f8446d35c2b4cfbb4bc59ab836e293594bc482680ded4d28f9cf04",
+    "src/run-host.ts": "79c90da2dc33da29ce6b5cdb45eea602b2e49cad2cfefedb4fb9c0179e360688",
+    "host/Cargo.toml": "e470efe1925d505585097c42af6e58aeb06740e9489bbe7e3d14dac75762b18c",
+    "host/Cargo.lock": "2fa05abed6f09dd7a5819d247dbdcdc4beea49e2fe5417675f9c029545c2e50a",
+    "host/src/lib.rs": "2d815202fa0b7c3053510a32a1570ba18cbad77182448fff9fc3e2ed737c28bd",
+    "host/src/client.rs": "6f01b0c8146826de43859a84241a2b47d4d07d469334cec334d4bf4e95b9ed40",
+    "host/src/protocol.rs": "dc19a5c04b43245d0bdcbb49448b7e1c604ce5eb2c5c0b7d39f975d8d0dcf15e",
+    "host/src/vault.rs": "56cfcadbec4914d9d768910ec2f5bb6b69dbf70f0dd3eef9145c6efd43d29f7d",
+    "host/src/windows.rs": "abd97a05440639a9cb8d0452a29461513c48f697401f60341e302672da2d6991",
+    "host/src/bin/w0-parent.rs": "d2a39bb0a5975b66f66dd6761fb78371e87da73d319f194749c524f015741e60",
+    "host/tests/host.rs": "9f791545c2772c7e064e69e5f02cd751d6c12f0d613c1caaf1de35eea90b234f",
+    "bun.lock": "1209efeb62dc4767dfdbf0de0febe98af553197419852bc5e96e418e9ad8ef27",
+    "patches/pi-agent-core-18.12.3.patch": "2588b94bb44cd29e45e066259a5a8115b63a1170f8152feef7e7759f0329db4b",
+    "worker.ts": "6e5ad3406b20a24ba17aa8625ac1ad691c4f8b2b86d75874a0d5b3be054762ba",
+    "worker.exe": "a01b981f9c6313e18b51bb95aecfaf0d0c2baf6abf165fe707f3accc48e1181a",
+    "fault-worker.ts": "a89c16ee4bfd86583d11ac4f4cd309c6dcf427cd403fc61b6133afbd993673ad",
+    "fault-worker.exe": "2e1420b83dbddbc71b05ff3c1895b9be57332106e5b34e3fc10d8e20568453fa"
+  }
+}

@@ -20,7 +20,7 @@
 - Run regression tests for changed behavior; shared code/protocol changes need consumer checks.
   行为变更需回归测试，共享代码或协议变更需验证相关消费端。
 - For relevant changes, use browser E2E, verify:vencord, or packaged assistant verification.
-  按改动范围执行浏览器 E2E、Vencord 或助手安装包验证。
+  按改动范围执行桌面操作、worker 或 Windows 安装包验证。
 - For documentation-only changes, check formatting, links and file references; no new code tests are needed.
   纯文档改动检查格式、链接和文件引用，不需新增代码测试。 -->
 
@@ -36,9 +36,9 @@
 
 ## Compatibility and migration / 兼容性与迁移
 
-<!-- Describe any need to upgrade clients, assistant or Native Host together, migrate settings,
+<!-- Describe any need to upgrade desktop and worker together, migrate settings,
 or update dependency notices. Write "Not applicable" when there is no such impact.
-如需同步升级客户端、助手或 Native Host，迁移配置或更新依赖声明，请在此说明；无影响可填“不适用”。 -->
+如需同步升级桌面与 worker，迁移配置或更新依赖声明，请在此说明；无影响可填“不适用”。 -->
 
 ## Checklist / 检查清单
 

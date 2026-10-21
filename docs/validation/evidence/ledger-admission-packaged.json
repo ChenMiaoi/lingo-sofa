@@ -1,0 +1,122 @@
+{
+  "date": "2026-10-21",
+  "packaged": true,
+  "passed": true,
+  "tests": [
+    {
+      "name": "usage::tests::durable_terminal_is_idempotent_and_does_not_release_another_permit",
+      "passed": true
+    },
+    {
+      "name": "usage::tests::exclusive_owner_and_write_failure_fail_closed_without_sensitive_fields",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::actual_sqlite_write_failure_rolls_back_and_invalid_credentials_are_rejected",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::dpapi_roundtrip_tamper_and_account_binding",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::durable_cas_delete_failure_and_no_plaintext",
+      "passed": true
+    },
+    {
+      "name": "actual_host_crash_recovers_pending_and_preserves_committed_terminal",
+      "passed": true
+    },
+    {
+      "name": "cancel_is_correlated_terminal_and_session_can_be_reused",
+      "passed": true
+    },
+    {
+      "name": "cancelled_before_admission_ack_never_dispatches_or_claims_zero_usage",
+      "passed": true
+    },
+    {
+      "name": "compaction_and_generation_usage_reach_rust_before_terminal",
+      "passed": true
+    },
+    {
+      "name": "crash_timeout_and_invalid_messages_terminate_without_replay",
+      "passed": true
+    },
+    {
+      "name": "credentials_commit_refresh_logout_restart_and_failure",
+      "passed": true
+    },
+    {
+      "name": "disconnect_and_cancel_preserve_unknown_or_partial_usage_without_replay",
+      "passed": true
+    },
+    {
+      "name": "duplicate_response_stderr_backpressure_and_bounded_admission",
+      "passed": true
+    },
+    {
+      "name": "explicit_restart_loses_sessions_and_does_not_replay_generation",
+      "passed": true
+    },
+    {
+      "name": "failed_credential_handshake_cleans_up_partial_initialization",
+      "passed": true
+    },
+    {
+      "name": "job_kills_descendant_on_host_drop",
+      "passed": true
+    },
+    {
+      "name": "lazy_start_handshake_utf8_streaming_and_graceful_recycle",
+      "passed": true
+    },
+    {
+      "name": "ledger_io_failure_prevents_dispatch_or_terminal_ack_and_recovery_does_not_replay",
+      "passed": true
+    },
+    {
+      "name": "logout_fences_an_inflight_refresh_without_resurrecting_credentials",
+      "passed": true
+    },
+    {
+      "name": "model_admission_rejects_third_call_and_cancel_releases_one_slot",
+      "passed": true
+    },
+    {
+      "name": "operating_system_reaps_worker_and_descendant_when_rust_host_is_killed",
+      "passed": true
+    },
+    {
+      "name": "protocol_fragmented_utf8_limits_and_invalid_frames",
+      "passed": true
+    },
+    {
+      "name": "repeated_terminal_over_ipc_is_idempotent_and_conflicts_preserve_committed_usage",
+      "passed": true
+    }
+  ],
+  "hashes": {
+    "src/ipc.ts": "c0194395d0ad7832717c34dfa2ca1b5b74907f040e9c7f1689f5e3aa117aba88",
+    "src/ipc.test.ts": "84fc7162b31b4a2fea5a50915849874ea8b5034434eca9f5a340fbd0e0244cad",
+    "src/restricted-sdk.ts": "60da71b893f8446d35c2b4cfbb4bc59ab836e293594bc482680ded4d28f9cf04",
+    "src/run-host.ts": "664571138a47101f057095cecb61c93f3054f08214a1db5ad3c555281006ce7b",
+    "host/Cargo.toml": "7f88cd59e3caddf4bb2dbef0321fb95638964c239a74e091b3d55ddecab97bf4",
+    "host/Cargo.lock": "2fa05abed6f09dd7a5819d247dbdcdc4beea49e2fe5417675f9c029545c2e50a",
+    "host/src/lib.rs": "f4ec7901618be2d99a8d493b0ce5f26115e47e8986ff30c1820605e35cf79748",
+    "host/src/client.rs": "8524e025ce4dc829a8bc0c2f0ad53d595f2ff66f39bd75564e6d60e3763ce01e",
+    "host/src/usage.rs": "2b0c9a3a975b42f90192defdd9c3bd50a50dd2dfe27e49731d4f85cbbba400a4",
+    "host/src/bin/w0-live.rs": "eb1586a97f9ff02a9675c315458b1456762acd38a33d8a8d8bb2289ba30e3ef9",
+    "host/src/protocol.rs": "dc19a5c04b43245d0bdcbb49448b7e1c604ce5eb2c5c0b7d39f975d8d0dcf15e",
+    "host/src/vault.rs": "56cfcadbec4914d9d768910ec2f5bb6b69dbf70f0dd3eef9145c6efd43d29f7d",
+    "host/src/windows.rs": "abd97a05440639a9cb8d0452a29461513c48f697401f60341e302672da2d6991",
+    "host/src/bin/w0-parent.rs": "e3fa3594c1ae0bdbad129240e4d8337f497cce4edc0d1dabae2c32e51928a7f2",
+    "host/tests/host.rs": "27a9c9c22a6ccec63bd83bb3f4dffc2f386234437c5a335366d4b4b5721193c2",
+    "bun.lock": "1209efeb62dc4767dfdbf0de0febe98af553197419852bc5e96e418e9ad8ef27",
+    "patches/pi-agent-core-18.12.3.patch": "2588b94bb44cd29e45e066259a5a8115b63a1170f8152feef7e7759f0329db4b",
+    "worker.ts": "41d38b151b1613f2f47651003682e3c077e556b313b82dc5f30f698b2c9dd8af",
+    "worker.exe": "4219836d7b56543f47941aff10970803d78deacdd7bf93e9b98e3fcbf105b296",
+    "fault-worker.ts": "e5b32385213168245f75c08adace5841e151907c430571188dd1f1c7d53852d8",
+    "fault-worker.exe": "1258edba721063aa745be7bbe26124ea7a4e8294887e59f5eeff4687bd27f19e"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "observations": [
+    {
+      "case": "final-empty-panel",
+      "accessibility": {
+        "document_text": "需要翻译的原文或新问题",
+        "focused_element": "9 文档 LingoSofa Value: http://tauri.localhost/ ID: RootWebArea",
+        "tree": "Window: \"LingoSofa\", App: lingo-sofa-desktop.exe.\n\t0 窗口 LingoSofa Secondary Actions: Raise\n\t\t1 窗格\n\t\t\t2 窗格 LingoSofa\n\t\t\t\t3 窗格 (disabled)\n\t\t\t\t4 区域 LingoSofa - Web 内容\n\t\t\t\t\t5 区域\n\t\t\t\t\t\t6 区域\n\t\t\t\t\t\t7 区域\n\t\t\t\t\t\t\t8 区域\n\t\t\t\t\t\t\t\t9 文档 LingoSofa Value: http://tauri.localhost/ ID: RootWebArea\n\t\t\t\t\t\t\t\t\t13 组 ID: root\n\t\t\t\t\t\t\t\t\t\t10 主要\n\t\t\t\t\t\t\t\t\t\t\t20 章节标题\n\t\t\t\t\t\t\t\t\t\t\t\t21 编辑 (settable, string) 需要翻译的原文或新问题 Description: 输入文字，翻译或提问…\n\t\t\t\t\t\t\t\t\t\t\t\t22 按钮 返回阅读\n\t\t\t\t\t\t\t\t\t\t\t23 文本 独立输入\n\t\t\t\t\t\t\t\t\t\t\t24 按钮 设置 Description: 设置\n\t\t\t\t\t\t\t\t\t\t\t25 区域 匹配动作\n\t\t\t\t\t\t\t\t\t\t\t\t26 文本 选择动作\n\t\t\t\t\t\t\t\t\t\t\t\t27 文本 仅在执行时发送文本\n\t\t\t\t\t\t\t\t\t\t\t\t28 按钮 (disabled) 翻译这段文字 翻译为简体中文 翻译 ↵\n\t\t\t\t\t\t\t\t\t\t\t\t29 按钮 (disabled) 作为新问题提问 直接提问，获取回答 提问\n\t\t\t\t\t\t\t\t\t\t\t30 章节页脚\n\t\t\t\t\t\t\t\t\t\t\t\t31 文本 Enter 执行 · Shift+Enter 换行 · Alt+↑↓ 选择\n\t\t\t\t\t\t\t\t\t\t\t\t32 文本 Esc 收起\n\t\t\t\t\t\t\t\t12 区域\n\nDocument text: ```\n需要翻译的原文或新问题\n```"
+      }
+    },
+    {
+      "case": "final-long-text-scroll",
+      "accessibility": {
+        "document_text": "这是一段用于检查长文本显示的非敏感样文。输入区应当自然增长，达到高度上限后在内部滚动，翻译和提问操作仍完整可见。背景保留柔和的模糊质感，文字保持清晰。",
+        "focused_element": "9 文档 LingoSofa Value: http://tauri.localhost/ ID: RootWebArea",
+        "tree": "Window: \"LingoSofa\", App: lingo-sofa-desktop.exe.\n\t0 窗口 LingoSofa Secondary Actions: Raise\n\t\t1 窗格\n\t\t\t2 窗格 LingoSofa\n\t\t\t\t3 窗格 (disabled)\n\t\t\t\t4 区域 LingoSofa - Web 内容\n\t\t\t\t\t5 区域\n\t\t\t\t\t\t6 区域\n\t\t\t\t\t\t7 区域\n\t\t\t\t\t\t\t8 区域\n\t\t\t\t\t\t\t\t9 文档 LingoSofa Value: http://tauri.localhost/ ID: RootWebArea\n\t\t\t\t\t\t\t\t\t13 组 ID: root\n\t\t\t\t\t\t\t\t\t\t10 主要\n\t\t\t\t\t\t\t\t\t\t\t20 章节标题\n\t\t\t\t\t\t\t\t\t\t\t\t21 编辑 (settable, string) 需要翻译的原文或新问题 Description: 输入文字，翻译或提问…\n\t\t\t\t\t\t\t\t\t\t\t\t22 按钮 返回阅读\n\t\t\t\t\t\t\t\t\t\t\t23 文本 独立输入\n\t\t\t\t\t\t\t\t\t\t\t24 按钮 设置 Description: 设置\n\t\t\t\t\t\t\t\t\t\t\t25 区域 匹配动作\n\t\t\t\t\t\t\t\t\t\t\t\t26 文本 选择动作\n\t\t\t\t\t\t\t\t\t\t\t\t27 文本 仅在执行时发送文本\n\t\t\t\t\t\t\t\t\t\t\t\t28 按钮 (disabled) 翻译这段文字 翻译为简体中文 翻译 ↵\n\t\t\t\t\t\t\t\t\t\t\t\t29 按钮 (disabled) 作为新问题提问 直接提问，获取回答 提问\n\t\t\t\t\t\t\t\t\t\t\t30 章节页脚\n\t\t\t\t\t\t\t\t\t\t\t\t31 文本 Enter 执行 · Shift+Enter 换行 · Alt+↑↓ 选择\n\t\t\t\t\t\t\t\t\t\t\t\t32 文本 Esc 收起\n\t\t\t\t\t\t\t\t12 区域\n\nDocument text: ```\n这是一段用于检查长文本显示的非敏感样文。输入区应当自然增长，达到高度上限后在内部滚动，翻译和提问操作仍完整可见。背景保留柔和的模糊质感，文字保持清晰。\n```"
+      }
+    }
+  ]
+}

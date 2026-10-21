@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LingoSofa",
+  "version": "0.1.0",
+  "identifier": "com.lingosofa.desktop",
+  "build": {
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LingoSofa",
+        "theme": "Dark",
+        "width": 48,
+        "height": 48,
+        "minWidth": 1,
+        "minHeight": 1,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "resizable": false,
+        "shadow": false,
+        "skipTaskbar": true,
+        "focus": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "resources": {
+      "resources/": "runtime/"
+    },
+    "icon": ["icons/icon.ico"]
+  }
+}

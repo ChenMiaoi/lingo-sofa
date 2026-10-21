@@ -1,0 +1,174 @@
+{
+  "date": "2026-10-21",
+  "packaged": false,
+  "passed": true,
+  "tests": [
+    {
+      "name": "scheduler::tests::bounded_queue_cancel_expiry_and_revision_rejection_are_atomic",
+      "passed": true
+    },
+    {
+      "name": "scheduler::tests::cancellation_does_not_release_running_work_until_terminal_and_results_are_bounded",
+      "passed": true
+    },
+    {
+      "name": "scheduler::tests::manual_priority_fifo_and_bounded_starvation",
+      "passed": true
+    },
+    {
+      "name": "scheduler::tests::session_serialization_compaction_reservation_and_stale_result_fencing",
+      "passed": true
+    },
+    {
+      "name": "usage::tests::durable_terminal_is_idempotent_and_does_not_release_another_permit",
+      "passed": true
+    },
+    {
+      "name": "usage::tests::exclusive_owner_and_write_failure_fail_closed_without_sensitive_fields",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::actual_sqlite_write_failure_rolls_back_and_invalid_credentials_are_rejected",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::dpapi_roundtrip_tamper_and_account_binding",
+      "passed": true
+    },
+    {
+      "name": "vault::tests::durable_cas_delete_failure_and_no_plaintext",
+      "passed": true
+    },
+    {
+      "name": "actual_host_crash_recovers_pending_and_preserves_committed_terminal",
+      "passed": true
+    },
+    {
+      "name": "business_priority_runs_manual_before_background_over_real_ipc",
+      "passed": true
+    },
+    {
+      "name": "business_queue_is_bounded_and_controls_remain_available_when_full",
+      "passed": true
+    },
+    {
+      "name": "business_wait_timeout_does_not_cancel_or_lose_running_task",
+      "passed": true
+    },
+    {
+      "name": "cancel_is_correlated_terminal_and_session_can_be_reused",
+      "passed": true
+    },
+    {
+      "name": "cancelled_before_admission_ack_never_dispatches_or_claims_zero_usage",
+      "passed": true
+    },
+    {
+      "name": "compaction_and_generation_usage_reach_rust_before_terminal",
+      "passed": true
+    },
+    {
+      "name": "crash_timeout_and_invalid_messages_terminate_without_replay",
+      "passed": true
+    },
+    {
+      "name": "credentials_commit_refresh_logout_restart_and_failure",
+      "passed": true
+    },
+    {
+      "name": "disconnect_and_cancel_preserve_unknown_or_partial_usage_without_replay",
+      "passed": true
+    },
+    {
+      "name": "duplicate_response_stderr_backpressure_and_bounded_admission",
+      "passed": true
+    },
+    {
+      "name": "expired_queued_task_does_not_start_worker",
+      "passed": true
+    },
+    {
+      "name": "explicit_restart_loses_sessions_and_does_not_replay_generation",
+      "passed": true
+    },
+    {
+      "name": "failed_credential_handshake_cleans_up_partial_initialization",
+      "passed": true
+    },
+    {
+      "name": "job_kills_descendant_on_host_drop",
+      "passed": true
+    },
+    {
+      "name": "lazy_start_handshake_utf8_streaming_and_graceful_recycle",
+      "passed": true
+    },
+    {
+      "name": "ledger_io_failure_prevents_dispatch_or_terminal_ack_and_recovery_does_not_replay",
+      "passed": true
+    },
+    {
+      "name": "live_entry_uses_queue_for_generation_compaction_and_cancellation_with_durable_usage",
+      "passed": true
+    },
+    {
+      "name": "logout_fences_an_inflight_refresh_without_resurrecting_credentials",
+      "passed": true
+    },
+    {
+      "name": "model_admission_rejects_third_call_and_cancel_releases_one_slot",
+      "passed": true
+    },
+    {
+      "name": "operating_system_reaps_worker_and_descendant_when_rust_host_is_killed",
+      "passed": true
+    },
+    {
+      "name": "protocol_fragmented_utf8_limits_and_invalid_frames",
+      "passed": true
+    },
+    {
+      "name": "queued_cancellation_expiry_and_supersession_never_dispatch_http",
+      "passed": true
+    },
+    {
+      "name": "queued_compaction_reserves_global_capacity_and_both_branches_are_accounted",
+      "passed": true
+    },
+    {
+      "name": "repeated_terminal_over_ipc_is_idempotent_and_conflicts_preserve_committed_usage",
+      "passed": true
+    },
+    {
+      "name": "running_business_result_is_fenced_after_revision_changes_and_session_stays_serial",
+      "passed": true
+    },
+    {
+      "name": "task_event_wait_terminal_and_timeout_preserve_host_and_cancellation",
+      "passed": true
+    }
+  ],
+  "hashes": {
+    "src/ipc.ts": "c0194395d0ad7832717c34dfa2ca1b5b74907f040e9c7f1689f5e3aa117aba88",
+    "src/ipc.test.ts": "84fc7162b31b4a2fea5a50915849874ea8b5034434eca9f5a340fbd0e0244cad",
+    "src/restricted-sdk.ts": "60da71b893f8446d35c2b4cfbb4bc59ab836e293594bc482680ded4d28f9cf04",
+    "src/run-host.ts": "70736e8f1dae1f546d889bae49c2bd3eb2e27f003328c18173f43230eb6e9c59",
+    "host/Cargo.toml": "7f88cd59e3caddf4bb2dbef0321fb95638964c239a74e091b3d55ddecab97bf4",
+    "host/Cargo.lock": "2fa05abed6f09dd7a5819d247dbdcdc4beea49e2fe5417675f9c029545c2e50a",
+    "host/src/lib.rs": "edfa680c5aee4ac1248f601cf0eee1f4821ac2a028fb9a77c18c8a89d49e3869",
+    "host/src/client.rs": "30ef5445cfa553a72b1f3811d9a78130abb0573229178de7b172af0874536623",
+    "host/src/usage.rs": "2b0c9a3a975b42f90192defdd9c3bd50a50dd2dfe27e49731d4f85cbbba400a4",
+    "host/src/scheduler.rs": "70c9ec8de2b8fd2d0a9757bc42739a983e3872891fdfca381e9b00897990fb27",
+    "host/src/validation.rs": "15cf1c7c6acede68da1d53259eba28712b24eef9ade7277691b371d1f0dd5a5f",
+    "host/src/bin/w0-live.rs": "e710b52917655cf131fe12a01eeee37cda3e87ecdb1ee29b05ee73319c05c05f",
+    "host/src/protocol.rs": "dc19a5c04b43245d0bdcbb49448b7e1c604ce5eb2c5c0b7d39f975d8d0dcf15e",
+    "host/src/vault.rs": "56cfcadbec4914d9d768910ec2f5bb6b69dbf70f0dd3eef9145c6efd43d29f7d",
+    "host/src/windows.rs": "abd97a05440639a9cb8d0452a29461513c48f697401f60341e302672da2d6991",
+    "host/src/bin/w0-parent.rs": "e3fa3594c1ae0bdbad129240e4d8337f497cce4edc0d1dabae2c32e51928a7f2",
+    "host/tests/host.rs": "0be702ab9ad9c0374bc0e0cee7d8cf06de5cf3a77032a8e4b5eea46075e45e12",
+    "bun.lock": "1209efeb62dc4767dfdbf0de0febe98af553197419852bc5e96e418e9ad8ef27",
+    "patches/pi-agent-core-18.12.3.patch": "2588b94bb44cd29e45e066259a5a8115b63a1170f8152feef7e7759f0329db4b",
+    "worker.ts": "7285c68ca333f3fbb777b6522478406e070f4f55a0a5d4e2eaca85066a5a0d02",
+    "fault-worker.ts": "e5b32385213168245f75c08adace5841e151907c430571188dd1f1c7d53852d8"
+  }
+}

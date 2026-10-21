@@ -1,56 +1,53 @@
 {
   "name": "lingo-sofa",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "license": "GPL-3.0-or-later",
   "engines": {
     "node": ">=24.0.0 <25"
   },
   "scripts": {
+    "dev": "bun scripts/desktop.ts dev",
+    "build": "bun scripts/desktop.ts build",
+    "build:worker": "bun scripts/build-worker.ts",
+    "build:web": "vite build --config apps/desktop/vite.config.ts",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "typecheck": "tsc --noEmit && npm run typecheck --workspace @lingo-sofa/browser-extension",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build",
-    "build": "npm run build --workspaces --if-present && npm run verify:extension",
-    "dev": "npm run dev --workspace @lingo-sofa/browser-extension",
-    "test:e2e": "playwright test",
-    "verify:vencord": "node scripts/verify-vencord.mjs",
-    "verify:extension": "node scripts/verify-extension.mjs",
-    "benchmark": "tsx scripts/benchmark.mjs",
-    "verify:real": "tsx scripts/verify-real-provider.mjs",
-    "prepare:release": "npm run build && npm run package:native --workspace @lingo-sofa/pi-bridge && node scripts/prepare-release.mjs",
-    "verify:release": "node scripts/verify-release.mjs",
-    "package:distribution": "node scripts/package-distribution.mjs",
-    "package:windows": "tsx scripts/package-windows.mjs",
-    "setup:discord": "node scripts/setup-discord.mjs",
-    "verify:assistant": "node scripts/verify-assistant.mjs",
-    "release:validate": "node scripts/release.mjs validate",
-    "release:assemble": "node scripts/release.mjs assemble"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests/sdk/ipc.test.ts tests/sdk/compaction-lifecycle.test.ts tests/desktop.test.ts tests/desktop-interaction.test.ts",
+    "test:runtime": "bun tests/sdk/run-host.ts",
+    "test:runtime:packaged": "bun tests/sdk/run-host.ts --packaged",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun test tests/sdk/ipc.test.ts tests/sdk/compaction-lifecycle.test.ts tests/desktop.test.ts tests/desktop-interaction.test.ts && bun tests/sdk/run-host.ts && cargo test --locked -p lingo-sofa-desktop && cargo fmt --all --check && bun run build:worker && bun run build:web && cargo clippy --workspace --all-targets -- -D warnings && cargo build --locked -p lingo-sofa-desktop",
+    "verify:live": "bun --env-file=.env tests/sdk/run-live-host.ts --live",
+    "verify:live:dual": "bun --env-file=.env tests/sdk/run-live-host.ts --live --dual",
+    "test:sdk": "bun tests/sdk/run.ts",
+    "verify:selection": "powershell.exe -NoProfile -STA -File tests/selection-system.ps1"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@playwright/test": "1.64.0",
-    "@types/jsdom": "30.0.0",
-    "@types/node": "24.19.2",
+    "@oh-my-pi/pi-agent-core": "18.12.3",
+    "@oh-my-pi/pi-ai": "18.12.3",
+    "@oh-my-pi/pi-coding-agent": "18.12.3",
+    "@oh-my-pi/pi-natives-win32-x64": "18.12.3",
+    "@tauri-apps/cli": "2.12.3",
+    "@types/bun": "1.3.14",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "esbuild": "0.28.2",
     "eslint": "10.12.0",
-    "jsdom": "29.1.1",
-    "pnpm": "11.28.5",
+    "happy-dom": "21.0.4",
     "prettier": "3.9.10",
-    "tsx": "4.23.15",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.2",
-    "vitest": "5.0.4",
-    "yaml": "2.9.0"
+    "vite": "8.3.4"
   },
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
-  "license": "GPL-3.0-or-later"
+  "patchedDependencies": {
+    "@oh-my-pi/pi-agent-core@18.12.3": "apps/omp-worker/patches/pi-agent-core-18.12.3.patch"
+  }
 }

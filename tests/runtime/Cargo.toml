@@ -1,0 +1,12 @@
+[package]
+name = "lingo-sofa-runtime-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+[dependencies]
+lingo-sofa-omp-client = { path = "../../crates/omp-client" }
+serde_json.workspace = true
+tempfile = "3"
+zeroize = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

@@ -1,0 +1,294 @@
+{
+  "calls": [
+    {
+      "callId": "0f8ac979-2eb2-4f2e-b6cf-363b8eb661e7",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "generation",
+      "requestId": 18,
+      "sessionId": "da6a43c8-81ac-4beb-b331-6904df245b62",
+      "stopReason": "stop",
+      "type": "call_completed",
+      "usage": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 292,
+        "output": 6,
+        "totalTokens": 298
+      },
+      "usageState": "reported"
+    },
+    {
+      "callId": "322beccc-1c33-48c9-8ab0-1051cc71a8d4",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "compaction",
+      "requestId": 17,
+      "sessionId": "da6a43c8-81ac-4beb-b331-6904df245b62",
+      "stopReason": "stop",
+      "type": "call_completed",
+      "usage": {
+        "cacheRead": 896,
+        "cacheWrite": 0,
+        "input": 188,
+        "output": 133,
+        "totalTokens": 1217
+      },
+      "usageState": "reported"
+    },
+    {
+      "callId": "589cac19-f3f8-460f-b9c9-04e65e2aa88c",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "generation",
+      "requestId": 10,
+      "sessionId": "3673477a-1e57-4a66-92d4-8869c2fa1c80",
+      "stopReason": "aborted",
+      "type": "call_completed",
+      "usageState": "unknown"
+    },
+    {
+      "callId": "94629456-d64d-4d6a-80e9-60f9dd09daac",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "generation",
+      "requestId": 8,
+      "sessionId": "da6a43c8-81ac-4beb-b331-6904df245b62",
+      "stopReason": "stop",
+      "type": "call_completed",
+      "usage": {
+        "cacheRead": 768,
+        "cacheWrite": 0,
+        "input": 183,
+        "output": 6,
+        "totalTokens": 957
+      },
+      "usageState": "reported"
+    },
+    {
+      "callId": "9edc9e14-0750-4dc1-beca-577dc2ef5a8d",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "generation",
+      "requestId": 7,
+      "sessionId": "da6a43c8-81ac-4beb-b331-6904df245b62",
+      "stopReason": "stop",
+      "type": "call_completed",
+      "usage": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 928,
+        "output": 4,
+        "totalTokens": 932
+      },
+      "usageState": "reported"
+    },
+    {
+      "callId": "e895e79d-9e38-4594-ba4c-a288c84461b1",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "compaction",
+      "requestId": 17,
+      "sessionId": "da6a43c8-81ac-4beb-b331-6904df245b62",
+      "stopReason": "stop",
+      "type": "call_completed",
+      "usage": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 384,
+        "output": 38,
+        "totalTokens": 422
+      },
+      "usageState": "reported"
+    },
+    {
+      "callId": "f7c34e70-d50b-4ad2-821d-12a15310f2db",
+      "instance": "f0bf7be4-3489-4d47-86a5-22900fb67a69",
+      "model": "deepseek-flash",
+      "pricingKnown": false,
+      "provider": "deepseek",
+      "purpose": "generation",
+      "requestId": 9,
+      "sessionId": "4f1e0f35-01d1-4f68-ad60-eccac0a1289e",
+      "stopReason": "aborted",
+      "type": "call_completed",
+      "usageState": "unknown"
+    }
+  ],
+  "cancelledCallBillingKnown": false,
+  "checks": {
+    "allModelCallsQueued": true,
+    "bothRunningTasksCancelled": true,
+    "bothStreamsProducedText": true,
+    "cleanShutdown": true,
+    "compactionCallsAccounted": true,
+    "dpapiPersistedAndReopened": true,
+    "fullQueueNoDispatch": true,
+    "globalConcurrencyExactlyTwo": true,
+    "keyNotInWorkerEnvironment": true,
+    "noAutomaticReplay": true,
+    "noPlaintextKeyOnDisk": true,
+    "oneSlotNotEnoughForCompaction": true,
+    "priorityAndRecallPreserved": true,
+    "queueAndUsageDrained": true,
+    "queuedCancelNoDispatch": true,
+    "usageLedgerReopened": true,
+    "workerAndLedgerSaturated": true
+  },
+  "compactionCalls": 2,
+  "model": {
+    "contextWindow": 1048576,
+    "credentialSource": "rust-dpapi",
+    "id": "deepseek-flash",
+    "name": "DeepSeek-V4.1-Flash",
+    "requestOutputCap": 512
+  },
+  "observations": [
+    {
+      "activeCallIds": [
+        "f7c34e70-d50b-4ad2-821d-12a15310f2db",
+        "589cac19-f3f8-460f-b9c9-04e65e2aa88c"
+      ],
+      "activeLedgerCalls": 2,
+      "activeProviderCalls": 2,
+      "elapsedMs": 2633,
+      "peakLedgerCalls": 2,
+      "peakProviderCalls": 2,
+      "phase": "both_streaming",
+      "providerCalls": 4,
+      "queuedTasks": 0,
+      "runningTasks": 2
+    },
+    {
+      "activeCallIds": [
+        "f7c34e70-d50b-4ad2-821d-12a15310f2db",
+        "589cac19-f3f8-460f-b9c9-04e65e2aa88c"
+      ],
+      "activeLedgerCalls": 2,
+      "activeProviderCalls": 2,
+      "elapsedMs": 2634,
+      "peakLedgerCalls": 2,
+      "peakProviderCalls": 2,
+      "phase": "full_with_queue",
+      "providerCalls": 4,
+      "queuedTasks": 3,
+      "runningTasks": 2
+    },
+    {
+      "activeCallIds": [
+        "f7c34e70-d50b-4ad2-821d-12a15310f2db",
+        "589cac19-f3f8-460f-b9c9-04e65e2aa88c"
+      ],
+      "activeLedgerCalls": 2,
+      "activeProviderCalls": 2,
+      "elapsedMs": 2634,
+      "peakLedgerCalls": 2,
+      "peakProviderCalls": 2,
+      "phase": "queued_cancelled",
+      "providerCalls": 4,
+      "queuedTasks": 2,
+      "runningTasks": 2
+    },
+    {
+      "activeCallIds": ["589cac19-f3f8-460f-b9c9-04e65e2aa88c"],
+      "activeLedgerCalls": 1,
+      "activeProviderCalls": 1,
+      "elapsedMs": 2656,
+      "peakLedgerCalls": 2,
+      "peakProviderCalls": 2,
+      "phase": "one_slot_free",
+      "providerCalls": 4,
+      "queuedTasks": 2,
+      "runningTasks": 1
+    },
+    {
+      "activeCallIds": [],
+      "activeLedgerCalls": 0,
+      "activeProviderCalls": 0,
+      "elapsedMs": 5581,
+      "peakLedgerCalls": 2,
+      "peakProviderCalls": 2,
+      "phase": "drained",
+      "providerCalls": 7,
+      "queuedTasks": 0,
+      "runningTasks": 0
+    }
+  ],
+  "passed": true,
+  "peakActiveCalls": 2,
+  "peakProviderCalls": 2,
+  "pricingKnown": false,
+  "providerCalls": 7,
+  "scenario": "dual-saturation",
+  "tasks": {
+    "afterCompaction": {
+      "requestId": 18,
+      "taskId": 5
+    },
+    "beforeCompaction": {
+      "requestId": 8,
+      "taskId": 2
+    },
+    "cancelledFirst": {
+      "requestId": 9,
+      "taskId": 3
+    },
+    "cancelledSecond": {
+      "requestId": 10,
+      "taskId": 4
+    },
+    "compaction": {
+      "requestId": 17,
+      "taskId": 6
+    },
+    "queuedCancelled": {
+      "requestId": null,
+      "taskId": 7
+    },
+    "translation": {
+      "requestId": 7,
+      "taskId": 1
+    }
+  },
+  "recordedAt": "2026-10-20T18:52:54.680Z",
+  "execution": {
+    "scenario": "dual-saturation",
+    "compiledWorker": true,
+    "rustHost": true,
+    "exitCode": 0,
+    "sdk": "18.12.3",
+    "bun": "1.3.14"
+  },
+  "hashes": {
+    "src/worker.ts": "75c21c157056f180da523dd454bdd632dec56bba98af1540660c7b204b5ec93a",
+    "src/ipc.ts": "c0194395d0ad7832717c34dfa2ca1b5b74907f040e9c7f1689f5e3aa117aba88",
+    "src/restricted-sdk.ts": "60da71b893f8446d35c2b4cfbb4bc59ab836e293594bc482680ded4d28f9cf04",
+    "src/run-live-host.ts": "129fdd3cbb891e5b2daca17730eaa788a2531c6dea1cd8ff0672c18093866b78",
+    "host/src/bin/w0-live.rs": "98e2e48578caad2d727d90760f96b2bb3e4d7f1217cd7dadb7202be064a1e885",
+    "host/src/usage.rs": "2b0c9a3a975b42f90192defdd9c3bd50a50dd2dfe27e49731d4f85cbbba400a4",
+    "host/src/scheduler.rs": "70c9ec8de2b8fd2d0a9757bc42739a983e3872891fdfca381e9b00897990fb27",
+    "host/src/validation.rs": "67bb7f76faf9179aad924faf526ff6b291d3a8b87500056816abdb31cb680429",
+    "host/src/client.rs": "30ef5445cfa553a72b1f3811d9a78130abb0573229178de7b172af0874536623",
+    "host/src/vault.rs": "56cfcadbec4914d9d768910ec2f5bb6b69dbf70f0dd3eef9145c6efd43d29f7d",
+    "host/src/windows.rs": "abd97a05440639a9cb8d0452a29461513c48f697401f60341e302672da2d6991",
+    "host/src/protocol.rs": "dc19a5c04b43245d0bdcbb49448b7e1c604ce5eb2c5c0b7d39f975d8d0dcf15e",
+    "host/Cargo.toml": "7f88cd59e3caddf4bb2dbef0321fb95638964c239a74e091b3d55ddecab97bf4",
+    "host/Cargo.lock": "2fa05abed6f09dd7a5819d247dbdcdc4beea49e2fe5417675f9c029545c2e50a",
+    "bun.lock": "1209efeb62dc4767dfdbf0de0febe98af553197419852bc5e96e418e9ad8ef27",
+    "patches/pi-agent-core-18.12.3.patch": "2588b94bb44cd29e45e066259a5a8115b63a1170f8152feef7e7759f0329db4b",
+    "worker.exe": "c919afdb68e054e0090b7dc93a71ce618b8acbb7ea170680bf73e3ed1ede856d",
+    "w0-live.exe": "abcb02edc460ffd5f575d64bf2b9512e9f6abc7ebaff61f74ee79c646361ae21"
+  }
+}

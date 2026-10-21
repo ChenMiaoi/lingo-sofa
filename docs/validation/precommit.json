@@ -1,0 +1,168 @@
+{
+  "checkedAt": "2026-10-21T00:12:37.035688+00:00",
+  "scope": "All staged standalone desktop migration changes; local pre-commit verification",
+  "commands": {
+    "bun install --frozen-lockfile": "passed; patch reapplied after format correction",
+    "npm run check": {
+      "passed": true,
+      "tsTests": 22,
+      "runtimeRustTests": 50,
+      "desktopRustTests": 5
+    },
+    "npm run test:runtime:packaged": {
+      "passed": true,
+      "tests": 50
+    },
+    "npm run test:sdk": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "windows-sdk-native-import",
+          "passed": true
+        },
+        {
+          "name": "auth-custom-store-login-refresh-logout",
+          "passed": true
+        },
+        {
+          "name": "isolated-concurrent-session-construction",
+          "passed": true
+        },
+        {
+          "name": "actual-sdk-stream-and-history",
+          "passed": true
+        },
+        {
+          "name": "second-session-does-not-inherit-history",
+          "passed": true
+        },
+        {
+          "name": "manual-pi-session-compaction",
+          "passed": true
+        },
+        {
+          "name": "failed-compaction-preserves-session",
+          "passed": true
+        },
+        {
+          "name": "abort-stream-does-not-resume",
+          "passed": true
+        },
+        {
+          "name": "cancelled-session-401-and-manual-recovery",
+          "passed": true
+        },
+        {
+          "name": "no-automatic-retry-401",
+          "passed": true
+        },
+        {
+          "name": "no-automatic-retry-429",
+          "passed": true
+        },
+        {
+          "name": "no-unexpected-external-network",
+          "passed": true
+        }
+      ]
+    },
+    "bun tests/sdk/run.ts --packaged": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "windows-sdk-native-import",
+          "passed": true
+        },
+        {
+          "name": "auth-custom-store-login-refresh-logout",
+          "passed": true
+        },
+        {
+          "name": "isolated-concurrent-session-construction",
+          "passed": true
+        },
+        {
+          "name": "actual-sdk-stream-and-history",
+          "passed": true
+        },
+        {
+          "name": "second-session-does-not-inherit-history",
+          "passed": true
+        },
+        {
+          "name": "manual-pi-session-compaction",
+          "passed": true
+        },
+        {
+          "name": "failed-compaction-preserves-session",
+          "passed": true
+        },
+        {
+          "name": "abort-stream-does-not-resume",
+          "passed": true
+        },
+        {
+          "name": "cancelled-session-401-and-manual-recovery",
+          "passed": true
+        },
+        {
+          "name": "no-automatic-retry-401",
+          "passed": true
+        },
+        {
+          "name": "no-automatic-retry-429",
+          "passed": true
+        },
+        {
+          "name": "no-unexpected-external-network",
+          "passed": true
+        }
+      ]
+    }
+  },
+  "patchFormatCorrection": {
+    "beforeSha256": "7b56ba2043d8c7dfe939690d1321e8beb6996d49bb75607c3fe250f53d781ffb",
+    "purpose": "zero-context unified diff; preserve patched SDK bytes",
+    "afterSha256": "7b56ba2043d8c7dfe939690d1321e8beb6996d49bb75607c3fe250f53d781ffb",
+    "sdkBytesUnchanged": true,
+    "patchUsesLF": true
+  },
+  "sourceHashes": {
+    "Cargo.toml": "7e41ec771c33589f7b6bed6b15bbe02a4cf2b7a1da53dafecd267b7cd8fd2e6c",
+    "Cargo.lock": "d5e633c095fc93581bf4da450d64e1f491901f58014b2b9def366f317d9496db",
+    "apps/omp-worker/src/runtime.ts": "ab47fb08d41b2b81fe0593a20db821a96d696827bcbe2876502ec7632f171fcd",
+    "apps/omp-worker/src/worker.ts": "77ad000dec8785a006bc75151e32d6ff55d4e842c9f5185b4714d940798ecf40",
+    "apps/omp-worker/src/ipc.ts": "c0194395d0ad7832717c34dfa2ca1b5b74907f040e9c7f1689f5e3aa117aba88",
+    "crates/core/src/scheduler.rs": "70c9ec8de2b8fd2d0a9757bc42739a983e3872891fdfca381e9b00897990fb27",
+    "crates/omp-client/src/client.rs": "76997eb9f6f56922f27226fe37f7be875908d6d145fa509bf8d5ef36200a0940",
+    "crates/app-services/src/lib.rs": "cff3d9393bcc61d9bd1dcfe8db4940af5f788eca6429d19a36933cd5b8bbba05",
+    "crates/selection-helper/src/main.rs": "69d2791f984aea1eb7d820168401ffb99ea327ea250bebd5d2ac4522298ac60d",
+    "apps/desktop/src-tauri/src/shell.rs": "551b8670dd3d67dc61f6139c66335f23827b47ca518aef3974ff2626254ea3ab"
+  },
+  "hashBasis": "Working-tree bytes on Windows; historical validation files retain their original snapshots",
+  "reviewed": [
+    "staged migration diff and deletion scope",
+    "Windows/Tauri configuration and command access checks",
+    "restricted OMP transport and credential environment",
+    "scheduler, durable usage and cancellation boundaries",
+    "shortcuts persistence and failure rollback",
+    "README parity, local links and preview references",
+    "staged credential patterns and exact local-secret matches including design ZIP entries"
+  ],
+  "additionalDocumentationCorrection": "Document persisted shortcut bindings in privacy guide",
+  "noNewPaidCalls": true,
+  "discordMessagesSent": 0,
+  "notRepeated": [
+    "real paid provider calls",
+    "interactive Windows workflows",
+    "NSIS installer build; existing installer acceptance is retained"
+  ],
+  "knownPending": [
+    "browser selection acceptance",
+    "real Chinese IME candidate confirmation",
+    "clean-machine install and mixed DPI",
+    "OCR and broader provider/OAuth support",
+    "distribution license audit and signing"
+  ],
+  "publication": "Local commit only; no push, release, tag or publishing operation"
+}

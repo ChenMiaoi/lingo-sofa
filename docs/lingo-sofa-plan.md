@@ -1,342 +1,161 @@
-# LingoSofa：统一双语翻译与 Pi 助手技术方案及选型
+# LingoSofa：Windows 独立悬浮翻译软件技术方案
 
-**讨论版 v0.3 · 2026-10-14**
+实施版 v0.9 · 2026-10-21。
 
-本版替代此前仅面向 Discord 的 v0.1 作为项目总体设计基线。当前实现、自动验证证据与真实客户端待验收条件见 [验收记录](acceptance.md)；“选型”不等于用户已批准第三方客户端修改或安装。
+现已迁移到 Windows 独立桌面工程，Rust + Tauri 2 + OMP 正式实现见 [当前架构](architecture.md) 和 [本轮验收](acceptance.md)。旧浏览器/Discord/Bridge 源码已删除。W0 模型链路的既有证据保留，UIA 已有记事本、独立 VS Code 与 Discord 实测，浏览器未通过；OCR 与完整 W0–W4 验收仍未完成；以下总体规划包含后续目标。
 
-**2026-10-19 账户存储修订**：大模型账户、Key 与翻译/Ask 默认模型统一由本地助手保存，浏览器和 Discord 共用；不再提供浏览器独立的模型账户或模型直连入口。浏览器旧凭证仅保留至用户发起迁移并收到助手确认，不再用于请求。免 Key 翻译可不依赖助手使用。本文较早涉及浏览器模型直连的选型由此修订替代，迁移、原子写入与失败恢复详见 [架构](architecture.md#独立模型与多账户2026-10-15) 和 [安装说明](installation.md#配置保存与浏览器更新)。
+## 细化设计入口
 
-## 一、产品定位
+| 文档                                       | 负责的决策                                    |
+| ------------------------------------------ | --------------------------------------------- |
+| [模块与接口](windows-modules.md)           | 职责、依赖、进程、任务/事件、存储及迁移       |
+| [模型接入与 OMP](windows-models-and-pi.md) | provider/认证矩阵、OMP 层级与职责、会话和计量 |
+| [OCR 选型](windows-ocr.md)                 | 候选模型、推理/分发链、统一评测与准入目标     |
+| [阶段验收](windows-acceptance-plan.md)     | W0–W4 逐项证据、性能/稳定性目标与完成规则     |
 
-LingoSofa 是统一双语翻译与 Pi 助手项目，提供三个交付物：
+下文定义产品与架构目标，具体实现以 [当前架构](architecture.md) 为准，结果以 [统一验收状态](acceptance.md) 为准。W0 整体未关闭，桌面闭环与部分跨应用能力已实现，不能据此宣称后续阶段通过。
 
-1. **浏览器扩展**：普通网页段落级双语翻译、划词翻译、页面内容问答
-2. **Discord 桌面插件**：逐消息手动翻译、可选自动双语、围绕选中消息提问
-3. **共享本地 Pi Bridge**：默认安装一次，两端按需自动启动；提供完整 Pi 会话、Node 侧认证和共享模型配置
+## 一、选型结论
 
-共用翻译和模型能力，各自适配宿主界面；不是同一个安装包通吃所有平台。
+确定 **Tauri 2 + Rust 桌面核心 + React/TypeScript 界面 + 受限 oh-my-pi SDK/Agent 进程**。OMP 统一负责 LLM provider、认证、翻译/Ask 会话与压缩；安装包携带匹配的 Bun 和 OMP，不要求用户另装运行时或助手。WebView2 的检测与安装由分发方案处理。
 
-核心体验：保留原文、译文就地显示、技术符号不被改写、默认忠实翻译、只有用户主动选择才解释或润色。
+决策按新产品的长期适配性进行：常驻资源、按需窗口、Windows 系统接口、故障隔离、模型与认证能力、跨平台边界、可验证性和持续维护。既有投入和重写工作量不参与取舍；OMP 的 provider/会话能力与持续维护收益作为独立架构依据；后续持续维护成本与依赖风险仍是有效指标。
 
-### 首版范围建议
+| 维度               | Rust 后台 + Tauri                                   | TS 后台 + Electron                            | 对本产品的判断                                          |
+| ------------------ | --------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------- |
+| 常驻与分发         | Rust 核心使用系统 WebView；LLM 按需启动随包 Bun/OMP | 携带 Node 和 Chromium，多进程运行             | 避免私有 Chromium；OMP 仍计入包体与活跃资源，结果需实测 |
+| Windows 系统边界   | 可直接通过 Windows Rust bindings 接 COM/Win32/WinRT | 系统取文等仍需原生模块或辅助进程              | Rust 可统一核心与系统适配层的语言，仍保留故障隔离进程   |
+| 模型网络与流式响应 | OMP worker 统一提供模型请求、流式与取消             | Node 也能完成，供应商 JS SDK 选择丰富         | 两者均胜任，语言不会直接缩短供应商推理时间              |
+| 桌面渲染           | Windows WebView2；跨系统引擎不同                    | 自带 Chromium，渲染版本更可控                 | 当前为轻量翻译窗，优先接受 WebView 的平台验证成本       |
+| 权限与可靠性       | 有类型的命令边界、capabilities、所有权检查          | 可通过隔离渲染进程和受控 IPC 实现             | 两者都需正确设计，Rust 不免除 unsafe/COM/原生库风险     |
+| 长期维护           | Rust 核心与平台适配，TS 界面与 OMP worker 各司其职  | TS 业务与界面，另维护系统适配及内嵌运行时更新 | Rust/Tauri 的职责分工更契合本产品                       |
 
-- 浏览器优先支持 Chrome / Edge 桌面版（MV3）；macOS 和 Windows 为验收平台
-- Discord 候选适配 Vencord；是否采用非官方客户端修改需要单独确认
-- 必须支持逐条/逐段手动翻译；自动模式按网站或频道明确启用
-- 首版不承诺 PDF/OCR、字幕、移动端、Safari、所有 iframe/Shadow DOM、所有任意网站完全兼容
-- Firefox 预留适配，必须单独验证后才能列为支持，不能因构建框架支持就直接宣称产品支持
-- 不自动向网页表单或 Discord 发送生成内容
+Tauri 在 Windows 使用 WebView2，在 macOS/Linux 使用其他系统 WebView；Electron 携带 Chromium 与 Node。这些是框架事实，资源优劣幅度是待测工程判断，不能从安装包较小推导运行内存必然更低。[Tauri 进程模型](https://v2.tauri.app/concept/process-model/)、[Electron 概览](https://www.electronjs.org/docs/latest/)。首次安装需下载 WebView2 的流量、离线分发体积和系统共享运行时占用也应计入比较。[Tauri Windows 分发](https://v2.tauri.app/distribute/windows-installer/)。
 
-## 二、明确选型
+Rust 的职责是窗口、系统接口、任务、存储与产品状态；LLM 请求和对应会话交给 oh-my-pi SDK/Agent。Tauri 使用系统 WebView，OMP 在受控 Bun 子进程运行，因此不应再把“零 JS 运行时”当作选型收益，也不重建平行的 Rust provider/摘要器。完整边界见 [模型与 OMP 架构](windows-models-and-pi.md)。资源比较必须包含所有进程与运行时。
 
-| 层            | 首选                                                    | 为什么                                                                   |
-| ------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
-| 语言/仓库     | TypeScript 严格模式 + npm workspaces + 单一锁文件       | 共享协议和纯逻辑；不额外引入大型构建编排系统                             |
-| 浏览器框架    | WXT + Manifest V3                                       | 管理入口、manifest、开发构建及多浏览器输出；不替代浏览器原生权限机制 [1] |
-| 网页处理      | 原生 DOM API + MutationObserver + IntersectionObserver  | 保留原网页结构；增量发现、按可见性调度                                   |
-| 设置与问答 UI | React + 作用域 CSS                                      | 复用组件逻辑；网页正文不做整页 React 接管                                |
-| Discord UI    | Vencord TypeScript 插件 + 宿主 React                    | 已有消息菜单和下方译文 accessory 的实现参考 [2]                          |
-| 模型统一层    | @earendil-works/pi-ai 的项目适配器                      | 统一模型调用；浏览器可用，但必须验证 MV3 打包与供应商能力 [3]            |
-| 完整 Pi 会话  | Node.js 侧受控 pi-coding-agent SDK                      | 仅在本地 Bridge 中使用；不打进 content script [4]                        |
-| 本地运行时    | 满足锁定 Pi 版本要求的 Node.js                          | 直接接 TypeScript SDK，避免 Rust ↔ Node 双运行时增加首版复杂度           |
-| 结构校验      | Zod                                                     | 统一校验 IPC、模型结果和配置迁移                                         |
-| 浏览器存储    | browser.storage（设置/小量状态）+ IndexedDB（可选缓存） | 不把长文全部塞入同步存储；敏感内容默认不持久化                           |
-| 本地缓存      | 内存 LRU；需要持久化时 SQLite                           | 与浏览器共享缓存规则，不共享实际数据库                                   |
-| 单元/集成测试 | Vitest + 模拟模型服务                                   | 测试内容保护、队列、取消、缓存、协议和隔离                               |
-| 浏览器 E2E    | Playwright + 固定测试页面                               | 检查扩展实际加载、DOM、SPA 和后台重启；具体浏览器安装验证独立执行        |
+React/TS 继续用于界面，是因为它适合卡片、设置、多轮文本与双语排版，不要求业务后台也使用 TS。若最终需求变为仅服务 Windows、深度原生控件优先，可重新比较 .NET 原生 UI；当前保留跨桌面系统方向，因此采用 Tauri。Rust 不意味着必须把 UI 也改成 Rust。
 
-不先做独立 Electron 客户端；不先引入 Rust/Tauri；不首版同时适配 BetterDiscord 和 Vencord。若 Vencord 接入验证不通过，再调整宿主路线。
-
-所有依赖在 M0 固定具体版本；最终以锁文件和兼容性清单为准，不把 main 分支文档等同于任意已发布版本的 API。
-
-## 三、共享什么，不共享什么
-
-### 共享纯逻辑
-
-- 翻译任务、结果、错误和流式事件类型
-- 语言配置、提示词版本、术语表、模型配置描述
-- 代码/链接等片段保护与恢复、模型输出验证
-- 缓存键计算、去重、优先级、并发、取消、重试规则
-- provider 能力抽象、请求长度/用量估算和预算逻辑
-- Pi 用量数据的展示映射、汇总和预算状态；复用 Pi 现有统计能力
-- 问答上下文组织和用户选择记录
-
-### 各端独立实现
-
-- 网页：段落提取、DOM 定位、网页样式与 SPA 变动
-- Discord：消息 ID、编辑版本、引用、附件占位和虚拟列表
-- 浏览器：host permissions、后台生命周期、存储、扩展配置页
-- 桌面：插件加载/卸载、本机配对与宿主组件兼容
-
-核心包不得导入 window/document、chrome/browser、Discord 内部模块或 Node 文件系统。网络、存储、凭证和日志通过接口注入。
-
-## 四、架构
+## 二、进程与依赖方向
 
 ```text
-浏览器 Content Script                    Discord 插件
-  提取段落 / 插入译文                      消息 / 译文 accessory
-          │                                    │
-          ▼                                    ▼
-扩展后台：请求验证、任务管理               经鉴权的本机连接
-  ├─ 浏览器 pi-ai provider → 模型 API            │
-  └─ Native Messaging ───────────────► 本地 Pi Bridge
-                                         ├─ pi-ai 翻译
-共享 translation-core / protocol          └─ 受控 Pi SDK 问答
+React/TypeScript WebView：翻译卡片 / 固定阅读窗 / 设置 / Ask
+        │ 有类型的 Tauri 命令与事件
+        ▼
+Rust Core：窗口 / 托盘 / 快捷键 / 单实例 / 生命周期
+        ├── Rust 应用服务：任务 / 快照 / 账户配置 / 用量账本
+        ├── 私有 IPC → 受限 OMP worker（随包 Bun）
+        │               OMP SDK / LLM provider / 翻译与 Ask 会话 / 压缩
+        ├── 平台适配：截图协调 / 显示器 / 凭证保护
+        └── 私有管道 → Rust Windows 取文辅助进程
+                        独立 COM 线程 / UI Automation
+
+选区图像 → 可终止的本地 OCR 工作进程 → Rust 应用服务
 ```
 
-### 轻量模式
+- WebView 只负责交互和展示，不能直接读取凭证、发起供应商请求、执行任意文件或系统命令。
+- Rust 应用服务是领域入口，不向领域核心暴露 Tauri 窗口、Windows 句柄或 COM 对象；网络、存储、凭证、日志与平台取文通过接口注入。
+- OMP LLM 网络与 Rust 免 Key 网络均不阻塞窗口事件循环；阻塞任务有专用执行边界。UI Automation 放在独立辅助进程，OCR 放在可终止工作进程，不因同用 Rust 就全部塞进 UI 主线程。
+- Microsoft 提供 Windows Rust bindings，可调用 UI Automation 等接口；Windows 辅助功能的 COM apartment 与线程生命周期仍需遵守。取消异步任务不等于已经中断阻塞 COM 调用，超时后可终止并重建辅助进程。[Windows Rust bindings](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/UI/Accessibility/index.html)、[UIA 线程规则](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading)。
+- 首版桌面不默认运行 HTTP Bridge 或 Native Messaging 服务；新旧应用不并发写同一账户文件。IPC 版本、消息上限、父子进程生命周期和子进程重建必须有集成测试。
 
-浏览器保留显式直连模式，直接使用已验证可在浏览器运行的 provider；该模式不要求用户安装本地软件。默认使用下述共享本地服务。网络请求在扩展后台执行，content script 不持有供应商密钥。仅请求用户启用的网站和模型 endpoint 权限。[5]
+全局快捷键由 Tauri 插件或受控 Windows 适配层注册，冲突需提示并允许改键；快捷键只提供触发入口，不等于支持通用划词取文。[Tauri global shortcut](https://v2.tauri.app/plugin/global-shortcut/)。
 
-### 本地 Pi 模式
+## 三、选区取文
 
-用户首次安装本地助手。浏览器经持久 Native Messaging 连接；Discord native 层负责自动启动与连接，业务请求使用经鉴权的 loopback 接口。两种传输承载同一应用层协议。[6] 任一端启用即启动或复用同一服务；两端全部断开后延迟退出，异常退出由租约过期处理。详见 [服务生命周期](service-lifecycle.md)。
+1. 快捷键触发先记录前台窗口、焦点控件与 captureId，再显示本软件窗口，避免抢走选区焦点。
+2. Rust 辅助进程尝试读取焦点控件的 UI Automation TextPattern 选区；仅取选中文字，不退化成读取整个窗口。
+3. 返回文本、可选屏幕范围、来源标识和错误类型；没有可靠坐标时卡片放在鼠标附近或上次位置，不伪造定位。
+4. 无选区、不支持、超时、权限不足、窗口已变化分别反馈，提供复制后翻译与框选识别，不自动扩大范围。
+5. 首版不默认模拟 Ctrl+C、不持续监听剪贴板。用户主动复制后再按剪贴板翻译快捷键，只读取当次文本。模拟复制留作后续可选能力，需独立评估剪贴板恢复和焦点副作用。
 
-本地 Bridge 同时可服务两个前端，但浏览器/Discord 的内容上下文默认隔离，不自动混在一个会话里。凭证共享、预算共享和缓存共享是不同选择，不应捆绑授权。
+取文能力取决于目标控件的 TextPattern 和选区支持，不承诺任意应用都可读取。[微软 TextPattern 文档](https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/ui-automation-textpattern-overview)。独立进程、请求截止时间和重启机制隔离卡死；取文失败不发起模型请求。
 
-### Pi 支持的含义
+## 四、截图与本地 OCR
 
-- **pi-ai**：普通翻译和轻量问答的模型接口，浏览器和 Node 分别打包
-- **Pi SDK**：本地 Bridge 中的完整会话接入；默认配置可能启用工具和资源发现，必须显式约束
-- **RPC**：后续需要对接独立 Pi 进程时增加，不首版同时维护 SDK/RPC 两套实现
-- 独立 pi-ai 不会自动继承所有 Pi CLI 登录状态；凭证复用通过明确配置适配
-- 浏览器不支持的认证/provider 走本地模式，不通过把 token 暴露给网页来规避
+- 快捷键进入区域选择，Esc 退出；区分显示器物理像素和逻辑坐标，捕获时排除或隐藏本软件窗口，避免识别自身。
+- 默认仅将选区图像交给本地 OCR，不上传整屏。返回文本块、行序、坐标、语言及引擎实际提供的置信度，缺失项不伪造。
+- 首次使用说明本地识别与文本外发边界；设置完成后，框选翻译即代表识别并翻译该区域。保留仅识别、编辑原文和重新翻译操作。
+- 分行不直接等于语义段落。保留块边界、处理软换行，避免合并多栏、表格和代码；复杂结构允许用户修正，不保证版式复原。
+- 每次截图是独立快照。新截图、编辑原文或关闭未固定卡片使旧 revision 失效，旧结果不得覆盖新内容。图像默认不落盘，任务结束清理。
 
-## 五、普通网页双语流程
+**OCR 与安装方式共同选型，具体引擎待 W0 决定。** 优先验证 PP-OCRv6 轻量模型 + ONNX Runtime CPU，并与 v5 mobile、Windows OCR 和 Tesseract 同集评测；模型/字典/推理库/许可证一并锁定，见 [OCR 选型与评测](windows-ocr.md)。 Windows.Media.Ocr 官方要求桌面应用具有包身份，不能假设传统 EXE 安装后即可调用。比较带包身份分发及系统语言包依赖，与随包本地 OCR 的中英文质量、体积、速度和许可证后再定案；不提前承诺离线语言覆盖或识别耗时。[Windows.Media.Ocr](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr?view=winrt-26100)。
 
-1. 用户点击翻译页面/选中文本，或授权该网站自动翻译
-2. 找到正文候选块，排除导航、隐藏内容、输入框、contenteditable、脚本和代码块
-3. 以段落/列表项/表格单元格为基本单位；保留正文内联标记的位置关系
-4. 为段落生成稳定的当前文档标识、正文摘要与 revision
-5. 可见块优先进入队列；按 token 预算批量请求，结果用 block ID 对齐，不能只靠返回顺序
-6. 校验模型输出及保护片段，插入独立译文节点；不替换原节点的 innerHTML
-7. 页面更新后仅重处理变化内容；自身插入节点带标记，防止 MutationObserver 递归翻译
-8. 关闭翻译时移除本工具节点和监听，恢复原页面；不得覆盖网站后续更新
+受保护画面、密码控件、安全桌面和提权窗口读取受限时明确失败。应用普通权限运行，不自动提权绕过。
 
-注意：任意 DOM 位置直接插入一个 div 可能破坏表格、列表、行内布局。渲染器需要按父节点语义选择合法插入位置；不支持的结构先提供悬浮译文或跳过。
+## 五、任务、会话与 IPC
 
-SPA/无限滚动采用增量扫描和节流，禁止每次变动重新遍历整个 document。开放 Shadow DOM 可后续适配；封闭 Shadow DOM、跨域 iframe、浏览器内置页及 PDF 等限制明确显示，不假装已翻译完整页面。
+桌面协议以 Rust 领域类型与序列化边界为准，生成或校验前端 TS 类型，避免手工维护两套不一致的定义。新旧交付物协议独立版本化，不借重构改变旧 `web`/`discord` 请求的语义。
 
-### 网页问答
+| 概念     | 信息与约束                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------- |
+| 取文快照 | captureId、来源（选区/剪贴板/OCR/输入）、文本块、revision、可选坐标与来源窗口；句柄仅本机瞬时使用 |
+| 翻译请求 | requestId、快照 ID/revision、目标语言、引擎、术语版本；模型账户仅用 accountId 引用                |
+| 流式事件 | 绑定请求与 revision，区分部分输出、成功、失败、取消和用量更新；断线不重放付费请求                 |
+| Ask      | 用户明确固定的原文/译文快照，只携带当前对话上下文，不继续读取来源软件                             |
+| 原生 IPC | 协议版本、长度上限、操作白名单、请求 ID、截止时间、类型校验；图像不以无限长 JSON 文本传递         |
 
-支持“解释选中内容”和“询问当前文章”，后者必须先预览提取范围。不会因页面写着“读取其他标签页”就读取其他标签页；不自动访问页面链接、附件或下载文件。
+任务状态：空闲 → 取文/识别 → 排队 → 翻译中 → 成功/失败/取消；原文编辑创建新任务。取消后晚到事件可结算已有用量，但不得恢复已关闭卡片。后台异常退出后保留消耗未知，主动重试创建新请求。
 
-## 六、Discord 适配
+重新实现有界并发、缓存、去重、片段保护和用量规则，以可观察行为与固定数据测试验收，手动任务优先。隔离域由可信来源适配器建立，不将所有应用的文本混入同一模型会话。翻译与 Ask 保持独立默认模型，固定窗口关闭时清理对应内容上下文。
 
-- 手动入口：消息菜单、悬浮按钮
-- 自动入口：按频道开启，优先当前可见消息，不抓全部历史
-- 显示：原文下方译文，可折叠、重试、复制、向 Pi 提问
-- 编辑/删除：以 messageId + revision 绑定结果，过期响应丢弃
-- 虚拟列表：组件卸载不等于消息不存在，重挂载从任务/缓存层取结果
-- 草稿翻译：预览后用户手动替换/复制；不自动发送
+## 六、窗口、生命周期与资源
 
-已有 Vencord Translate 证明相关 UI 接入点有参考实现，不代表它提供可直接注册 Pi 的 provider 接口。我们使用自己的服务调用、状态和缓存，避免依赖它的内部 provider 分发逻辑。[2]
+- 托盘提供输入翻译、设置、暂停快捷键和退出；单实例运行，第二次启动唤起已有实例。
+- 临时卡片显示原文/译文，固定后成为可移动、可缩放、可提问的阅读窗。取文完成前不抢焦点；键盘可达，不做全窗口永久鼠标穿透。
+- 区分屏幕物理像素与窗口逻辑坐标，覆盖多屏负坐标和混合 DPI；显示器断开后将窗口移回可见工作区。
+- 关闭临时卡片取消其任务，关闭设置回托盘。托盘退出停止接收任务、取消在途、落盘已有用量并结束全部子进程；等待有上限，结果不明的上游请求保留 unknown。
+- 不注册系统服务、不要求管理员权限；开机启动默认关闭。锁屏不取文、不截图，恢复后重新校验快捷键与窗口状态。
+- 空闲不轮询屏幕、不持续 OCR、不轮询剪贴板。没有卡片或设置窗口时是否销毁 WebView，以及 OCR 引擎何时加载/释放，由首次响应延迟和空闲资源测量决定。
 
-Vencord 自定义插件需要自行构建和维护；Discord 没有官方桌面内嵌译文插件 API。此路线仍有账号、条款与版本兼容风险；官方 User Install 仅作为手动操作的备选，不等价于原位自动翻译。[7][8]
+## 七、模型、账户与 Ask
 
-## 七、任务协议、缓存与费用
+LLM 由受限的 oh-my-pi SDK/Agent 进程统一执行，通过 @oh-my-pi/pi-ai provider 提供模型发现、认证、流式输出、取消、能力与用量；Rust 只适配产品命令/事件和必要的余额等外围能力。Bing/Google 免 Key 翻译是独立的 Rust 翻译服务适配，不进入 LLM 会话。
 
-统一 TranslationUnit：
+OMP 持有 AgentSession/SessionManager 的会话上下文与压缩状态，翻译与 Ask 独立；Rust 持有快照、窗口归属、账户配置、DPAPI 密文和幂等用量账本。受限 SDK wrapper 禁用工具、资源发现、自动账户轮换、模型回退与一般付费重试，隔离并发会话的 Settings/AgentRegistry，控制预热及后台模型操作。OMP 的认证刷新通过受控存储适配写回 Rust，W0 必须验证所需钩子，不维护两套长期凭证库。详见 [模型与 OMP 架构](windows-models-and-pi.md)。
 
-```ts
-interface TranslationUnit {
-  id: string;
-  revision: string;
-  sourceKind: "web" | "discord";
-  text: string;
-  sourceLanguage?: string;
-  targetLanguage: string;
-  context?: string; // 仅用户明确选择的上下文
-}
-```
+更换实现不等于删减已规划的用户能力。实施前建立 provider/认证验收表，覆盖免 Key 翻译、API Key、自定义兼容端点、模型发现、流式与非流式、思考档位、OAuth 登录刷新/退出、余额（仅供应商提供时）、用量及上下文管理。仅使用有明确授权和可维护协议的认证接入，不声称某 Rust 库天然等价于 OMP 全部能力；无法通过的项目必须在规划中明示，不能通过默默移除功能完成选型。
 
-宿主 DOM 引用不进入协议。origin、tab/frame 和 Discord 账号/频道边界由宿主可信元数据绑定，不能直接信任页面伪造的字段。
+供应商负责余额、配额和限流，不新增本地预算上限。费用与消耗未知不能当成零，订阅 API 等值与实际扣费分开。重试由用户发起，上游结果未知时不自动重放。
 
-状态为 idle → queued → running → success / failed / cancelled。只缓存经过校验的最终成功结果。请求携带 requestId、revision、幂等键；UI 忽略旧 revision 和已经取消的请求事件。
+## 八、安全、迁移与代码组织
 
-缓存键含隔离域、原文摘要、目标语言、模型/provider、提示词及术语表版本、上下文摘要。网页本地缓存与 Discord 缓存不默认混用，隐私模式不持久化。
+Windows 凭证通过 Rust 平台适配层调用用户范围的 DPAPI，禁止使用机器范围选项代替用户隔离。密文持久化需原子写入、权限控制和错误恢复；DPAPI 不能防御同一用户下所有恶意进程，也不是跨设备备份格式。[CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)。日志、崩溃报告和统计不包含密钥、原文、图像或窗口标题。
 
-手动翻译和主动问答优先于后台自动任务。初始并发建议每个执行后端 2 个翻译请求、每个问答会话 1 个回合；队列有上限。限额在浏览器和 Bridge 各自生效，直连模式下不能假装自动拥有跨端统一预算。
+WebView 仅加载本地 UI，限制 CSP、导航和外链协议。按窗口显式配置 capabilities：临时卡片不获得账户编辑/文件访问权限，设置窗口按需授权。自定义应用命令也要纳入命令权限清单并校验调用窗口、参数和资源归属，不能假设配置 capabilities 就自动限制所有 `invoke_handler` 命令。后台再次校验会话与请求归属。模型/OCR 输出按不可信文本处理，不执行 HTML 或加载远程图片。[Tauri capabilities](https://v2.tauri.app/security/capabilities/)。OAuth 在系统浏览器完成，回调校验 state、来源与超时，凭证不返回 WebView。
 
-取消尽量中止上游请求，但无法保证模型供应商停止计费。超时/断线后可能已计费，结果未知的请求不无限重放。价格信息缺失或过期时显示 token 用量并标注费用未知。
+旧配置主动迁移：校验 schema → 备份 → 转换到桌面独立数据目录 → 去重并原子提交 → 返回收据。新旧进程不共写，失败保留旧数据。旧 OAuth token 的存储与加密绑定若不能安全迁移，提示重新登录，不承诺跨实现无缝继承。
 
-### LLM 用量、额度与性能展示
+模块按桌面适配、纯领域、应用服务、模型适配、Windows 平台、取文辅助进程、OCR worker、存储划分。具体职责、公开接口、依赖方向、队列、状态和拟建目录见 [模块设计](windows-modules.md)；该文档是细化后的模块划分基线，不要求立即创建全部 crate。
 
-首版提供用量监控，帮助用户了解翻译和问答的消耗、速度及剩余预算。实现以 **复用 Pi 已有数据，补齐展示和跨任务汇总** 为原则，不重复实现 provider 的 token 统计或费用计算。
+新桌面拟使用独立 LocalAppData 数据根与版本化 SQLite，DPAPI 密文由后台读取；默认不保存正文。旧 TS 包、Bridge 和宿主集成只作为当前交付物、行为参考和迁移来源，不强制作为新程序依赖。本轮不删除或归档旧代码。
+桌面版独立应用身份、数据目录、安装与更新通道，不覆盖旧 Discord 安装器。沿用 GPL-3.0-or-later；发布前检查 Tauri、Rust 依赖、OCR 引擎/模型和其他分发资源的许可证。WebView2 在线安装、离线安装、缺失/更新失败处理与 OCR 包身份要求共同验证，不直接认为 Tauri 生成 EXE 就已满足全部分发条件。
 
-核对当前 Pi 源码可见：`pi-ai` 的 `AssistantMessage.usage` 已包含 input、output、cacheRead、cacheWrite、totalTokens 和分项 cost；还提供可选 reasoning、durationMs 及流式事件。本地 `pi-coding-agent` 提供 `getSessionStats()` 汇总会话 tokens、费用和上下文占用。[12][13] M0 需以锁定版本及实际 provider 验证这些能力，不能把 main 分支字段直接当作所有版本的保证。
+## 九、阶段与准入条件
 
-#### 展示方式
+阶段编号表示完整验收门槛，不是互斥的开发顺序。W0 尚未关闭，W1 桌面闭环和 W2 部分取文能力已有实现；各阶段仍需按必需项逐一验收。
 
-参考 DeepSeek Harness 生态中的用量面板：紧凑状态栏展示主要指标，展开后查看汇总卡片、趋势和单次请求明细。`dsh-usage-chart` 是社区插件，其用量、费用、余额与 TTFT/TPS 展示可作交互参考，不作为 LingoSofa 的运行依赖。[14]
+| 阶段             | 产出                                       | 进入下一阶段的条件                                                                                                         |
+| ---------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| W0：关键能力验证 | 最小取文/OCR/窗口原型、框架与 OCR 决策记录 | 真实应用取文和降级、多屏 DPI、OMP SDK 流式/取消、会话/压缩、凭证适配与关键认证通过；OCR 安装约束和许可证明确，记录资源基线 |
+| W1：独立翻译闭环 | 托盘、快捷键、卡片、输入/剪贴板翻译、账户  | 无需预装扩展/插件/Bun 的干净环境可安装翻译（随包 Bun/OMP），WebView2 安装路径可用；取消、重试、断网和退出正确              |
+| W2：取文与 OCR   | UIA、框选识别、原文修正、固定阅读窗        | 浏览器、Discord、PDF、编辑器真实验收；失败不读错范围，不显示过期结果                                                       |
+| W3：Ask 与迁移   | 问答、术语、用量、旧账户导入               | 上下文隔离、凭证加密、幂等迁移和失败恢复通过，保留旧数据                                                                   |
+| W4：发布候选     | 安装/升级/卸载、版本检查、验收报告         | Windows 11 x64 干净机验证，无遗留进程/快捷键，升级保留数据，签名状态如实说明                                               |
 
-- **紧凑状态栏**：扩展弹窗、问答面板和 Discord 插件面板显示当前模型、Input / Output、TPS、计费金额与预算进度；网页正文不逐段堆积指标。
-- **请求明细**：展开单次翻译批次或问答回合，查看缓存读写、首输出延迟、耗时、结束状态及费用；一个批次包含多段时，用量归属于整个请求，不伪造逐段精确账单。
-- **用量面板**：按当前页面/频道、问答会话、今日和本月查看请求数、tokens、计费金额与趋势；支持按 provider、模型、浏览器/Discord、本地/直连模式筛选。日期边界使用用户配置的时区。
-- **额度区域**：分别显示本地预算余量、供应商账户余额和可查询的额度重置时间，并标注统计范围、来源与更新时间。缺失项显示“未提供”或“未知”。
+逐项检查、证据要求、OMP 集成项和资源预算以 [阶段验收计划](windows-acceptance-plan.md) 为准；不得用跳过/环境受限代替通过。
 
-#### 指标口径
+W0 测量机器与 Windows build、应用版本、冷/热启动、空闲与 OCR 峰值内存、空闲 CPU、快捷键到本地反馈、取文/OCR/模型耗时、安装包与安装后体积。建议本地反馈 p95 ≤100ms，取文超时初始预算 1 秒；是待验证目标，不包含网络模型耗时，不是已达成指标。资源阈值在 W0 实测后固定，未测不声称轻量。
 
-| 指标               | 数据来源与显示规则                                                                                                                                          |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Input              | 展示总输入；按 Pi 的互斥桶口径为 `input + cacheRead + cacheWrite`，展开显示未缓存输入、缓存读取和缓存写入                                                   |
-| Output / Reasoning | 使用 Pi 的 output；reasoning 仅在提供时展示，它是 output 的子集，不重复累加                                                                                 |
-| Total tokens       | 使用 Pi 的 totalTokens；汇总遵循同一口径，不把缓存或 reasoning 重复计入                                                                                     |
-| 模型缓存命中率     | `cacheRead / 总输入`；总输入为 0 时不计算。与 LingoSofa 本地译文缓存命中率分开展示                                                                          |
-| 费用               | 按 API 实际用量与请求单价计算计费金额，保留价格来源/币种；累计展示已计费记录，缺少用量或单价的请求单独列为待计费，不能把缺少数据当成免费                    |
-| 模型耗时           | 优先使用 Pi 的 durationMs；缺失时在执行端用单调时钟补充计时。队列等待和译文校验/渲染耗时分开记录                                                            |
-| TTFT / 首译文延迟  | 从请求发送到首次非空输出事件的时间；思考输出与正文输出分别记录，状态栏优先展示用户等待首段译文的时间，不用 SSE 心跳代替输出                                 |
-| TPS（tokens/s）    | 优先复用锁定 Pi 版本提供的同口径性能数据；否则以最终 output tokens 除以首输出至末输出的秒数，标为客户端观测平均吞吐。思考计入 output 时计时也需覆盖思考阶段 |
-| 请求与状态         | 展示运行中/排队数量、成功、失败、取消和重试次数；与模型计费次数区分，底层重试不可见时注明统计不完整                                                         |
-
-流式过程中展示 Pi 已提供的用量；若 provider 只在结束时返回 usage，则显示“统计中”，结束后再更新，不把 chunk 数或字符数当作 tokens。缺少有效时间窗口、非流式响应或仅有一次输出时，TPS 显示“不可用”。汇总 TPS 用有效请求的 output 总数除以各请求生成时长之和，并注明是平均单请求吞吐，不把并发请求误算成模型单路速度。
-
-#### 数据接入与汇总边界
-
-- 浏览器轻量翻译直接从 pi-ai 结果及事件取数；本地 Pi 问答复用 SDK 会话统计和事件，不为展示强制引入完整 Agent 会话。
-- `provider-pi` 负责薄适配，将 Pi 数据与 requestId、执行端、模型和任务范围关联；`protocol` 传递展示所需的元数据，`ui-shared` 负责格式化和面板逻辑。统计不依赖 DOM 或 Discord 内部组件，不额外引入大型监控系统。
-- 单请求数据与会话汇总是同一消耗的不同视图，不能相加；流式更新采用替换快照，最终按稳定请求/消息标识去重，后台恢复或重新挂载不能重复入账。本地 SDK 的汇总范围需保留压缩等辅助调用产生的消耗。
-- 本地译文缓存命中不新增模型用量；失败或取消仍保留 Pi 返回的 usage。上游结果未知时显示未知消耗，不直接记为 0；仅在执行端可观察到各次重试时逐次统计。
-- 直连模式只汇总当前扩展可观测的用量；两端经同一 Bridge 执行且用户启用共享统计时，才展示跨端汇总。不得声称覆盖同一 API Key 在其他应用中的全部支出。
-- 默认统计仅保留当前会话的元数据，不保存正文、译文或密钥。今日/月度趋势需用户启用有限保留期的本地用量历史；未启用时明确显示仅当前会话可用，并提供清除入口。
-
-#### 额度与预算
-
-Pi 的 usage 表示已观测消耗，不能直接推导账户剩余额度。优先复用 Pi 在锁定版本中已提供的账户能力；没有统一接口时，仅为支持的 provider 增加可选查询。例如 DeepSeek 官方 `GET /user/balance` 可返回余额和币种，但不等于所有供应商都有余额、订阅额度或重置时间接口。[15] 查询由扩展后台或 Bridge 使用现有凭证执行，前端只接收结果；按需查询并限频，不逐段请求余额，失败时保留带时间戳的旧值。
-
-- 支持用户设置日/月 token 或费用预算，以及可配置提醒阈值（如 80%、100%）；明确其为 LingoSofa 本地预算，与供应商余额、订阅额度和速率限制分别展示。
-- 发起请求前检查已用量和在途预留，避免并发任务同时越过预算；完成后按 Pi usage 结算。费用未知或结果未知时，严格预算模式暂停新请求并提示处理。
-- 达到预算上限时停止派发新任务，用户可主动调整预算；在途请求仍可能产生费用，不能承诺绝对不超支。429 显示限流状态，仅在供应商返回可靠信息时展示恢复时间。
-
-## 八、MV3 必须先解决的工程问题
-
-- pi-ai 的浏览器兼容性不等于其所有动态依赖天然适合扩展 service worker；只打包需要的 provider，检查产物不含无法执行的动态 import、远程代码或 Node-only 依赖 [3][9]
-- 后台可能终止，不能把任务、设置、队列只放全局变量；恢复时区分未发送任务与结果未知任务，禁止盲目重新计费 [10]
-- 默认隐私模式可用会话级状态保存小量上下文；持久化任务/缓存需可关闭、有限保留期
-- 跨域模型请求需要 endpoint 权限；content script 不接受网页转发任意 URL 的“通用代理”请求 [5]
-- 本地 Native Messaging host 必须单独安装并限制允许的扩展 ID；content script 经扩展后台转发，不能直接调用本机程序 [6]
-- 首版对慢模型设置明确超时；需要长时推理的问答优先使用本地 Bridge，不通过无意义心跳长期占用后台
-
-## 九、安全与隐私默认值
-
-- 页面和聊天都是不可信输入；不能成为 system 指令、Shell 命令、文件路径或可执行模型输出
-- 翻译、普通问答工具集为空；本地 SDK 关闭非必要扩展、模板展开和工作目录资源发现
-- 默认不上传表单、密码框、隐藏内容和整页 DOM，不扫描其他标签页
-- 自动模式必须显示发送目标与范围；改变模型供应商不得悄悄改变数据接收方
-- 用户自带密钥；不在包里内置共享 API Key，不把密钥写入页面或同步存储
-- 扩展本地存储不是硬件安全保险箱；限制 content script 存储访问，提供仅会话保留选项。更强凭证保护使用本地 OS 凭证存储与 Bridge
-- 译文仅以安全文本或受限结构呈现，不执行 HTML，不自动加载模型提供的远程资源
-- 本机接口只绑定 loopback，短期配对令牌、来源校验、限流与最小权限。localhost/CORS 不能代替身份验证，独立进程不能代替沙箱
-- 日志默认只记状态/耗时/用量，不记正文与令牌；清除缓存、会话和站点授权都有明确入口
-
-## 十、目录与交付
-
-```text
-apps/
-  browser-extension/    # WXT：content / background / options / Q&A
-  discord-vencord/      # Vencord 独立构建目标
-  pi-bridge/            # Node 本地服务，可选安装
-packages/
-  translation-core/    # 纯 TS 规则、调度策略、保护和校验
-  provider-pi/         # browser/node 分离入口，禁止混入Node依赖
-  protocol/            # schema、错误、流式事件
-  glossary/            # 术语规则及版本
-  ui-shared/           # 设置/问答逻辑；不绑定宿主React实例
-  web-extraction/      # 网页特有，不让Discord依赖
-tests/
-  fixtures/            # 合成网页与聊天
-  integration/
-  e2e-browser/
-  desktop-acceptance/
-docs/
-  architecture.md
-  privacy.md
-  compatibility.md
-  acceptance.md
-```
-
-浏览器插件商店包、Discord 插件构建、Bridge 安装包分别版本化，协议支持兼容检查。不要在浏览器包中夹带 Vencord 客户端补丁，也不要让网页适配器依赖 Discord 内部模块。
-
-## 十一、开发顺序与完成标准
-
-### M0：两端接入与 Pi 打包验证
-
-- Chrome/Edge 真正加载 MV3 包，一段文本通过指定 provider 翻译成功
-- 验证后台终止、重新唤醒、取消、超时和缺权限状态
-- Discord 显示 mock 译文 accessory、翻译按钮和问答入口；经授权后才安装测试
-- 本地 SDK 使用受限配置完成问答，不执行工具和扩展
-- 核对锁定 Pi 版本的 usage、cost、会话汇总和流式事件；记录各 provider 的字段支持、价格来源及账户额度查询能力
-- 每项记录实际版本、证据和未通过事项；任一核心接口失败先调整选型
-
-### M1：共享核心与浏览器手动 MVP
-
-- 普通文章、列表、表格单元格、带链接/行内代码段落可双语显示
-- 选中翻译、关闭恢复、站点授权、模型选择可用
-- 批量返回缺项/重复 ID/保护片段损坏均可检测，不错位显示
-- 不翻译输入框或代码，不破坏原网页交互
-- 用量状态栏与请求明细可展示 Pi 返回的 Input / Output、缓存、计费金额和耗时；缺少计费数据的请求单独列为待计费
-
-### M2：自动模式与 Discord 手动版
-
-- 可见性队列、无限滚动、消息/段落编辑与删除处理正确
-- 原文不变时滚动返回不会重复请求；队列有上限
-- 日/月预算提醒和停止派发可用；验证批量请求、并发预留、取消、重试与后台恢复不重复统计
-- Discord 手动翻译和重复挂载稳定；适配失效时显示错误，不影响原聊天
-
-### M3：两端问答与本地 Pi 模式
-
-- 上下文预览、多轮问答、停止、新建、清理都可用
-- 浏览器 Native Messaging 与 Discord 经鉴权连接同一 Bridge
-- 不同网页/频道/账号会话隔离，未经选择不相互携带上下文
-- 问答复用 SDK 会话统计；共享 Bridge 用量汇总按用户设置生效，不与单请求用量重复累加
-- 先实现 Pi SDK，RPC 只有明确需要时再增加
-
-### M4：自动双语完善与发布验收
-
-- Discord 频道自动翻译、网页站点自动模式、预算和隐私设置全部有实测
-- 测试 1,000 段合成页面及 100 次 SPA/频道切换：不重复节点、不无限增长订阅、不展示过期译文
-- 记录 UI 响应、提取耗时、缓存延迟、模型延迟分别测量；建议本地反馈目标 <100ms，具体机器和方法写入报告
-- 模型失败、429、异常输出、断网、Bridge 退出、版本不兼容均可恢复
-- 验证流式/非流式、思考输出、未知费用、余额查询失败、模型切换和历史清除；TPS 计时口径、缓存/reasoning 计数及费用汇总有固定数据验收
-- 真实客户端键盘/读屏与 Windows/macOS 矩阵验收，不把“能编译”作为发布标准
-- Firefox/PDF/OCR/移动端等未测目标明确不在首版支持范围
-
-## 十二、许可证与风险决策
-
-浏览器功能和共享核心可以自主设计；若复制 Vencord Translate 的代码，必须遵守其 GPL-3.0-or-later 条件和版权声明。不能因为放进 monorepo 就消除许可证义务，也不能因此直接断言所有独立组件都必须同一许可证。发布前按实际复用与链接关系核对。
-
-Pi 和 WXT 的许可分别以固定版本 LICENSE 为准。LingoSofa 原创材料自 2026-10-15 起采用 [GPL-3.0-or-later](../LICENSE)，第三方许可清单见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)。Vencord 集成分发仍须保留适用的版权、许可与对应源码，其他依赖保留各自授权。
-
-本机 macOS 已按用户授权完成原 Discord、MV3 与真实 DeepSeek 验收，下一步发布条件以 [验收记录](acceptance.md) 为准。安装或测试消息权限不扩展为读取 Discord token、注册账号或公开发布的授权。
-
-## 资料
-
-1. WXT：https://wxt.dev/guide/introduction.html
-2. Vencord Translate：https://github.com/Vendicated/Vencord/blob/main/src/plugins/translate/index.tsx
-3. pi-ai 浏览器支持：https://github.com/earendil-works/pi/tree/main/packages/ai#browser-usage
-4. Pi SDK：https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md
-5. Chrome 网络与权限：https://developer.chrome.com/docs/extensions/develop/concepts/network-requests
-6. Native Messaging：https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
-7. Vencord 自定义插件：https://docs.vencord.dev/installing/custom-plugins/
-8. Discord 条款：https://discord.com/terms
-9. MV3 service worker 基础：https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/basics
-10. MV3 生命周期：https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle
-11. Content scripts：https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
-12. Pi 消息、Usage 与流式事件类型：https://github.com/earendil-works/pi/blob/main/packages/ai/src/types.ts
-13. Pi AgentSession 会话统计：https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/agent-session.ts
-14. DeepSeek Harness 社区用量面板参考：https://github.com/Max-Samson/dsh-usage-chart
-15. DeepSeek 账户余额 API：https://api-docs.deepseek.com/api/get-user-balance/
-
-设计中的目录、协议、默认并发和指标是本项目建议，不是上述项目已提供的成品功能。
-
-## 会话与模型额度修订（2026-10-14）
-
-网页与 Discord 默认通过共享 Bridge 使用按页面实例/账号频道隔离的 Pi 翻译会话，Ask Pi 保持独立；复用 Pi 原生上下文压缩，辅助模型调用同样预算预留、单独结算。保留分批与供应商缓存前缀；缓存命中不是免费，也不保证更低的总费用。模型上下文、最大输入（供应商有提供时）及最大输出来自供应商模型元数据/官方规格，不以本应用的固定常量声明模型能力。具体边界与直连模式差异见 [架构修订](architecture.md#翻译会话与供应商额度2026-10-14)。
-
-## 供应商余额与本地统计修订（2026-10-15）
-
-按用户最新要求，移除本地预算上限、预算提醒和未知用量暂停机制。API Key 所属供应商负责余额与额度判断；本地仍显示 Tokens、费用、缓存及 unknown 记录，并保留分批、模型容量、并发、取消和不自动重试付费请求等稳定性约束。此前文档中的预算保护要求由本节替代，旧配置字段仅兼容读取、不再执行。
-
-## OpenAI 登录方式修订（2026-10-15）
-
-Provider 设置支持 OpenAI API Key / ChatGPT 订阅 OAuth，登录及刷新直接复用 Pi。网页和 Discord 共用 Bridge 状态与登录组件；订阅消费使用实际 Tokens 计算 API 等值人民币费用，不宣称供应商实际扣费。详见 [OAuth 实现与验证边界](oauth.md)。
+纯逻辑回归覆盖 revision、取消、缓存、用量和迁移；IPC 集成覆盖无效消息、越权操作及进程崩溃；真实桌面验收覆盖取文、截图、焦点、快捷键冲突、DPI、锁屏、升级。网页 E2E 或静态截图不能替代这些证据。按 [贡献规范](../AGENTS.md) 检查受影响消费者，提交前运行 `npm run check`；引入 Rust 后将 Cargo 格式、Clippy、单元/集成测试与 Windows 构建纳入总检查入口，不能只通过旧 TS 检查就宣称桌面后台已验证。
+
+## 十、待技术验证定案
+
+- Tauri/Rust 工具链、Windows bindings、OMP/随包 Bun/native addon 与类型生成方案的锁定版本。
+- WebView2 的窗口创建、焦点、透明背景/白闪、DPI、键盘和读屏表现；不把透明特效作为首版强依赖。[Tauri 窗口 API](https://v2.tauri.app/reference/javascript/api/namespacewindow/)。
+- OMP SDK/provider 与认证验收表，以及受限 worker 的集成 ADR；尤其 OAuth、非标准用量、取消、压缩和多账户隔离，不依赖“兼容接口”字样推断完整支持。
+- OCR 引擎、语言/模型分发与包身份；安装格式、签名、更新、回滚和 WebView2 依赖。
+- 数据路径、密文格式与迁移边界，真实应用取文覆盖表和常驻资源阈值。
+- Windows 10、ARM64、macOS、Linux 后续独立评估；领域核心可共享不等于系统取文 API 可共享。
+
+本方案以 Rust/Tauri 为推荐基线。只有实际验证发现无法满足产品要求的限制，才按同一标准比较其他方案；OMP 是明确的 LLM/会话依赖，不以语言一致性为由移除；不预先声称 Tauri 在所有场景优于 Electron。

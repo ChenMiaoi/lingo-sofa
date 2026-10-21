@@ -1,0 +1,10 @@
+{
+  "recordedAt": "2026-10-21T00:02:40.997Z",
+  "isolatedProfile": true,
+  "bindings": {
+    "input": "Alt+Shift+Space",
+    "selection": "Alt+Shift+S",
+    "clipboard": "Alt+Shift+T"
+  },
+  "modelCalls": 0
+}

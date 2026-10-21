@@ -11,17 +11,17 @@ body:
         Search [existing issues](https://github.com/ChenMiaoi/lingo-sofa/issues) and check the [installation guide](https://github.com/ChenMiaoi/lingo-sofa/blob/main/docs/installation.md) first.
         请先搜索已有问题并查阅安装说明。
 
-        Remove API keys, authorization headers, account files and private webpage/chat content from examples and attachments. Do not upload your assistant configuration directory.
-        示例和附件请移除 API Key、认证请求头、账户文件及私人网页/聊天内容，不要上传整个助手配置目录。
+        Remove API keys, authorization headers, account files and private webpage/chat content from examples and attachments. Do not upload your application data directory.
+        示例和附件请移除 API Key、认证请求头、账户文件及私人网页/聊天内容，不要上传整个应用数据目录。
   - type: dropdown
     id: components
     attributes:
       label: Affected components / 受影响组件
       multiple: true
       options:
-        - Browser extension / 浏览器扩展
-        - Discord / Vencord plugin / Discord 插件
-        - Local assistant / 本地助手
+        - Desktop window / 桌面窗口
+        - Clipboard and shortcuts / 剪贴板与快捷键
+        - OMP worker and model sessions / OMP 与模型会话
         - Installation or upgrade / 安装或升级
         - Release or CI / 发布或 CI
         - Shared core or protocol / 共享核心或协议
@@ -33,7 +33,7 @@ body:
     id: version
     attributes:
       label: LingoSofa version / 项目版本
-      description: Release tag or source commit. Include both client and assistant versions if they differ. / 填写发行版本或源码提交；客户端与助手版本不同时请分别注明。
+      description: Release tag or source commit. Include both desktop and OMP versions if they differ. / 填写发行版本或源码提交；桌面与 OMP 版本不同时请分别注明。
       placeholder: "v0.1.0, or commit d539c3b"
     validations:
       required: true
@@ -44,9 +44,9 @@ body:
       description: Fill in what applies; write "not applicable" for the rest. Never include credentials. / 仅填写相关项，其余可注明“不适用”，不要填写凭证。
       placeholder: |
         OS and CPU / 系统与芯片：
-        Browser and version / 浏览器与版本：
-        Discord and Vencord versions / Discord 与 Vencord 版本：
-        Connection mode: local assistant or direct / 本地助手或直连：
+        WebView2 version / WebView2 版本：
+        Monitor scaling / 显示器缩放：
+        Shortcut conflict / 快捷键冲突：
         Installation: release package or source / 发行包或源码安装：
         Provider and model, if relevant / 供应商与模型（如相关）：
     validations:

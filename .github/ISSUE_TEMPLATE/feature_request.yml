@@ -27,9 +27,9 @@ body:
       label: Relevant components / 相关组件
       multiple: true
       options:
-        - Browser extension / 浏览器扩展
-        - Discord / Vencord plugin / Discord 插件
-        - Local assistant / 本地助手
+        - Desktop window / 桌面窗口
+        - Selection and OCR / 取文与识别
+        - OMP worker and sessions / OMP 与会话
         - Installation or upgrade / 安装或升级
         - Release or CI / 发布或 CI
         - Shared core or protocol / 共享核心或协议

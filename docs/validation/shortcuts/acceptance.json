@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-21",
+  "scope": "Global input shortcut, editable bindings, conflicts and persistence",
+  "checks": {
+    "fullCheck": "passed",
+    "ts": 22,
+    "runtimeRust": 50,
+    "desktopRust": 5,
+    "format": "passed",
+    "types": "passed",
+    "clippy": "passed",
+    "build": "passed",
+    "initialCheck": "final build blocked by owned UI process; closed fixture and complete check rerun passed"
+  },
+  "regression": [
+    "modifier aliases, invalid and duplicate combinations",
+    "startup partial registration and retry",
+    "staged registration rollback",
+    "SQLite write failure retains previous routes",
+    "swaps and restart persistence",
+    "obsolete registration never dispatches even on release failure",
+    "unsaved drafts survive polling",
+    "restore defaults requires explicit save",
+    "pending draft never claims enabled",
+    "menu displays actual configured and registered bindings"
+  ],
+  "native": [
+    "Alt+Shift+Space opens input from Notepad",
+    "repeated open retains input draft",
+    "Ctrl+Alt+F24 held by separate Windows test process is rejected",
+    "failed save retains old bindings",
+    "Ctrl+Alt+I applies immediately from Notepad",
+    "old default stops opening input after remap",
+    "custom combination works after process restart",
+    "pending status and conflict message confirmed in final binary",
+    "retry after external owner exits succeeds",
+    "startup conflict disables only the affected action",
+    "edge entry remains available for repair",
+    "restore defaults and save enable all three actions"
+  ],
+  "modelCalls": 0,
+  "discordMessagesSent": 0,
+  "browserAcceptance": "not passed",
+  "realChineseImeAcceptance": "still pending; not claimed by shortcut tests",
+  "nativeScope": "Windows development machine and isolated profile; no clean-machine install claim"
+}

@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/omp-client", "crates/app-services", "crates/selection-helper", "apps/desktop/src-tauri", "tests/runtime"]
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

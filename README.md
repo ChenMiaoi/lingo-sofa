@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/browser-extension/public/brand/lingo-sofa.svg" width="120" alt="LingoSofa logo">
+  <img src="apps/desktop/public/brand/lingo-sofa.svg" width="120" alt="LingoSofa logo">
 </p>
 
 <h1 align="center">LingoSofa</h1>
@@ -11,138 +11,118 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ChenMiaoi/lingo-sofa/actions/workflows/ci.yml"><img src="https://github.com/ChenMiaoi/lingo-sofa/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://github.com/ChenMiaoi/lingo-sofa/releases/latest"><img src="https://img.shields.io/github/v/release/ChenMiaoi/lingo-sofa" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Windows_11-x64-555555" alt="Windows 11 x64">
+  <img src="https://img.shields.io/badge/status-development_preview-555555" alt="Development preview">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
 </p>
 
-LingoSofa brings inline bilingual translation and contextual AI chat to webpages and Discord. Keep the original text in view, read the translation alongside it, and ask questions about the content you select. Both clients can share one local assistant and the same model accounts.
+LingoSofa is a floating translator for Windows. Select text, read its translation nearby, and open Ask to explore what it means. Input translation and independent questions share the same lightweight panel, ready when you need them.
 
-[Preview](#preview) · [Get started](#get-started) · [Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
+[Preview](#preview) · [Get started](#get-started) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **Development preview.** The browser extension and Discord integration have been tested on macOS and Windows. Release CI targets five OS/CPU combinations; that does not mean every platform has completed client acceptance. Packages are currently unsigned. See [compatibility](docs/compatibility.md) and [release readiness](docs/release-readiness.md) for details.
+> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; screenshot OCR, additional providers and OAuth are not yet available. See the [verification records](docs/acceptance.md) for tested applications and remaining work.
 
 ## Preview
 
-**Read in two languages.** Keep the original text and its translation together, with reading controls close at hand.
+**Translate or ask, in one place.** A compact charcoal glass panel for text you want to understand.
 
 <p align="center">
-  <img src="docs/screenshots/bilingual-reading.png" width="960" alt="LingoSofa translating an English article into inline Chinese, with the floating reading menu open">
+  <img src="docs/validation/input-panel/input-empty.png" width="620" alt="LingoSofa's translucent dark input panel with translation and independent question actions">
 </p>
 
 <details>
-<summary>See contextual Ask and translation settings</summary>
+<summary>See global shortcut settings</summary>
 
-**Ask where you read.** Select a sentence and ask about its meaning in a conversation beside the article.
-
-<p align="center">
-  <img src="docs/screenshots/contextual-ask.png" width="960" alt="LingoSofa Ask explaining the phrase goes a long way next to the selected article text">
-</p>
-
-**Choose how you translate.** Switch between free and model translation, choose a target language, and preview the bilingual layout.
+**Keep your shortcuts close.** Change each combination, check whether it is enabled, and restore the defaults when needed.
 
 <p align="center">
-  <img src="docs/screenshots/translation-settings.png" width="960" alt="LingoSofa translation settings with Bing, Google and model engines, target language and bilingual preview">
+  <img src="docs/validation/shortcuts/settings.png" width="550" alt="LingoSofa global shortcut settings with all three default combinations enabled">
 </p>
 
 </details>
 
-Screenshots show the current browser extension with demo text and locally simulated translations and replies.
+Screenshots show the native Windows desktop application using an isolated test profile without a configured model account.
 
 ## Features
 
-- **Translate in place.** Translate a paragraph, selected text or Discord message without replacing the original. Enable automatic bilingual reading per website or channel.
-- **Ask about what you read.** Open a conversation next to selected content to explain, summarize or draft a reply. Replies are yours to review and copy.
-- **Choose your models.** Save provider accounts once in the local assistant and share them between the browser and Discord. Translation and chat keep separate default models and content contexts.
-- **Translate without an API key.** Choose Bing or Google in the browser and Discord. Bing is the default without model credentials; adding an account keeps your chosen free engine. Translation and Ask are configured independently. See [translation engines](docs/translation-engines.md).
-- **Share one local assistant.** Browser and Discord reuse the same installation and model configuration on your computer, with separate content contexts.
-- **See observed usage.** Inspect tokens, request history and estimated costs. Unknown usage stays unknown; interrupted requests are not automatically replayed.
+- **Translate selected text.** Read a translation beside your selection. The original text stays in its application, and the lightweight translation collapses when its source moves out of place.
+- **Ask about what you read.** Keep the selected source in context, stream a reply, and continue asking questions. You can stop generation or manually compact the conversation.
+- **Translate what you type or copy.** Open the input panel for translation or an independent question, or explicitly translate the current clipboard text.
+- **Make shortcuts your own.** Open the panel from another application, change all three global bindings, and keep them across restarts. Conflicts are reported before replacing the previous configuration.
+- **Use your own model account.** Connect a DeepSeek API Key for DeepSeek V4.1 Flash. Credentials are encrypted for your Windows user account.
+- **See observed usage.** Track reported tokens and incomplete usage. Unknown usage stays unknown, and interrupted requests are not automatically replayed.
 
 ## Get started
 
-Visit [Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) for downloadable builds. If no release is available yet, [build from source](#development).
+There is no published desktop release yet. [Build from source](#development) to generate a Windows installer; installed users do not need Bun or Rust. Setup and usage details are in the [installation guide](docs/installation.md).
 
-| Component         | What to download                                          | How it is installed                                                                      |
-| ----------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Browser extension | `lingo-sofa-browser-<version>.zip`                        | Enable developer mode and drag the ZIP onto the extensions page.                         |
-| Discord plugin    | `lingo-sofa-vencord-<version>.tar.gz`                     | Add to a custom Vencord build. This is a userplugin, not a standalone Discord installer. |
-| Local assistant   | `lingo-sofa-assistant-<version>-<platform>-<arch>.tar.gz` | Choose your OS/CPU, unpack and run the included installer. Node is bundled.              |
+1. Start LingoSofa and open **Settings** from the edge entry or system tray.
+2. Add your DeepSeek API Key and choose a target language.
+3. Select text and translate it, or open the input panel to translate or ask a new question. Open **Ask** from a translation to continue with its source context.
 
-Assistant builds target macOS Apple Silicon / Intel, Linux ARM64 / x64, and Windows x64. Full installation, browser authorization and upgrade instructions are in the [installation guide](docs/installation.md).
+| Default shortcut    | Action                                             |
+| ------------------- | -------------------------------------------------- |
+| **Alt+Shift+Space** | Open input translation or an independent question. |
+| **Alt+Shift+S**     | Translate the current text selection.              |
+| **Alt+Shift+T**     | Translate clipboard text.                          |
 
-### Browser
+Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
-1. Open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, and drag the browser ZIP onto the page. If your browser does not accept ZIP files, unpack it and choose **Load unpacked**.
-2. Open LingoSofa settings. Bing and Google work without a helper. Model translation and Ask use the shared local assistant; browser and Discord read the same accounts. Update the extension and helper together, then migrate any old browser accounts from the connection page. New helper installers authorize the extension's stable ID automatically. See [browser updates and saved settings](docs/installation.md#配置保存与浏览器更新) before migrating from an older extension ID.
-3. Choose Bing or Google in **Translation preferences** to translate without a key. Add a provider account when you want model translation or Ask, and configure them independently.
-4. Open a webpage and show the floating reader from the extension popup. Hover over a paragraph to translate, or select text for **Translate / Ask**. Press **Alt+Shift+A** to ask about selected content.
+Inside the input panel, **Enter** runs the selected action, **Shift+Enter** inserts a new line, **Alt+↑↓** switches actions, and **Esc** returns to reading. Reopening an already open input panel with its shortcut preserves the draft.
 
-Automatic translation is enabled separately for each website. **Restore original** removes the inline translations.
-
-### Discord
-
-The desktop integration currently requires [Vencord](https://vencord.dev/). LingoSofa adds message translation, channel-level automatic reading and contextual chat. Custom plugins must be included in a custom Vencord build; the standard Vencord installer does not include LingoSofa.
-
-Releases built with Windows installer support provide `LingoSofa-Setup-<version>-win32-x64.exe`: install the prebuilt Vencord integration and local assistant together, without a compiler or Node installation. Plugin settings offer checking, downloading and installing newer LingoSofa releases. Exit connected clients before installation; start Discord after installation to use the new version. See the [installation guide](docs/installation.md#windows-x64一体化安装与更新).
-
-Once the plugin is enabled, it reuses an installed assistant or downloads and verifies the matching assistant package when the build includes a release manifest. Browser access still needs its own extension authorization. See [Discord installation](docs/installation.md#vencord-是否能省掉) for the assisted build/install workflow.
+Selection support depends on the source application. Notepad, an isolated VS Code instance with accessibility enabled, and Discord message text have completed scoped checks. Browser selection remains unverified; use the [manual checklist](docs/browser-manual-acceptance.md) to test it.
 
 ## Privacy and data
 
-LingoSofa does not require a hosted LingoSofa backend. The local assistant listens only on `127.0.0.1`; clients on the same computer and OS account can share it. The assistant starts when needed and exits after clients disconnect and active work finishes.
+LingoSofa runs locally and does not require a hosted LingoSofa backend. Text you submit for translation or questions, along with the conversation context needed for replies and compaction, goes to DeepSeek using your account.
 
-Content you translate or send to chat goes to your chosen model provider. Automatic reading requires a website or channel opt-in. Browser and Discord content contexts remain separate even when they share model credentials, and sharing usage statistics is off by default.
+Clipboard text is read only when you explicitly request a translation. Source text, translations and conversations stay in memory; credentials are encrypted locally, and the usage ledger stores call metadata without message bodies or keys. There is no telemetry or automatic replay of failed requests.
 
-Usage estimates describe requests observed by LingoSofa, not your entire provider bill. Subscription API-equivalent costs are estimates, not subscription charges. Read the [privacy guide](docs/privacy.md) and [authentication and billing notes](docs/oauth.md).
+Reported usage describes calls observed by LingoSofa, not your entire provider bill. Cancelling a request cannot guarantee that the provider stops billing it. Read the [privacy guide](docs/privacy.md) for details.
 
 ## Development
 
-Use **Node.js 24** and npm. For packaging, use an official Node distribution so the assistant can include its runtime.
+On Windows x64, use **Bun 1.3.14**, **Node.js 24**, **Rust 1.98.1 MSVC**, Visual Studio C++ Build Tools and WebView2. From the project directory:
 
-```sh
-git clone https://github.com/ChenMiaoi/lingo-sofa.git
-cd lingo-sofa
-npm ci
-npm run check
+```powershell
+bun install --frozen-lockfile
+npm run dev
 ```
 
-Load the built browser extension from `apps/browser-extension/.output/chrome-mv3`, or use `npm run dev` during development.
+The development command builds the private worker and selection helper, then starts the frontend and desktop app.
 
-| Command                           | Purpose                                                                               |
-| --------------------------------- | ------------------------------------------------------------------------------------- |
-| `npm run check`                   | Lint, formatting, types, tests, application builds and MV3 audit.                     |
-| `npx playwright install chromium` | Install the browser needed for E2E tests.                                             |
-| `npm run test:e2e`                | Run browser integration tests.                                                        |
-| `npm run verify:vencord`          | Build and type-check with the pinned Vencord host; does not modify installed Discord. |
-| `npm run setup:discord`           | Prepare a custom Vencord build containing LingoSofa.                                  |
-| `npm run package:distribution`    | Build local distribution candidates for the current OS/CPU.                           |
+| Command                         | Purpose                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| `npm run dev`                   | Start the desktop development environment.                                    |
+| `npm run check`                 | Run lint, formatting, types, regressions, Rust checks and application builds. |
+| `npm run test:runtime:packaged` | Test the Rust runtime with a compiled worker.                                 |
+| `npm run test:sdk`              | Run the isolated SDK probes.                                                  |
+| `npm run build`                 | Build the Windows NSIS installer.                                             |
 
-To install the custom Vencord build into Discord, close Discord and explicitly run `npm run setup:discord -- --install`. This opens the upstream installer to select the client to modify.
+Release installers are generated in `target/release/bundle/nsis`. For a debug installer, run `bun scripts/desktop.ts build --debug`; output goes to `target/debug/bundle/nsis`.
 
-Releases are built and published by version tags such as `v0.1.0`. See the [Release CI guide](docs/release-ci.md) for version checks, platform builds and immutable download checksums.
+Normal checks use local simulated services. The explicit `verify:live` and `verify:live:dual` scripts read `API_KEY` from an ignored local `.env` and incur real provider usage. They use an isolated profile and do not configure the desktop account.
 
 ### Repository layout
 
 ```text
 apps/
-  browser-extension/   Chrome / Edge extension
-  discord-vencord/     Discord integration
-  pi-bridge/           Shared local assistant and installers
-packages/              Translation core, protocols and shared components
-docs/                  Design, setup and verification records
+  desktop/       React interface and Tauri Windows application
+  omp-worker/    Embedded oh-my-pi model and session worker
+crates/          Rust application services, scheduling and system adapters
+tests/           UI, SDK and process integration regressions
+docs/            Product design, setup and verification records
 ```
 
 ## Documentation
 
-| Guide                                          | Contents                                                |
-| ---------------------------------------------- | ------------------------------------------------------- |
-| [Installation](docs/installation.md)           | Setup, authorization, upgrades and Vencord integration. |
-| [Compatibility](docs/compatibility.md)         | Supported surfaces and current limits.                  |
-| [Privacy](docs/privacy.md)                     | Content boundaries, credentials and retention.          |
-| [Architecture](docs/architecture.md)           | Shared core, protocols and session isolation.           |
-| [Service lifecycle](docs/service-lifecycle.md) | Startup, shared connections and shutdown.               |
-| [Release CI](docs/release-ci.md)               | Tag-triggered builds and GitHub publishing.             |
-| [Verification records](docs/acceptance.md)     | What has been tested and what remains.                  |
+| Guide                                      | Contents                                       |
+| ------------------------------------------ | ---------------------------------------------- |
+| [Installation](docs/installation.md)       | Setup, everyday use and shortcut settings.     |
+| [Privacy](docs/privacy.md)                 | Content boundaries, credentials and retention. |
+| [Architecture](docs/architecture.md)       | Desktop components, processes and storage.     |
+| [Verification records](docs/acceptance.md) | Tested workflows and remaining acceptance.     |
+| [Technical plan](docs/lingo-sofa-plan.md)  | Product direction and planned capabilities.    |
 
 Most detailed technical documents are currently in Chinese.
 
@@ -150,10 +130,10 @@ Most detailed technical documents are currently in Chinese.
 
 Bug reports, reproducible examples and focused improvements are welcome. Start with an [issue](https://github.com/ChenMiaoi/lingo-sofa/issues) for substantial changes, and read the [contributor guidelines](AGENTS.md) before submitting a pull request. Include relevant checks and keep credentials and personal content out of reports.
 
-LingoSofa builds on [Pi](https://github.com/earendil-works/pi), [WXT](https://github.com/wxt-dev/wxt) and [Vencord](https://github.com/Vendicated/Vencord). See [third-party notices](THIRD_PARTY_NOTICES.md) for their licenses.
+LingoSofa builds on [Tauri](https://github.com/tauri-apps/tauri), [React](https://github.com/facebook/react) and [oh-my-pi](https://github.com/can1357/oh-my-pi). See [third-party notices](THIRD_PARTY_NOTICES.md) for dependency and distribution requirements.
 
 ## License
 
 LingoSofa is licensed under **GNU GPL v3.0 or later** ([GPL-3.0-or-later](LICENSE)). Copyright © 2026 LingoSofa contributors.
 
-Third-party components retain their own licenses. Vencord and Discord binaries are not included in the LingoSofa plugin archive; redistribution must preserve the applicable license, notice and source-code obligations.
+Third-party components retain their own licenses. Redistribution must preserve the applicable license, notice and source-code obligations.

@@ -6,20 +6,18 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "types": ["bun", "vite/client"]
   },
   "include": [
-    "packages/**/*.ts",
-    "packages/**/*.tsx",
-    "apps/pi-bridge/**/*.ts",
-    "tests/**/*.ts",
-    "vitest.config.ts",
-    "playwright.config.ts"
+    "apps/desktop/**/*.ts",
+    "apps/desktop/**/*.tsx",
+    "apps/omp-worker/src/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts"
   ]
 }
