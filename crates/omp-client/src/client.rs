@@ -26,6 +26,8 @@ pub struct Config {
     pub args: Vec<String>,
     pub directory: PathBuf,
     pub accounts: Vec<String>,
+    /// Budget for process initialization, separate from request and model deadlines.
+    pub startup_timeout: Duration,
 }
 
 struct Process {
@@ -357,7 +359,7 @@ impl Host {
             "hello",
             json!({"sdk":"18.12.3", "accounts":self.config.accounts}),
         )?;
-        let hello = match self.wait(id, Duration::from_secs(15)) {
+        let hello = match self.wait(id, self.config.startup_timeout) {
             Ok(hello) => hello,
             Err(error) => {
                 self.stop();

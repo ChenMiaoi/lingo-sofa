@@ -18,11 +18,13 @@ fn start_options(directory: &Path, extra: &[&str]) -> Service {
         args,
         directory: directory.to_path_buf(),
         accounts: vec!["deepseek".into()],
+        startup_timeout: Duration::from_secs(30),
     })
     .unwrap()
 }
 fn wait(service: &Service, predicate: impl Fn(&View) -> bool) -> View {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    // Source fixtures load the SDK before business behavior can be observed.
+    let deadline = Instant::now() + Duration::from_secs(45);
     loop {
         let view = service.state();
         if predicate(&view) {

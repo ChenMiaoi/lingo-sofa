@@ -142,6 +142,7 @@ impl Service {
             args: vec![],
             directory,
             accounts: vec!["deepseek".into()],
+            startup_timeout: Duration::from_secs(15),
         })
     }
     pub fn with_runtime(config: Config) -> Result<Self, &'static str> {

@@ -35,6 +35,7 @@ fn main() {
             args,
             directory: directory.clone(),
             accounts: vec!["deepseek".into(), "test-oauth".into()],
+            startup_timeout: std::time::Duration::from_secs(30),
         },
         Vault::open(&directory.join("parent-vault.sqlite")).unwrap(),
     )

@@ -43,6 +43,7 @@ fn run() -> Result<Value> {
         .map_err(|_| "worker_args_invalid")?,
         directory: directory.path().to_path_buf(),
         accounts: vec!["deepseek".into(), "test-oauth".into()],
+        startup_timeout: std::time::Duration::from_secs(30),
     };
     let mut host = Host::new(config, Vault::open(&vault_path)?)?;
     let model = host.request("model.verify", json!({}))?;

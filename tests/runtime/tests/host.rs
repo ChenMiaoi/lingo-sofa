@@ -21,6 +21,13 @@ fn setup(fault: Option<&str>) -> (tempfile::TempDir, Host) {
     setup_options(fault, &[])
 }
 fn setup_options(fault: Option<&str>, extra: &[&str]) -> (tempfile::TempDir, Host) {
+    setup_startup(fault, extra, Duration::from_secs(30))
+}
+fn setup_startup(
+    fault: Option<&str>,
+    extra: &[&str],
+    startup_timeout: Duration,
+) -> (tempfile::TempDir, Host) {
     let dir = tempfile::tempdir().unwrap();
     let program = PathBuf::from(
         std::env::var("W0_WORKER_PROGRAM").expect("Use run-host.ts to set worker paths"),
@@ -49,6 +56,7 @@ fn setup_options(fault: Option<&str>, extra: &[&str]) -> (tempfile::TempDir, Hos
         args,
         directory: dir.path().to_path_buf(),
         accounts: vec!["deepseek".into(), "test-oauth".into()],
+        startup_timeout,
     };
     (dir, Host::new(config, vault).unwrap())
 }
@@ -706,6 +714,7 @@ fn actual_host_crash_recovers_pending_and_preserves_committed_terminal() {
                 args: serde_json::from_str(&std::env::var("W0_WORKER_ARGS").unwrap()).unwrap(),
                 directory: dir.path().to_path_buf(),
                 accounts: vec!["deepseek".into(), "test-oauth".into()],
+                startup_timeout: Duration::from_secs(30),
             },
             Vault::open(&dir.path().join("parent-vault.sqlite")).unwrap(),
         )
@@ -762,6 +771,7 @@ fn ledger_io_failure_prevents_dispatch_or_terminal_ack_and_recovery_does_not_rep
             args: serde_json::from_str(&std::env::var("W0_WORKER_ARGS").unwrap()).unwrap(),
             directory: dir.path().to_path_buf(),
             accounts: vec!["deepseek".into(), "test-oauth".into()],
+            startup_timeout: Duration::from_secs(30),
         };
         let mut host = Host::new(
             config.clone(),
@@ -1261,4 +1271,16 @@ fn delayed_durable_admission_ack_does_not_terminate_the_worker() {
     assert_eq!(response["status"], "stop");
     assert_eq!(host.usage.records().len(), 1);
     assert_eq!(host.usage.records()[0]["usageState"], "reported");
+}
+
+#[test]
+fn startup_budget_is_bounded_and_configurable_without_relaxing_the_handshake() {
+    let (_directory, mut host) =
+        setup_startup(Some("delayed-hello"), &[], Duration::from_millis(25));
+    assert_eq!(host.start(), Err("worker_timeout_unknown"));
+    assert!(host.pid().is_none());
+    let (_directory, mut host) = setup_startup(Some("delayed-hello"), &[], Duration::from_secs(30));
+    assert!(host.start().is_ok());
+    assert!(host.pid().is_some());
+    assert_eq!(host.request("ping", json!({})).unwrap()["pong"], true);
 }

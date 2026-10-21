@@ -53,6 +53,7 @@ for await (const frame of readFrames()) {
     payload: { pong: true },
   };
   if (frame.method === "hello") {
+    if (mode === "delayed-hello") await Bun.sleep(250);
     await sendFrame({
       ...response,
       payload: {
@@ -61,6 +62,10 @@ for await (const frame of readFrames()) {
         pid: process.pid,
       },
     });
+    continue;
+  }
+  if (mode === "delayed-hello") {
+    await sendFrame(response);
     continue;
   }
   if (mode?.startsWith("ledger-")) {
