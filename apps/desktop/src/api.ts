@@ -37,7 +37,7 @@ export function call<T>(
 ): Promise<T> {
   return invoke<T>(command, args);
 }
-export function errorMessage(error: unknown): string {
+export function errorMessage(error: unknown, macos = false): string {
   const code = String(error);
   const messages: Record<string, string> = {
     selection_unsupported: "此应用暂不支持读取选区，可复制后翻译。",
@@ -63,7 +63,7 @@ export function errorMessage(error: unknown): string {
   if (conflict)
     return `${names[Number(conflict[1])]}的快捷键无法注册，可能已被占用或由系统保留。请更换组合；原设置继续生效。`;
   if (invalid)
-    return `${names[Number(invalid[1])]}的组合无效，请使用 Ctrl 或 Alt 搭配字母、数字、Space 或 F1–F24。`;
+    return `${names[Number(invalid[1])]}的组合无效，请使用 ${macos ? "Command、Option 或 Control" : "Ctrl 或 Alt"} 搭配字母、数字、Space 或 F1–F24。`;
   return messages[code] ?? "暂时无法完成操作，请稍后重试。";
 }
 
@@ -109,6 +109,7 @@ export interface ShortcutBindings {
   clipboard: string;
 }
 export interface ShortcutSnapshot {
+  macos: boolean;
   bindings: ShortcutBindings;
   registered: [boolean, boolean, boolean];
   revision: number;
@@ -121,6 +122,7 @@ export const defaultShortcuts: ShortcutBindings = {
 };
 export const initialState: DesktopState = {
   shortcuts: {
+    macos: false,
     bindings: defaultShortcuts,
     registered: [false, false, false],
     revision: 0,

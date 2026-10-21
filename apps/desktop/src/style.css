@@ -697,6 +697,15 @@ kbd {
 .settings-form .shortcut-row label {
   margin: 0;
 }
+.shortcut-edit {
+  min-width: 0;
+}
+.shortcut-preview {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
 .shortcut-row input {
   width: 100%;
   font-family: "Cascadia Code", Consolas, monospace;

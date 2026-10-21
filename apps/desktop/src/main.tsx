@@ -11,7 +11,7 @@ function App() {
     try {
       await call(command, args);
     } catch (e) {
-      setNotice(errorMessage(e));
+      setNotice(errorMessage(e, state.shortcuts.macos));
     }
   };
   useEffect(() => {

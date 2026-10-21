@@ -32,19 +32,45 @@ impl Bindings {
         [&self.input, &self.selection, &self.clipboard]
     }
     fn validate(&self) -> Result<(Self, [Shortcut; 3]), String> {
+        self.validate_for_platform(cfg!(target_os = "macos"))
+    }
+    fn validate_for_platform(&self, macos: bool) -> Result<(Self, [Shortcut; 3]), String> {
         let mut values = Vec::new();
         let mut keys = Vec::new();
         for (index, value) in self.values().iter().enumerate() {
-            let parts: Vec<_> = value.split('+').map(str::trim).collect();
+            let invalid = || format!("shortcut_invalid_{index}");
+            let mut parts = Vec::new();
+            for part in value.split('+').map(str::trim) {
+                if part.is_empty() {
+                    return Err(invalid());
+                }
+                // Accept both compact macOS notation (⌘⌥S) and separated symbols.
+                let expanded = if macos {
+                    part.replace('⌘', "Command+")
+                        .replace('⌥', "Alt+")
+                        .replace('⌃', "Ctrl+")
+                        .replace('⇧', "Shift+")
+                } else {
+                    part.to_string()
+                };
+                parts.extend(
+                    expanded
+                        .trim_end_matches('+')
+                        .split('+')
+                        .map(str::to_string),
+                );
+            }
             let mut ctrl = false;
             let mut alt = false;
             let mut shift = false;
+            let mut command = false;
             let mut key = None;
-            let invalid = || format!("shortcut_invalid_{index}");
             for part in parts {
                 match part.to_ascii_lowercase().as_str() {
                     "ctrl" | "control" if !ctrl => ctrl = true,
                     "alt" if !alt => alt = true,
+                    "option" | "opt" if macos && !alt => alt = true,
+                    "command" | "cmd" | "meta" | "super" if macos && !command => command = true,
                     "shift" if !shift => shift = true,
                     raw if key.is_none() => {
                         let normalized = if raw == "space" {
@@ -64,7 +90,7 @@ impl Bindings {
                     _ => return Err(invalid()),
                 }
             }
-            if !ctrl && !alt {
+            if !ctrl && !alt && !command {
                 return Err(invalid());
             }
             let mut normalized = String::new();
@@ -76,6 +102,9 @@ impl Bindings {
             }
             if shift {
                 normalized.push_str("Shift+");
+            }
+            if command {
+                normalized.push_str("Super+");
             }
             normalized.push_str(&key.ok_or_else(invalid)?);
             let parsed = normalized.parse::<Shortcut>().map_err(|_| invalid())?;
@@ -113,6 +142,7 @@ impl Registry for AppRegistry<'_> {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    pub macos: bool,
     pub bindings: Bindings,
     pub registered: [bool; 3],
     pub revision: u64,
@@ -162,6 +192,7 @@ impl Manager {
     }
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
+            macos: cfg!(target_os = "macos"),
             bindings: self.bindings.clone(),
             registered: self.keys.map(|key| self.held.contains_key(&key.id())),
             revision: self.revision,
@@ -272,6 +303,112 @@ mod tests {
         }
         value.input = "Shift+Alt+S".into();
         assert_eq!(value.validate().unwrap_err(), "shortcut_duplicate");
+    }
+    #[test]
+    fn macos_aliases_and_symbols_map_to_native_modifiers_and_detect_duplicates() {
+        for alias in ["Command", "Cmd", "Meta", "Super", "⌘"] {
+            let value = Bindings {
+                input: format!("{alias}+Option+I"),
+                ..Bindings::default()
+            };
+            let (normalized, keys) = value.validate_for_platform(true).unwrap();
+            assert_eq!(normalized.input, "Alt+Super+I");
+            assert_eq!(keys[0], "Alt+Super+I".parse::<Shortcut>().unwrap());
+            assert!(value.validate_for_platform(false).is_err());
+        }
+        for alias in ["Option", "Opt", "Alt", "⌥"] {
+            let value = Bindings {
+                input: format!("{alias}+Shift+Space"),
+                ..Bindings::default()
+            };
+            assert_eq!(
+                value.validate_for_platform(true).unwrap().0,
+                Bindings::default()
+            );
+        }
+        for input in ["⌃⌥⇧⌘I", "⌃+⌥+⇧+⌘+I", " control + option + shift + cmd + i "]
+        {
+            let value = Bindings {
+                input: input.into(),
+                ..Bindings::default()
+            };
+            assert_eq!(
+                value.validate_for_platform(true).unwrap().0.input,
+                "Ctrl+Alt+Shift+Super+I"
+            );
+        }
+        for input in [
+            "Cmd+Cmd+I",
+            "Command+Meta+I",
+            "Option+Alt+I",
+            "⌘⌘I",
+            "⌘++I",
+            "⌘",
+            "⇧I",
+            "Cmd+Delete",
+        ] {
+            let value = Bindings {
+                input: input.into(),
+                ..Bindings::default()
+            };
+            assert!(value.validate_for_platform(true).is_err(), "{input}");
+        }
+        let value = Bindings {
+            input: "Cmd+Option+S".into(),
+            selection: "⌥⌘S".into(),
+            ..Bindings::default()
+        };
+        assert_eq!(
+            value.validate_for_platform(true).unwrap_err(),
+            "shortcut_duplicate"
+        );
+        assert_eq!(
+            Bindings::default().validate_for_platform(false).unwrap().0,
+            Bindings::default()
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn command_bindings_persist_route_and_keep_previous_binding_on_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shortcuts.sqlite");
+        let mut manager = Manager::open(&path).unwrap();
+        let registry = Fake::default();
+        manager.initialize(&registry);
+        let proposed = Bindings {
+            input: "⌘⌥I".into(),
+            selection: "Command+Shift+S".into(),
+            clipboard: "Meta+T".into(),
+        };
+        manager.save(proposed.clone(), &registry).unwrap();
+        assert_eq!(
+            manager.action(&"Super+T".parse().unwrap()),
+            Some(Action::Clipboard)
+        );
+        assert_eq!(manager.action(&"Alt+Shift+T".parse().unwrap()), None);
+        let mut reopened = Manager::open(&path).unwrap();
+        assert!(reopened.snapshot().macos);
+        assert_eq!(reopened.bindings, proposed.validate().unwrap().0);
+        let next_registry = Fake::default();
+        reopened.initialize(&next_registry);
+        assert_eq!(reopened.snapshot().registered, [true; 3]);
+        next_registry
+            .blocked
+            .borrow_mut()
+            .insert("Super+Q".parse::<Shortcut>().unwrap().id());
+        let conflicting = Bindings {
+            input: "Cmd+Q".into(),
+            ..proposed.clone()
+        };
+        assert_eq!(
+            reopened.save(conflicting, &next_registry).unwrap_err(),
+            "shortcut_conflict_0"
+        );
+        assert_eq!(reopened.bindings, proposed.validate().unwrap().0);
+        assert_eq!(
+            reopened.action(&"Alt+Super+I".parse().unwrap()),
+            Some(Action::Input)
+        );
     }
     #[test]
     fn startup_conflict_is_visible_and_retry_recovers_without_disabling_other_actions() {

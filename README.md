@@ -66,9 +66,11 @@ There is no published desktop release yet. [Build from source](#development) to 
 | **Alt+Shift+S**     | Translate the current text selection.              |
 | **Alt+Shift+T**     | Translate clipboard text.                          |
 
+On macOS, these defaults appear as **⌥⇧Space**, **⌥⇧S**, and **⌥⇧T**. Custom combinations accept **Command/Cmd/Meta/Super**, **Option/Alt** (also **Opt**), **Control/Ctrl**, and **Shift**, or symbols such as `⌘⌥Q` and `⌘+⌥+Q`. Include Command, Option, or Control with a letter, digit, Space, or F1–F24. Windows keeps its existing Ctrl/Alt combinations.
+
 Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
-Inside the input panel, **Enter** runs the selected action, **Shift+Enter** inserts a new line, **Alt+↑↓** switches actions, and **Esc** returns to reading. Reopening an already open input panel with its shortcut preserves the draft.
+Inside the input panel, **Enter** runs the selected action, **Shift+Enter** inserts a new line, **Alt+↑↓** switches actions, and **Esc** returns to reading. On macOS the hints use **↩**, **⇧↩**, and **⌥↑↓**. Reopening an already open input panel with its shortcut preserves the draft.
 
 Selection support depends on the source application. Notepad, an isolated VS Code instance with accessibility enabled, and Discord message text have completed scoped checks. Browser selection remains unverified; use the [manual checklist](docs/browser-manual-acceptance.md) to test it.
 

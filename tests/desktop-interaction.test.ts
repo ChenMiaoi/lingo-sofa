@@ -302,3 +302,84 @@ test("Ask keeps the frozen selected source visible after its live anchor expires
     await ui.close();
   }
 });
+
+test("macOS settings edit Command and Option, preview symbols, save and restore existing defaults", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    macos: true,
+    registered: [true, true, true],
+    bindings: { ...value.shortcuts.bindings, input: "Alt+Super+I" },
+  };
+  const ui = await mount(value);
+  try {
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!.value,
+    ).toBe("Option+Command+I");
+    expect(
+      ui.element.querySelector("#shortcut-preview-input")!.textContent,
+    ).toBe("⌥⌘I");
+    expect(ui.element.querySelector(".shortcut-row")!.textContent).toContain(
+      "已启用",
+    );
+    expect(ui.element.querySelector("#shortcut-help")!.textContent).toContain(
+      "Command/Cmd/Meta/Super",
+    );
+    await ui.type("Command+Option+Q", "#shortcut-input");
+    await ui.render({ ...value, shortcuts: { ...value.shortcuts } });
+    expect(
+      ui.element.querySelector("#shortcut-preview-input")!.textContent,
+    ).toBe("⌘⌥Q");
+    const buttons = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ];
+    await act(async () =>
+      buttons.find((b) => b.textContent === "保存快捷键")!.click(),
+    );
+    expect(ui.calls).toEqual([
+      {
+        command: "save_shortcuts",
+        args: {
+          bindings: {
+            input: "Command+Option+Q",
+            selection: "Option+Shift+S",
+            clipboard: "Option+Shift+T",
+          },
+        },
+      },
+    ]);
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: 1,
+        bindings: { ...value.shortcuts.bindings, input: "Alt+Super+Q" },
+      },
+    });
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!.value,
+    ).toBe("Option+Command+Q");
+    await act(async () =>
+      ui.element.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+        if (b.textContent === "恢复默认") b.click();
+      }),
+    );
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!.value,
+    ).toBe("Option+Shift+Space");
+    expect(
+      ui.element.querySelector("#shortcut-preview-input")!.textContent,
+    ).toBe("⌥⇧Space");
+    expect(ui.calls).toHaveLength(1);
+    await ui.render({ ...value, desktop: { ...value.desktop, mode: "input" } });
+    await ui.type("Translate this.");
+    await ui.key("ArrowDown", false, { altKey: true });
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "ask_text",
+      args: { text: "Translate this." },
+    });
+  } finally {
+    await ui.close();
+  }
+});

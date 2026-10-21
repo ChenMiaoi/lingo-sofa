@@ -161,3 +161,58 @@ test("an account error is actionable in the lightweight translation overlay", ()
   expect(html).toContain("添加账户");
   expect(html).not.toContain("正在翻译");
 });
+
+test("macOS shortcut hints use native symbols while Windows keeps existing text", () => {
+  const value: DesktopState = {
+    ...initialState,
+    desktop: { ...initialState.desktop, mode: "menu" },
+    shortcuts: {
+      ...initialState.shortcuts,
+      macos: true,
+      bindings: {
+        input: "Ctrl+Alt+Shift+Super+I",
+        selection: "Alt+Shift+S",
+        clipboard: "Super+T",
+      },
+      registered: [true, true, true],
+    },
+  };
+  const menu = renderToStaticMarkup(
+    React.createElement(Desktop, { state: value, perform }),
+  );
+  expect(menu).toContain("⌃⌥⇧⌘I");
+  expect(menu).toContain("⌥⇧S");
+  expect(menu).toContain("⌘T");
+  const idle = renderToStaticMarkup(
+    React.createElement(Desktop, {
+      state: { ...value, desktop: { ...value.desktop, mode: "idle" } },
+      perform,
+    }),
+  );
+  expect(idle).toContain("⌥⇧S");
+  const input = renderToStaticMarkup(
+    React.createElement(Desktop, {
+      state: { ...value, desktop: { ...value.desktop, mode: "input" } },
+      perform,
+    }),
+  );
+  expect(input).toContain("⇧↩ 换行 · ⌥↑↓ 选择");
+  const windows = renderToStaticMarkup(
+    React.createElement(Desktop, {
+      state: {
+        ...value,
+        shortcuts: {
+          ...initialState.shortcuts,
+          registered: [true, true, true],
+        },
+      },
+      perform,
+    }),
+  );
+  expect(windows).toContain("Alt+Shift+Space");
+  expect(windows).not.toContain("⌥");
+  expect(errorMessage("shortcut_invalid_0", true)).toContain(
+    "Command、Option 或 Control",
+  );
+  expect(errorMessage("shortcut_invalid_0", false)).toContain("Ctrl 或 Alt");
+});

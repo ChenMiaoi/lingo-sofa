@@ -66,9 +66,11 @@ LingoSofa 是 Windows 上的悬浮翻译工具。选中文字，在旁边阅读�
 | **Alt+Shift+S**     | 翻译当前选中文字。       |
 | **Alt+Shift+T**     | 翻译剪贴板文本。         |
 
+macOS 默认组合显示为 **⌥⇧Space**、**⌥⇧S**、**⌥⇧T**。自定义支持 **Command/Cmd/Meta/Super**、**Option/Alt**（也支持 **Opt**）、**Control/Ctrl** 和 **Shift**，也可填写 `⌘⌥Q` 或 `⌘+⌥+Q` 等符号组合。须包含 Command、Option 或 Control，并搭配字母、数字、Space 或 F1–F24。Windows 保持原有 Ctrl/Alt 组合规则。
+
 在 **设置 → 全局快捷键** 中修改组合，保存后即时生效；注册失败时保留原设置，仍可通过边缘入口或托盘操作。
 
-输入面板内，**Enter** 执行，**Shift+Enter** 换行，**Alt+↑↓** 切换动作，**Esc** 返回阅读。面板已打开时，再次按唤出快捷键会保留当前草稿。
+输入面板内，**Enter** 执行，**Shift+Enter** 换行，**Alt+↑↓** 切换动作，**Esc** 返回阅读。macOS 提示对应显示为 **↩**、**⇧↩** 和 **⌥↑↓**。面板已打开时，再次按唤出快捷键会保留当前草稿。
 
 选区取文能力取决于来源应用。当前已对记事本、开启可访问性的独立 VS Code 和 Discord 消息正文完成限定场景验证。浏览器选区尚未通过，可按 [手动验收步骤](docs/browser-manual-acceptance.md) 检查。
 

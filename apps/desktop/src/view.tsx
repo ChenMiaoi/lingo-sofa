@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { formatShortcut } from "./keyboard";
 import { ShortcutSettings } from "./shortcuts";
 import {
   matchingActions,
@@ -187,7 +188,8 @@ export function Desktop({
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
   }, [mode, perform]);
-  const message = notice || (d.notice ? errorMessage(d.notice) : "");
+  const message =
+    notice || (d.notice ? errorMessage(d.notice, state.shortcuts.macos) : "");
   const translationError = current && model.phase === "error";
   const translation =
     d.translation ||
@@ -197,7 +199,7 @@ export function Desktop({
       <main className="edge">
         <button
           aria-label="翻译选中文字"
-          title={`翻译选中文字 · ${state.shortcuts.registered[1] ? state.shortcuts.bindings.selection : "快捷键未启用"}；右键打开更多操作`}
+          title={`翻译选中文字 · ${state.shortcuts.registered[1] ? formatShortcut(state.shortcuts.bindings.selection, state.shortcuts.macos) : "快捷键未启用"}；右键打开更多操作`}
           onClick={() => void perform("capture_selection")}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -232,7 +234,10 @@ export function Desktop({
           翻译选中文字{" "}
           <kbd>
             {state.shortcuts.registered[1]
-              ? state.shortcuts.bindings.selection
+              ? formatShortcut(
+                  state.shortcuts.bindings.selection,
+                  state.shortcuts.macos,
+                )
               : "快捷键未启用"}
           </kbd>
         </button>
@@ -241,7 +246,10 @@ export function Desktop({
           翻译剪贴板{" "}
           <kbd>
             {state.shortcuts.registered[2]
-              ? state.shortcuts.bindings.clipboard
+              ? formatShortcut(
+                  state.shortcuts.bindings.clipboard,
+                  state.shortcuts.macos,
+                )
               : "快捷键未启用"}
           </kbd>
         </button>
@@ -250,7 +258,10 @@ export function Desktop({
           输入翻译
           <kbd>
             {state.shortcuts.registered[0]
-              ? state.shortcuts.bindings.input
+              ? formatShortcut(
+                  state.shortcuts.bindings.input,
+                  state.shortcuts.macos,
+                )
               : "快捷键未启用"}
           </kbd>
         </button>
@@ -563,10 +574,10 @@ export function Desktop({
               (current && model.phase === "error"
                 ? model.message
                 : isInput
-                  ? "Enter 执行 · Shift+Enter 换行 · Alt+↑↓ 选择"
+                  ? `${formatShortcut("Enter", state.shortcuts.macos)} 执行 · ${formatShortcut("Shift+Enter", state.shortcuts.macos)} 换行 · ${formatShortcut("Alt+↑↓", state.shortcuts.macos)} 选择`
                   : mode === "ask"
-                    ? "↑↓ 选择　 ↵ 执行　 Esc 返回阅读"
-                    : "输入问题后 Enter 继续 · Esc 返回动作")}
+                    ? `↑↓ 选择\u3000 ${state.shortcuts.macos ? "↩" : "↵"} 执行\u3000 Esc 返回阅读`
+                    : `输入问题后 ${formatShortcut("Enter", state.shortcuts.macos)} 继续 · Esc 返回动作`)}
           </span>
           <span>{isInput ? "Esc 收起" : "Ask 模式 · 主动展开"}</span>
         </footer>

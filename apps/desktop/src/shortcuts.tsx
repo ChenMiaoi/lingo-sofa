@@ -4,6 +4,7 @@ import {
   type ShortcutBindings,
   type ShortcutSnapshot,
 } from "./api";
+import { editableShortcut, formatShortcut } from "./keyboard";
 import type { Perform } from "./view";
 
 const fields = [
@@ -11,6 +12,17 @@ const fields = [
   ["selection", "翻译当前选区"],
   ["clipboard", "翻译剪贴板"],
 ] as const;
+
+function editableBindings(
+  bindings: ShortcutBindings,
+  macos: boolean,
+): ShortcutBindings {
+  return {
+    input: editableShortcut(bindings.input, macos),
+    selection: editableShortcut(bindings.selection, macos),
+    clipboard: editableShortcut(bindings.clipboard, macos),
+  };
+}
 
 export function ShortcutSettings({
   snapshot,
@@ -21,31 +33,45 @@ export function ShortcutSettings({
   notice: string;
   perform: Perform;
 }) {
-  const [draft, setDraft] = useState<ShortcutBindings>(snapshot.bindings);
+  const [draft, setDraft] = useState(() =>
+    editableBindings(snapshot.bindings, snapshot.macos),
+  );
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   return (
     <section className="shortcut-settings" aria-label="全局快捷键">
       <h2>全局快捷键</h2>
       <p id="shortcut-help">
-        填写组合，例如 Ctrl+Alt+Q。支持字母、数字、Space 和 F1–F24，须包含 Ctrl
-        或 Alt。
+        {snapshot.macos
+          ? "填写组合，例如 Command+Option+Q（⌘⌥Q）。支持 Command/Cmd/Meta/Super、Option/Alt、Control/Ctrl、Shift 及 ⌘⌥⌃⇧ 符号；须包含 Command、Option 或 Control。"
+          : "填写组合，例如 Ctrl+Alt+Q。须包含 Ctrl 或 Alt。"}
+        支持字母、数字、Space 和 F1–F24。
       </p>
       {fields.map(([name, label], index) => (
         <div className="shortcut-row" key={name}>
           <label htmlFor={`shortcut-${name}`}>{label}</label>
-          <input
-            id={`shortcut-${name}`}
-            aria-describedby="shortcut-help"
-            maxLength={48}
-            value={draft[name]}
-            spellCheck={false}
-            disabled={saving}
-            onChange={(e) => {
-              setDraft({ ...draft, [name]: e.target.value });
-              setDirty(true);
-            }}
-          />
+          <div className="shortcut-edit">
+            <input
+              id={`shortcut-${name}`}
+              aria-describedby={`shortcut-help${snapshot.macos ? ` shortcut-preview-${name}` : ""}`}
+              maxLength={48}
+              value={draft[name]}
+              spellCheck={false}
+              disabled={saving}
+              onChange={(e) => {
+                setDraft({ ...draft, [name]: e.target.value });
+                setDirty(true);
+              }}
+            />
+            {snapshot.macos && (
+              <output
+                id={`shortcut-preview-${name}`}
+                className="shortcut-preview"
+              >
+                {formatShortcut(draft[name], true)}
+              </output>
+            )}
+          </div>
           <span
             className={
               snapshot.registered[index]
@@ -53,7 +79,8 @@ export function ShortcutSettings({
                 : "shortcut-unavailable"
             }
           >
-            {draft[name] !== snapshot.bindings[name]
+            {draft[name] !==
+            editableShortcut(snapshot.bindings[name], snapshot.macos)
               ? "待保存"
               : snapshot.registered[index]
                 ? "已启用"
@@ -65,7 +92,7 @@ export function ShortcutSettings({
         <button
           disabled={saving}
           onClick={() => {
-            setDraft({ ...defaultShortcuts });
+            setDraft(editableBindings(defaultShortcuts, snapshot.macos));
             setDirty(true);
           }}
         >
