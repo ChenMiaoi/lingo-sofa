@@ -56,7 +56,7 @@ LingoSofa 是 Windows 上的悬浮翻译工具。选中文字，在旁边阅读�
 
 ## 开始使用
 
-桌面版暂未发布公开 Release，可先 [从源码构建](#开发) 生成 Windows 安装包；安装后的用户无需 Bun 或 Rust。完整设置与使用方法见 [安装说明](docs/installation.md)。
+从 [GitHub Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) 下载安装包，正式版与 RC 预发布分开标记；安装后的用户无需 Bun 或 Rust。更新包已签名，Windows 代码签名和 macOS 公证仍待完成。完整设置与使用方法见 [安装说明](docs/installation.md)。
 
 1. 启动 LingoSofa，通过边缘入口或系统托盘打开 **设置**。
 2. 进入 **设置 → 模型与服务商**，选择服务商、保存 API Key 并设定默认模型；在翻译偏好中选择目标语言。

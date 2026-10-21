@@ -55,7 +55,7 @@ Screenshots show the native Windows desktop application using an isolated test p
 
 ## Get started
 
-There is no published desktop release yet. [Build from source](#development) to generate a Windows installer; installed users do not need Bun or Rust. Setup and usage details are in the [installation guide](docs/installation.md).
+Download installers from [GitHub Releases](https://github.com/ChenMiaoi/lingo-sofa/releases). Stable versions and RC prereleases are listed separately; installed users do not need Bun or Rust. Updater artifacts are signed; Windows code signing and macOS notarization remain pending. Setup and usage details are in the [installation guide](docs/installation.md).
 
 1. Start LingoSofa and open **Settings** from the edge entry or system tray.
 2. Open **Settings → Models & providers**, select a provider, save its API Key, and choose a default model. Set your target language under Translation preferences.

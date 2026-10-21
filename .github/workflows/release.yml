@@ -1,18 +1,60 @@
 name: Signed desktop release
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: desktop-release
   cancel-in-progress: false
 jobs:
-  release:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      release-id: ${{ steps.release.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Validate tag and application versions
+        id: version
+        run: bun scripts/release-version.ts
+      - name: Prepare unpublished release
+        id: release
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const prerelease = process.env.PRERELEASE === 'true';
+            const repo = context.repo;
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({ ...repo, tag });
+              if (!data.draft || data.prerelease !== prerelease) throw new Error('Release is already published or its channel differs');
+              return data.id;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const { data } = await github.rest.repos.createRelease({
+              ...repo, tag_name: tag, name: `LingoSofa ${tag}`, draft: true,
+              prerelease, generate_release_notes: true,
+              body: 'Windows x64 and macOS Apple Silicon / Intel builds. Updater artifacts are signed. Windows code signing and macOS Developer ID signing / notarization are not yet configured; OS security prompts may appear. See docs/installation.md and docs/acceptance.md for requirements and acceptance limits.'
+            });
+            return data.id;
+  build:
+    needs: prepare
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
-      # Serialize latest.json updates so all platforms remain in the manifest.
-      max-parallel: 1
       matrix:
         os: [windows-2025, macos-26, macos-26-intel]
     runs-on: ${{ matrix.os }}
@@ -36,10 +78,8 @@ jobs:
         with:
           tool: nextest@0.9.149
       - run: bun install --frozen-lockfile
-      - name: Verify release version
-        run: bun scripts/release-version.ts
       - run: npm run check
-      - name: Build signed updater artifacts and draft release
+      - name: Build and upload signed artifacts
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,8 +89,34 @@ jobs:
           projectPath: apps/desktop
           tauriScript: node ../../node_modules/@tauri-apps/cli/tauri.js
           args: --config src-tauri/tauri.release.conf.json
-          tagName: v__VERSION__
-          releaseName: LingoSofa v__VERSION__
+          releaseId: ${{ needs.prepare.outputs.release-id }}
           releaseDraft: true
-          generateReleaseNotes: true
-          updaterJsonPreferNsis: true
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+          releaseAssetNamePattern: LingoSofa_[version]_[platform]_[arch][ext]
+          # A single publisher assembles the manifest after every platform succeeds.
+          uploadUpdaterJson: false
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-diagnostics-${{ matrix.os }}
+          path: |
+            .cache/runtime-tests/*.json
+            .cache/runtime-tests/*.junit.xml
+            target/cargo-timings/*.html
+          include-hidden-files: true
+          if-no-files-found: ignore
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Verify all artifacts, create updater manifest and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-release.ts
