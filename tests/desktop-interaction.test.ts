@@ -1131,3 +1131,73 @@ test("failed inline credential save never switches and Escape discards its passw
     await ui.close();
   }
 });
+
+test("Tab completes commands in input, Ask and running follow-ups without executing or losing focus", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const value = state(mode);
+    value.model.phase = "running";
+    value.model.configuredProviders = ["deepseek"];
+    const ui = await mount(value);
+    const field = () =>
+      ui.element.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+        "input, textarea",
+      )!;
+    try {
+      await ui.type("/mo");
+      field().setSelectionRange(3, 3);
+      await ui.key("Tab", true);
+      expect(field().value).toBe("/mo");
+      await ui.key("Tab", false, { shiftKey: true });
+      expect(field().value).toBe("/mo");
+      await ui.key("Tab");
+      expect(field().value).toBe("/model ");
+      expect(field().selectionStart).toBe(7);
+      expect(document.activeElement).toBe(field());
+      expect(ui.calls).toHaveLength(0);
+      expect(ui.element.querySelector(".model-picker")).toBeNull();
+      await ui.key("Enter");
+      expect(
+        ui.element.querySelector('[aria-label="选择模型"]'),
+      ).not.toBeNull();
+      expect(ui.calls).toHaveLength(0);
+      await ui.key("Escape");
+      await ui.type("/s");
+      field().setSelectionRange(2, 2);
+      await ui.key("ArrowDown");
+      await ui.key("Tab");
+      expect(field().value).toBe("/shortcuts ");
+      expect(ui.calls).toHaveLength(0);
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        { command: "set_mode", args: { mode: "settings" } },
+      ]);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("Tab leaves command arguments and escaped text alone and preserves arguments when completing at the command", async () => {
+  const ui = await mount(state("input"));
+  const field = () =>
+    ui.element.querySelector<HTMLTextAreaElement>("textarea")!;
+  try {
+    await ui.type("/mo deepseek/deepseek-flash");
+    field().setSelectionRange(field().value.length, field().value.length);
+    await ui.key("Tab");
+    expect(field().value).toBe("/mo deepseek/deepseek-flash");
+    field().setSelectionRange(3, 3);
+    await ui.key("Tab");
+    expect(field().value).toBe("/model deepseek/deepseek-flash");
+    expect(field().selectionStart).toBe(7);
+    for (const text of ["//model", "/unknown", "ordinary text", "/mo\ntext"]) {
+      await ui.type(text);
+      field().setSelectionRange(text.length, text.length);
+      await ui.key("Tab");
+      expect(field().value).toBe(text);
+    }
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});

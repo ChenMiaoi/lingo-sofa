@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { formatShortcut } from "./keyboard";
 import { Settings, type SettingsPage } from "./settings";
 import {
   commandSuggestions,
+  completeCommand,
   isCommandInput,
   parseCommand,
   unescapeCommandText,
@@ -112,6 +113,7 @@ export function Desktop({
   const commandInFlight = useRef(false);
   const commandNoticeVersion = useRef(0);
   const commandList = useRef<HTMLElement>(null);
+  const completionCaret = useRef<number | null>(null);
   const previousView = useRef({
     mode,
     epoch: d.epoch,
@@ -227,6 +229,37 @@ export function Desktop({
         : commandText,
     );
   };
+  const completeCommandInput = (
+    event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    if (
+      !commandMode ||
+      event.key !== "Tab" ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    )
+      return false;
+    const completion = completeCommand(
+      commandText,
+      selected,
+      event.currentTarget.selectionStart ?? commandText.length,
+      event.currentTarget.selectionEnd ?? commandText.length,
+    );
+    if (!completion) return false;
+    event.preventDefault();
+    completionCaret.current = completion.caret;
+    if (isInput) setInput(completion.text);
+    else setQuery(completion.text);
+    return true;
+  };
+  useLayoutEffect(() => {
+    if (completionCaret.current === null) return;
+    const field = isInput ? draftInput.current : queryInput.current;
+    field?.setSelectionRange(completionCaret.current, completionCaret.current);
+    completionCaret.current = null;
+  }, [input, query, isInput]);
   const execute = () => {
     if (commandMode) {
       commandChoice(selected);
@@ -497,6 +530,7 @@ export function Desktop({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (isImeKey(e.nativeEvent)) return;
+                if (completeCommandInput(e)) return;
                 if (
                   (e.altKey || commandMode) &&
                   (e.key === "ArrowDown" || e.key === "ArrowUp")
@@ -537,6 +571,7 @@ export function Desktop({
               onKeyDown={(e) => {
                 if (isImeKey(e.nativeEvent) || (commandMode && e.shiftKey))
                   return;
+                if (completeCommandInput(e)) return;
                 if (
                   (mode === "ask" || commandMode) &&
                   (e.key === "ArrowDown" || e.key === "ArrowUp")
@@ -786,7 +821,7 @@ export function Desktop({
             {commandNotice ||
               message ||
               (commandMode
-                ? `↑↓ 选择命令 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
+                ? `↑↓ 选择 · Tab 补全 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
                 : current && model.phase === "error"
                   ? model.message
                   : isInput

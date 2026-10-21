@@ -1,5 +1,6 @@
 import {
   commandSuggestions,
+  completeCommand,
   parseCommand,
   unescapeCommandText,
 } from "../apps/desktop/src/commands";
@@ -267,4 +268,20 @@ test("slash commands parse configuration locally and preserve nested model IDs",
   expect(parseCommand("Translate /settings literally")).toBeNull();
   expect(parseCommand("//usr/local")).toBeNull();
   expect(unescapeCommandText(" //usr/local")).toBe(" /usr/local");
+});
+
+test("Tab completion fills the selected command without consuming arguments or escaped content", () => {
+  expect(completeCommand("/mo", 0)).toEqual({ text: "/model ", caret: 7 });
+  expect(completeCommand("/s", 1)).toEqual({ text: "/shortcuts ", caret: 11 });
+  expect(completeCommand("  /MO", 0)).toEqual({ text: "  /model ", caret: 9 });
+  expect(completeCommand("/mo deepseek/test", 0, 3)).toEqual({
+    text: "/model deepseek/test",
+    caret: 7,
+  });
+  expect(completeCommand("/mo deepseek/test", 0)).toBeNull();
+  expect(completeCommand("/model ", 0)).toBeNull();
+  expect(completeCommand("//mo", 0)).toBeNull();
+  expect(completeCommand("/unknown", 0)).toBeNull();
+  expect(completeCommand("/mo\ntext", 0)).toBeNull();
+  expect(completeCommand("ordinary text", 0)).toBeNull();
 });

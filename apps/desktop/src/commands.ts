@@ -38,6 +38,23 @@ export function commandSuggestions(text: string) {
   const name = text.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
   return slashCommands.filter((entry) => entry.command.startsWith(name));
 }
+export function completeCommand(
+  text: string,
+  selected: number,
+  selectionStart = text.length,
+  selectionEnd = selectionStart,
+): { text: string; caret: number } | null {
+  if (!isCommandInput(text) || /[\r\n]/.test(text)) return null;
+  const match = /^([ \t]*)(\/\S*)(.*)$/.exec(text);
+  if (!match) return null;
+  const start = match[1]!.length;
+  const end = start + match[2]!.length;
+  if (selectionStart < start || selectionEnd > end) return null;
+  const suggestion = commandSuggestions(text)[selected];
+  if (!suggestion) return null;
+  const prefix = match[1] + suggestion.command;
+  return { text: prefix + (match[3] || " "), caret: prefix.length + 1 };
+}
 export function unescapeCommandText(text: string) {
   return text.replace(/^(\s*)\/\//, "$1/");
 }
