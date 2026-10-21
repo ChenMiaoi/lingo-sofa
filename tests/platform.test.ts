@@ -23,3 +23,19 @@ test("unsupported hosts fail before building an unusable worker", () => {
     "Unsupported runtime platform",
   );
 });
+
+test("Tauri Cargo features match Windows and macOS application configs", async () => {
+  const directory = new URL("../apps/desktop/src-tauri/", import.meta.url);
+  const manifest = Bun.TOML.parse(
+    await Bun.file(new URL("Cargo.toml", directory)).text(),
+  ) as { dependencies: { tauri: { features: string[] } } };
+  const base = await Bun.file(new URL("tauri.conf.json", directory)).json();
+  const macos = await Bun.file(
+    new URL("tauri.macos.conf.json", directory),
+  ).json();
+  for (const app of [base.app, { ...base.app, ...macos.app }]) {
+    expect(
+      manifest.dependencies.tauri.features.includes("macos-private-api"),
+    ).toBe(Boolean(app.macOSPrivateApi));
+  }
+});
