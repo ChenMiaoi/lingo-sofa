@@ -325,6 +325,33 @@ mod metadata_tests {
         io::{Read, Write},
         net::TcpListener,
     };
+    fn read_request_headers(input: &mut impl Read) -> Vec<u8> {
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            let length = input.read(&mut chunk).unwrap();
+            assert!(length > 0, "incomplete metadata fixture request");
+            request.extend_from_slice(&chunk[..length]);
+            assert!(
+                request.len() <= 16 * 1024,
+                "oversized metadata fixture request"
+            );
+        }
+        request
+    }
+    #[test]
+    fn fixture_waits_for_all_fragmented_request_headers() {
+        struct Fragmented(std::io::Cursor<Vec<u8>>);
+        impl Read for Fragmented {
+            fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+                let size = output.len().min(1);
+                self.0.read(&mut output[..size])
+            }
+        }
+        let request = b"GET /latest.json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+        let mut input = Fragmented(std::io::Cursor::new(request.to_vec()));
+        assert_eq!(read_request_headers(&mut input), request);
+    }
     fn fetch(status: &str, body: &str) -> Result<Option<serde_json::Value>, &'static str> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = format!("http://{}/latest.json", listener.local_addr().unwrap());
@@ -350,8 +377,8 @@ mod metadata_tests {
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
-            let mut request = [0; 4096];
-            let _ = stream.read(&mut request);
+            // Drain the complete header before closing, avoiding TCP resets from unread bytes.
+            read_request_headers(&mut stream);
             stream.write_all(response.as_bytes()).unwrap();
         });
         let result = tauri::async_runtime::block_on(fetch_metadata(&endpoint));
