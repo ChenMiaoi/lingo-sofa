@@ -24,6 +24,7 @@ export const slashCommands = [
     label: "订阅账户登录",
     detail: "/login [服务商]（也可用 /subscribe）",
   },
+  { command: "/ask", label: "直接提问", detail: "/ask [问题]" },
   { command: "/new", label: "新建会话", detail: "/new" },
   { command: "/help", label: "查看应用命令", detail: "/help" },
 ] as const;
@@ -31,6 +32,7 @@ export type ParsedCommand =
   | { kind: "settings"; page: SettingsPage }
   | { kind: "model_picker"; search: string }
   | { kind: "login"; provider?: string }
+  | { kind: "ask"; question: string }
   | { kind: "new" }
   | { kind: "model"; model: ModelSelection }
   | { kind: "preferences"; patch: Partial<Settings> }
@@ -71,6 +73,11 @@ export function parseCommand(text: string): ParsedCommand | null {
     kind: "invalid",
     message: `命令格式：${usage}`,
   });
+  if (name?.toLowerCase() === "/ask")
+    return {
+      kind: "ask",
+      question: text.trimStart().slice(name.length).trim(),
+    };
   if (/[\r\n]/.test(text.trim()))
     return invalid("请单独输入一行命令；以 // 开头可提交斜杠正文。");
   switch (name?.toLowerCase()) {

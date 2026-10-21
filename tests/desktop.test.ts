@@ -274,6 +274,20 @@ test("slash commands parse configuration locally and preserve nested model IDs",
   expect(unescapeCommandText(" //usr/local")).toBe(" /usr/local");
 });
 
+test("ask commands preserve question content and support multiline input", () => {
+  expect(parseCommand("/ask")).toEqual({ kind: "ask", question: "" });
+  expect(parseCommand("  /ASK   Explain  this\n  /model literally  ")).toEqual({
+    kind: "ask",
+    question: "Explain  this\n  /model literally",
+  });
+  expect(parseCommand("/ask /new")).toEqual({ kind: "ask", question: "/new" });
+  expect(parseCommand("//ask question")).toBeNull();
+  expect(commandSuggestions("/a").map((entry) => entry.command)).toEqual([
+    "/ask",
+  ]);
+  expect(completeCommand("/a", 0)).toEqual({ text: "/ask ", caret: 5 });
+});
+
 test("Tab completion fills the selected command without consuming arguments or escaped content", () => {
   expect(completeCommand("/mo", 0)).toEqual({ text: "/model ", caret: 7 });
   expect(completeCommand("/s", 1)).toEqual({ text: "/shortcuts ", caret: 11 });

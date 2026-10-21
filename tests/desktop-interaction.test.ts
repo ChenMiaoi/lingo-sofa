@@ -841,7 +841,7 @@ test("command suggestions complete prefixes and escaped slash text follows norma
     expect(ui.element.querySelector('[aria-label="应用命令"]')).not.toBeNull();
     expect(
       ui.element.querySelectorAll('[aria-label="应用命令"] .action'),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
     await ui.key("ArrowDown");
     expect(ui.element.querySelector(".action.selected")!.textContent).toContain(
       "/model",
@@ -1461,6 +1461,109 @@ test("updates distinguish unpublished releases from network failures and retry",
     );
     await ui.click("检查更新");
     expect(ui.calls.at(-1)?.command).toBe("check_updates");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("ask command submits only the question through the current entry's Ask path", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const ui = await mount(state(mode));
+    try {
+      await ui.type("/a");
+      await ui.key("Tab");
+      expect(
+        ui.element.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+          "input, textarea",
+        )!.value,
+      ).toBe("/ask ");
+      await ui.type("/ask Explain  /model literally");
+      await ui.key("Enter", true);
+      await ui.key("Enter", false, { keyCode: 229 });
+      await ui.key("Enter", false, { shiftKey: true });
+      expect(ui.calls).toHaveLength(0);
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        mode === "input"
+          ? { command: "ask_text", args: { text: "Explain  /model literally" } }
+          : {
+              command: "ask_question",
+              args: { question: "Explain  /model literally" },
+            },
+      ]);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("bare ask selects independent questioning or keeps the current Ask context", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const ui = await mount(state(mode));
+    try {
+      await ui.type("/ask");
+      await ui.key("Enter");
+      expect(ui.calls).toHaveLength(0);
+      const field = ui.element.querySelector<
+        HTMLInputElement | HTMLTextAreaElement
+      >("input, textarea")!;
+      expect(field.value).toBe("");
+      expect(document.activeElement).toBe(field);
+      await ui.type("What does MAPLE mean?");
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        mode === "input"
+          ? { command: "ask_text", args: { text: "What does MAPLE mean?" } }
+          : {
+              command: "ask_question",
+              args: { question: "What does MAPLE mean?" },
+            },
+      ]);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("ask waits for active tasks and retains a question after submission fails", async () => {
+  for (const phase of ["preparing", "running", "compacting"] as const) {
+    const value = state("input");
+    value.model = { ...value.model, phase };
+    const ui = await mount(value);
+    try {
+      for (const command of ["/ask", "/ask A new question"]) {
+        await ui.type(command);
+        await ui.key("Enter");
+        expect(ui.calls).toHaveLength(0);
+        expect(ui.element.textContent).toContain("请等待完成或取消后再提问");
+        expect(
+          ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+        ).toBe(command);
+      }
+      await ui.render(state("input"));
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        { command: "ask_text", args: { text: "A new question" } },
+      ]);
+    } finally {
+      await ui.close();
+    }
+  }
+  const pending = Promise.withResolvers<void | boolean>();
+  const ui = await mount(state("input"), catalog, () => pending.promise);
+  try {
+    await ui.type("/ask First line\n  second line");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([
+      { command: "ask_text", args: { text: "First line\n  second line" } },
+    ]);
+    await act(async () => pending.reject(new Error("Submission failed")));
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("/ask First line\n  second line");
+    expect(ui.element.textContent).toContain("暂时无法完成操作，请稍后重试。");
+    expect(ui.element.textContent).not.toContain("Submission failed");
   } finally {
     await ui.close();
   }

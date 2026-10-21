@@ -194,21 +194,47 @@ export function Desktop({
       openSettings(parsed.page);
       return;
     }
+    if (parsed.kind === "ask") {
+      if (commandInFlight.current) return;
+      if (busy) {
+        setCommandNotice("正在处理当前任务，请等待完成或取消后再提问。");
+        return;
+      }
+      if (!parsed.question) {
+        if (isInput) {
+          setInput("");
+          setSelected(1);
+          draftInput.current?.focus();
+        } else {
+          setQuery("");
+          queryInput.current?.focus();
+        }
+        return;
+      }
+    }
     if (commandInFlight.current) return;
     commandInFlight.current = true;
     const version = commandNoticeVersion.current;
-    setCommandNotice("正在应用设置…");
+    setCommandNotice(parsed.kind === "ask" ? "正在提交问题…" : "正在应用设置…");
     void perform(
-      parsed.kind === "new"
-        ? "new_session"
+      parsed.kind === "ask"
+        ? isInput
+          ? "ask_text"
+          : "ask_question"
+        : parsed.kind === "new"
+          ? "new_session"
+          : parsed.kind === "model"
+            ? "select_model"
+            : "patch_settings",
+      parsed.kind === "ask"
+        ? isInput
+          ? { text: parsed.question }
+          : { question: parsed.question }
         : parsed.kind === "model"
-          ? "select_model"
-          : "patch_settings",
-      parsed.kind === "model"
-        ? { model: parsed.model }
-        : parsed.kind === "preferences"
-          ? { patch: parsed.patch }
-          : undefined,
+          ? { model: parsed.model }
+          : parsed.kind === "preferences"
+            ? { patch: parsed.patch }
+            : undefined,
     )
       .then(
         (applied) => {
@@ -216,9 +242,11 @@ export function Desktop({
             setCommandNotice(
               applied === false
                 ? ""
-                : parsed.kind === "new"
-                  ? "已新建会话。"
-                  : "设置已保存。",
+                : parsed.kind === "ask"
+                  ? ""
+                  : parsed.kind === "new"
+                    ? "已新建会话。"
+                    : "设置已保存。",
             );
         },
         (error) => {
@@ -555,7 +583,11 @@ export function Desktop({
             <textarea
               ref={draftInput}
               aria-label="需要翻译的原文或新问题"
-              placeholder="输入文字，翻译或提问；/ 打开命令…"
+              placeholder={
+                selected === 1 && !commandMode
+                  ? "输入问题，Enter 提问；/ 打开命令…"
+                  : "输入文字，翻译或提问；/ 打开命令…"
+              }
               rows={1}
               maxLength={5000}
               value={input}
@@ -711,7 +743,7 @@ export function Desktop({
           >
             <div className="list-caption">
               <span>应用命令</span>
-              <span>在本机执行</span>
+              <span>Enter 执行</span>
             </div>
             {commands.map((command, index) => (
               <button
@@ -721,7 +753,9 @@ export function Desktop({
                 onClick={() => commandChoice(index)}
               >
                 <span className="action-icon">
-                  <Icon name="settings" />
+                  <Icon
+                    name={command.command === "/ask" ? "chat" : "settings"}
+                  />
                 </span>
                 <span className="action-copy">
                   <strong>
