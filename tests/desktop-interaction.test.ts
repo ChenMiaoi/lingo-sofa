@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import React, { act } from "react";
 import { Desktop, type Perform } from "../apps/desktop/src/view";
+import { App } from "../apps/desktop/src/app";
 import {
   initialState,
   type DesktopState,
@@ -1866,5 +1867,89 @@ test("Ask merges each tool lifecycle, previews results and keeps usage in an Esc
     expect(scroll.scrollTop).toBe(100);
   } finally {
     await ui.close();
+  }
+});
+
+test("a startup restore timeout cannot mask a later native shortcut translation", async () => {
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  let rejectRestore!: (error: unknown) => void;
+  const restore = new Promise((_, reject) => {
+    rejectRestore = reject;
+  });
+  let snapshot: DesktopState = {
+    ...initialState,
+    desktop: { ...initialState.desktop, mode: "menu" },
+  };
+  const invoke = <T>(command: string): Promise<T> =>
+    command === "session_request"
+      ? (restore as Promise<T>)
+      : Promise.resolve(snapshot as T);
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    await act(async () => {
+      rejectRestore("service_timeout");
+      await Promise.resolve();
+    });
+    expect(element.textContent).toContain("模型服务响应超时");
+    snapshot = {
+      ...snapshot,
+      desktop: {
+        ...snapshot.desktop,
+        epoch: 1,
+        modelRevision: 1,
+        mode: "translation",
+        context,
+        translation: "已完成的译文",
+      },
+      model: { ...snapshot.model, revision: 1, phase: "completed" },
+    };
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(element.textContent).toContain("已完成的译文");
+    expect(element.textContent).not.toContain("模型服务响应超时");
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("a late startup restore failure does not replace an active translation", async () => {
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  let rejectRestore!: (error: unknown) => void;
+  const restore = new Promise((_, reject) => {
+    rejectRestore = reject;
+  });
+  const snapshot: DesktopState = {
+    ...initialState,
+    desktop: {
+      ...initialState.desktop,
+      epoch: 2,
+      modelRevision: 3,
+      mode: "translation",
+      context,
+      translation: "当前译文",
+    },
+    model: { ...initialState.model, revision: 3, phase: "completed" },
+  };
+  const invoke = <T>(command: string): Promise<T> =>
+    command === "session_request"
+      ? (restore as Promise<T>)
+      : Promise.resolve(snapshot as T);
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    await act(async () => {
+      rejectRestore("service_timeout");
+      await Promise.resolve();
+    });
+    expect(element.textContent).toContain("当前译文");
+    expect(element.textContent).not.toContain("模型服务响应超时");
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
   }
 });
