@@ -1,7 +1,7 @@
 import { resolve, join } from "node:path";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { compile, root, cleanEnv } from "../../scripts/process";
+import { compile, root, cleanEnv, run } from "../../scripts/process";
 const packaged = process.argv.includes("--packaged");
 const output = resolve(root, ".cache/runtime-tests");
 await mkdir(output, { recursive: true });
@@ -25,27 +25,33 @@ for (const [name, variable] of [
     ]);
   }
 }
-const child = Bun.spawn(
-  [
-    "cargo",
-    "test",
-    "--locked",
-    "-p",
-    "lingo-sofa-core",
-    "-p",
-    "lingo-sofa-selection-helper",
-    "-p",
-    "lingo-sofa-omp-client",
-    "-p",
-    "lingo-sofa-app-services",
-    "-p",
-    "lingo-sofa-runtime-tests",
-    "--",
-    "--test-threads=1",
-  ],
-  { cwd: root, env, stdout: "pipe", stderr: "pipe" },
-);
-const timer = setTimeout(() => child.kill(), 360000);
+const cargoTest = [
+  "cargo",
+  "test",
+  "--locked",
+  "-p",
+  "lingo-sofa-core",
+  "-p",
+  "lingo-sofa-selection-helper",
+  "-p",
+  "lingo-sofa-omp-client",
+  "-p",
+  "lingo-sofa-app-services",
+  "-p",
+  "lingo-sofa-runtime-tests",
+];
+// A cold dependency build must not consume the test execution deadline.
+await run([...cargoTest, "--no-run"]);
+const child = Bun.spawn([...cargoTest, "--", "--test-threads=1"], {
+  cwd: root,
+  env,
+  stdout: "pipe",
+  stderr: "pipe",
+});
+const timer = setTimeout(() => {
+  process.stderr.write("Runtime test execution exceeded 360 seconds.\n");
+  child.kill();
+}, 360000);
 const [stdout, stderr, code] = await Promise.all([
   new Response(child.stdout).text(),
   new Response(child.stderr).text(),
