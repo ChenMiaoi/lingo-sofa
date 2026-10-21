@@ -3,7 +3,9 @@ mod shell;
 mod shortcuts;
 mod subscription;
 mod updates;
-use lingo_sofa_app_services::{LoginRequest, ModelSelection, Service, Settings, SettingsPatch};
+use lingo_sofa_app_services::{
+    LoginRequest, ModelSelection, Service, SessionRequest, Settings, SettingsPatch,
+};
 use shell::{Mode, Shell};
 use std::sync::Mutex;
 use tauri::{
@@ -149,6 +151,37 @@ fn ask_question(
 ) -> Result<(), String> {
     allowed(&window)?;
     shell.ask(&app, &service, question).map_err(String::from)
+}
+#[tauri::command]
+async fn session_request(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<'_, Shell>,
+    service: tauri::State<'_, Service>,
+    request: SessionRequest,
+) -> Result<serde_json::Value, String> {
+    allowed(&window)?;
+    let automatic = matches!(request, SessionRequest::Restore);
+    let before = shell.state(&service).desktop;
+    if automatic && before.mode != Mode::Idle {
+        return Ok(serde_json::json!({}));
+    }
+    let restoring = matches!(
+        request,
+        SessionRequest::Resume { .. } | SessionRequest::Restore
+    );
+    let service = service.inner().clone();
+    let worker_service = service.clone();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || worker_service.session_request(request))
+            .await
+            .map_err(|_| "service_unavailable")?
+            .map_err(String::from)?;
+    let after = shell.state(&service).desktop;
+    if restoring && (!automatic || (after.mode == Mode::Idle && after.epoch == before.epoch)) {
+        shell.restore(&app, &service, &result);
+    }
+    Ok(result)
 }
 #[tauri::command]
 fn clear_context(
@@ -451,6 +484,7 @@ fn main() {
             translate_text,
             ask_text,
             ask_question,
+            session_request,
             clear_context,
             new_session,
             model_catalog,

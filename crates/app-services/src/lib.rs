@@ -21,6 +21,32 @@ pub use models::ModelSelection;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SessionPreferences {
+    thinking: String,
+    tools: bool,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SessionRequest {
+    List {
+        offset: usize,
+    },
+    Resume {
+        id: String,
+    },
+    Restore,
+    Configure {
+        thinking: Option<String>,
+        tools: Option<bool>,
+    },
+    Decision {
+        id: String,
+        approved: bool,
+    },
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub target: String,
     pub pinned: bool,
@@ -47,6 +73,7 @@ pub struct View {
     pub phase: String,
     pub message: String,
     pub output: String,
+    pub question: String,
     pub key_configured: bool,
     pub default_model: ModelSelection,
     pub configured_providers: Vec<String>,
@@ -57,6 +84,19 @@ pub struct View {
     pub reported_tokens: u64,
     pub unknown_calls: usize,
     pub settings: Settings,
+    pub session_id: Option<String>,
+    pub messages: Vec<serde_json::Value>,
+    pub message_count: usize,
+    pub thinking: String,
+    pub tools_enabled: bool,
+    pub thinking_output: String,
+    pub tool_calls: Vec<serde_json::Value>,
+    pub tool_approvals: Vec<serde_json::Value>,
+    pub estimated_cost: f64,
+    pub unpriced_calls: usize,
+    pub session_stats: serde_json::Value,
+    pub session_estimated_cost: f64,
+    pub session_unpriced_calls: usize,
 }
 impl Default for View {
     fn default() -> Self {
@@ -65,6 +105,7 @@ impl Default for View {
             phase: "ready".into(),
             message: "选择文字，复制后翻译。".into(),
             output: String::new(),
+            question: String::new(),
             key_configured: false,
             default_model: ModelSelection::default(),
             configured_providers: vec![],
@@ -75,6 +116,19 @@ impl Default for View {
             reported_tokens: 0,
             unknown_calls: 0,
             settings: Settings::default(),
+            session_id: None,
+            messages: vec![],
+            message_count: 0,
+            thinking: "off".into(),
+            tools_enabled: false,
+            thinking_output: String::new(),
+            tool_calls: vec![],
+            tool_approvals: vec![],
+            estimated_cost: 0.0,
+            unpriced_calls: 0,
+            session_stats: serde_json::Value::Null,
+            session_estimated_cost: 0.0,
+            session_unpriced_calls: 0,
         }
     }
 }
@@ -98,6 +152,10 @@ pub enum LoginRequest {
     },
 }
 enum Command {
+    Session {
+        request: SessionRequest,
+        reply: SyncSender<Result<serde_json::Value, &'static str>>,
+    },
     Login {
         request: LoginRequest,
         reply: SyncSender<Result<serde_json::Value, &'static str>>,
@@ -123,6 +181,7 @@ enum Command {
         ask: bool,
         fresh: bool,
         generation: u64,
+        metadata: serde_json::Value,
     },
     Cancel,
     Compact,
@@ -164,6 +223,21 @@ impl Service {
             None => Settings::default(),
         };
         validate_settings(&settings)?;
+        db.execute_batch("CREATE TABLE IF NOT EXISTS session_preferences(id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)").map_err(|_| "settings_open_failed")?;
+        let preferences: SessionPreferences = db
+            .query_row(
+                "SELECT body FROM session_preferences WHERE id=1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| "settings_read_failed")?
+            .map(|body| serde_json::from_str(&body).map_err(|_| "invalid_settings"))
+            .transpose()?
+            .unwrap_or(SessionPreferences {
+                thinking: "off".into(),
+                tools: false,
+            });
         let default_model = models::load(&db)?;
         let configured = configured_providers.contains(&default_model.provider);
         let (initialized, ready) = mpsc::sync_channel(1);
@@ -173,6 +247,8 @@ impl Service {
             default_model,
             configured_providers,
             settings,
+            thinking: preferences.thinking,
+            tools_enabled: preferences.tools,
             ..View::default()
         }));
         let state = view.clone();
@@ -277,17 +353,18 @@ impl Service {
             .map_err(|_| "service_timeout")?
     }
     pub fn submit(&self, revision: u64, text: String, ask: bool) -> Result<(), &'static str> {
-        self.submit_run(revision, text, ask, !ask)
+        self.submit_with_context(revision, text, ask, !ask, json!({}))
     }
     pub fn submit_new_question(&self, revision: u64, text: String) -> Result<(), &'static str> {
-        self.submit_run(revision, text, true, true)
+        self.submit_with_context(revision, text, true, true, json!({}))
     }
-    fn submit_run(
+    pub fn submit_with_context(
         &self,
         revision: u64,
         text: String,
         ask: bool,
         fresh: bool,
+        metadata: serde_json::Value,
     ) -> Result<(), &'static str> {
         if text.is_empty() || text.len() > 15000 {
             return Err("invalid_text");
@@ -298,7 +375,37 @@ impl Service {
             ask,
             fresh,
             generation: self.generation.fetch_add(1, Ordering::SeqCst) + 1,
+            metadata,
         })
+    }
+    pub fn session_request(
+        &self,
+        request: SessionRequest,
+    ) -> Result<serde_json::Value, &'static str> {
+        match &request {
+            SessionRequest::Resume { id } | SessionRequest::Decision { id, .. }
+                if id.is_empty()
+                    || id.len() > 64
+                    || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') =>
+            {
+                return Err("invalid_session_id");
+            }
+            SessionRequest::Configure {
+                thinking: Some(thinking),
+                ..
+            } if !["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+                .contains(&thinking.as_str()) =>
+            {
+                return Err("invalid_thinking");
+            }
+            SessionRequest::List { offset } if *offset > 100_000 => return Err("invalid_page"),
+            _ => {}
+        }
+        let (reply, result) = mpsc::sync_channel(1);
+        self.send(Command::Session { request, reply })?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")?
     }
     pub fn cancel(&self) -> Result<(), &'static str> {
         self.generation.fetch_add(1, Ordering::SeqCst);
@@ -379,6 +486,7 @@ fn serve(
     initialized: SyncSender<Result<(), &'static str>>,
     generation: Arc<AtomicU64>,
 ) {
+    let session_pointer = config.directory.join("sessions/current.json");
     let mut host = match Host::new(config, vault) {
         Ok(host) => {
             let _ = initialized.send(Ok(()));
@@ -417,6 +525,128 @@ fn serve(
         if let Some(command) = command {
             let result = (|| -> Result<(), &'static str> {
                 match command {
+                    Command::Session { request, reply } => {
+                        let result = (|| -> Result<serde_json::Value, &'static str> {
+                            match request {
+                                SessionRequest::List { offset } => {
+                                    host.request("session.list", json!({"offset":offset}))
+                                }
+                                SessionRequest::Decision { id, approved } => host.request(
+                                    "session.decision",
+                                    json!({"sessionId":session, "id":id,"approved":approved}),
+                                ),
+                                SessionRequest::Configure { thinking, tools } => {
+                                    let (thinking, tools) = {
+                                        let v = state.lock().unwrap();
+                                        (
+                                            thinking.unwrap_or_else(|| v.thinking.clone()),
+                                            tools.unwrap_or(v.tools_enabled),
+                                        )
+                                    };
+                                    if current.is_some() {
+                                        return Err("task_running");
+                                    }
+                                    let preferences = SessionPreferences {
+                                        thinking: thinking.clone(),
+                                        tools,
+                                    };
+                                    let transaction = db
+                                        .unchecked_transaction()
+                                        .map_err(|_| "settings_write_failed")?;
+                                    transaction.execute("INSERT INTO session_preferences(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body", [serde_json::to_string(&preferences).map_err(|_| "invalid_settings")?]).map_err(|_| "settings_write_failed")?;
+                                    if let Some(id) = &session {
+                                        host.request("session.configure", json!({"sessionId":id,"thinking":thinking,"tools":tools}))?;
+                                    }
+                                    if transaction.commit().is_err() {
+                                        if let Some(id) = &session {
+                                            let previous = state.lock().unwrap();
+                                            let _ = host.request("session.configure", json!({"sessionId":id,"thinking":previous.thinking,"tools":previous.tools_enabled}));
+                                        }
+                                        return Err("settings_write_failed");
+                                    }
+                                    let mut v = state.lock().unwrap();
+                                    v.thinking = thinking;
+                                    v.tools_enabled = tools;
+                                    Ok(json!({}))
+                                }
+                                request => {
+                                    if matches!(request, SessionRequest::Restore)
+                                        && !session_pointer.exists()
+                                    {
+                                        return Ok(json!({}));
+                                    }
+                                    if current.is_some() {
+                                        return Err("task_running");
+                                    }
+                                    if matches!(request, SessionRequest::Restore)
+                                        && session.is_some()
+                                    {
+                                        return Ok(json!({}));
+                                    }
+                                    let id = match request {
+                                        SessionRequest::Resume { id } => id,
+                                        SessionRequest::Restore => match host
+                                            .request("session.latest", json!({}))?["id"]
+                                            .as_str()
+                                        {
+                                            Some(id) => id.to_owned(),
+                                            None => return Ok(json!({})),
+                                        },
+                                        _ => unreachable!(),
+                                    };
+                                    // Close the active manager first so two writers never own one JSONL.
+                                    if let Some(old) = session.take() {
+                                        host.request("session.close", json!({"sessionId":old}))?;
+                                    }
+                                    host.stop();
+                                    // Verification belongs to the worker process just stopped.
+                                    // A failed open must not let the next question skip it.
+                                    verified = false;
+                                    let (thinking, tools) = {
+                                        let v = state.lock().unwrap();
+                                        (v.thinking.clone(), v.tools_enabled)
+                                    };
+                                    let opened = host.request(
+                                        "session.open",
+                                        json!({"id":id,"thinking":thinking,"tools":tools}),
+                                    )?;
+                                    let selection: ModelSelection = serde_json::from_value(json!({"provider":opened["metadata"]["provider"],"modelId":opened["metadata"]["modelId"]})).map_err(|_| "invalid_model")?;
+                                    models::validate_selection(&selection)?;
+                                    if let Err(error) = models::save(&db, &selection) {
+                                        host.stop();
+                                        verified = false;
+                                        return Err(error);
+                                    }
+                                    session = Some(
+                                        opened["sessionId"]
+                                            .as_str()
+                                            .ok_or("session_missing")?
+                                            .to_owned(),
+                                    );
+                                    verified = true;
+                                    let mut v = state.lock().unwrap();
+                                    v.default_model = selection;
+                                    v.key_configured =
+                                        v.configured_providers.contains(&v.default_model.provider);
+                                    apply_snapshot(&mut v, &opened, true);
+                                    v.session_id = session.clone();
+                                    v.session_ready = true;
+                                    v.phase = "ready".into();
+                                    v.task_id = None;
+                                    v.thinking_output.clear();
+                                    v.tool_calls.clear();
+                                    v.tool_approvals.clear();
+                                    Ok(opened)
+                                }
+                            }
+                        })();
+                        if result.is_err() && session.is_none() {
+                            let mut v = state.lock().unwrap();
+                            v.session_ready = false;
+                            v.session_id = None;
+                        }
+                        let _ = reply.send(result);
+                    }
                     Command::Login { request, reply } => {
                         let result = (|| -> Result<serde_json::Value, &'static str> {
                             let method = match &request {
@@ -445,6 +675,7 @@ fn serve(
                                     v.task_id = None;
                                     v.phase = "ready".into();
                                     v.output.clear();
+                                    v.question.clear();
                                     "auth.start"
                                 }
                                 LoginRequest::Status { .. } => "auth.status",
@@ -467,12 +698,25 @@ fn serve(
                         let _ = reply.send(result);
                     }
                     Command::Reset => {
+                        if let Some(id) = current.take() {
+                            host.cancel_task(id)?;
+                        }
+                        // The old transcript is durable; only the current-session pointer is cleared.
+                        host.request("session.reset", json!({}))?;
                         host.stop();
                         current = None;
                         session = None;
                         verified = false;
                         let mut v = state.lock().unwrap();
                         v.output.clear();
+                        v.question.clear();
+                        v.session_id = None;
+                        v.messages.clear();
+                        v.message_count = 0;
+                        v.session_stats = serde_json::Value::Null;
+                        v.thinking_output.clear();
+                        v.tool_calls.clear();
+                        v.tool_approvals.clear();
                         v.session_ready = false;
                         v.task_id = None;
                         v.phase = "ready".into();
@@ -531,6 +775,7 @@ fn serve(
                             }
                             .into();
                             v.output.clear();
+                            v.question.clear();
                             Ok(())
                         })();
                         let _ = reply.send(result);
@@ -561,6 +806,7 @@ fn serve(
                             v.session_ready = false;
                             v.task_id = None;
                             v.output.clear();
+                            v.question.clear();
                             v.phase = "ready".into();
                             v.message = "默认模型已保存；后续翻译与提问将使用新模型。".into();
                             Ok(())
@@ -574,6 +820,7 @@ fn serve(
                         ask,
                         fresh,
                         generation: accepted_generation,
+                        metadata,
                     } => {
                         if text.is_empty() || text.len() > 15000 {
                             return Err("invalid_text");
@@ -585,7 +832,9 @@ fn serve(
                             let mut v = state.lock().unwrap();
                             v.revision = revision;
                             v.output.clear();
+                            v.question.clear();
                             v.task_id = None;
+                            v.question = if ask { text.clone() } else { String::new() };
                             v.phase = "preparing".into();
                             v.message = "正在准备…".into();
                         }
@@ -607,7 +856,11 @@ fn serve(
                             host.request("session.close", json!({"sessionId":old}))?;
                         }
                         if session.is_none() {
-                            let created = host.request("session.create", json!({}))?;
+                            let (thinking, tools) = {
+                                let v = state.lock().unwrap();
+                                (v.thinking.clone(), v.tools_enabled && ask)
+                            };
+                            let created = host.request("session.create", json!({"operation":if ask {"ask"} else {"translate"}, "context":metadata["context"],"title":text.chars().take(80).collect::<String>(),"thinking":thinking,"tools":tools}))?;
                             session = Some(
                                 created["sessionId"]
                                     .as_str()
@@ -622,6 +875,14 @@ fn serve(
                             return Ok(());
                         }
                         let session_id = session.as_ref().unwrap().clone();
+                        let (thinking, tools) = {
+                            let v = state.lock().unwrap();
+                            (v.thinking.clone(), v.tools_enabled && ask)
+                        };
+                        host.request(
+                            "session.configure",
+                            json!({"sessionId":session_id,"thinking":thinking,"tools":tools}),
+                        )?;
                         let target = state.lock().unwrap().settings.target.clone();
                         let prompt = if ask {
                             text
@@ -645,6 +906,15 @@ fn serve(
                         v.phase = "running".into();
                         v.message = "正在生成…".into();
                         v.session_ready = true;
+                        v.session_id = session.clone();
+                        v.thinking_output.clear();
+                        v.tool_calls.clear();
+                        v.tool_approvals.clear();
+                        if fresh {
+                            v.messages.clear();
+                            v.message_count = 0;
+                            v.session_stats = serde_json::Value::Null;
+                        }
                     }
                     Command::Cancel => {
                         if let Some(id) = current {
@@ -715,21 +985,52 @@ fn serve(
                 v.task_id = None;
             }
             for event in host.events.drain(..) {
-                if event["type"] == "text_delta"
-                    && event["sessionId"].as_str() == session.as_deref()
-                    && let Some(text) = event["text"].as_str()
-                {
-                    let mut v = state.lock().unwrap();
-                    if v.output.len() + text.len() < 128 * 1024 {
-                        v.output.push_str(text);
+                if event["sessionId"].as_str() != session.as_deref() {
+                    continue;
+                }
+                let mut v = state.lock().unwrap();
+                match event["type"].as_str() {
+                    Some("text_delta") | Some("thinking_delta") => {
+                        if let Some(text) = event["text"].as_str() {
+                            let output = if event["type"] == "text_delta" {
+                                &mut v.output
+                            } else {
+                                &mut v.thinking_output
+                            };
+                            if output.len() + text.len() < 128 * 1024 {
+                                output.push_str(text);
+                            }
+                        }
                     }
+                    Some("tool_approval") => {
+                        if v.tool_approvals.len() < 8 {
+                            v.tool_approvals.push(event);
+                        }
+                    }
+                    Some("tool_approval_closed") => {
+                        v.tool_approvals.retain(|item| item["id"] != event["id"])
+                    }
+                    Some("tool_execution_start" | "tool_execution_end")
+                        if v.tool_calls.len() < 100 =>
+                    {
+                        v.tool_calls.push(event);
+                    }
+                    _ => {}
                 }
             }
             if let Some(id) = current
                 && let Ok(Some(outcome)) = host.task_outcome(id)
             {
                 current = None;
+                let snapshot = session.as_ref().and_then(|id| {
+                    host.request("session.snapshot", json!({"sessionId":id}))
+                        .ok()
+                });
                 let mut v = state.lock().unwrap();
+                if let Some(snapshot) = snapshot {
+                    apply_snapshot(&mut v, &snapshot, false);
+                }
+                v.tool_approvals.clear();
                 v.task_id = None;
                 v.phase = if outcome.status == Status::Failed {
                     "error"
@@ -764,16 +1065,60 @@ fn serve(
             .iter()
             .filter_map(|r| r["usage"]["totalTokens"].as_u64())
             .sum();
+        v.session_estimated_cost = records
+            .iter()
+            .filter(|r| {
+                r["sessionId"].as_str() == v.session_id.as_deref() && v.session_id.is_some()
+            })
+            .filter_map(|r| r["estimatedCost"].as_f64())
+            .sum();
+        v.session_unpriced_calls = records
+            .iter()
+            .filter(|r| {
+                r["sessionId"].as_str() == v.session_id.as_deref()
+                    && v.session_id.is_some()
+                    && r["usageState"] != "not_dispatched"
+                    && r["estimatedCost"].as_f64().is_none()
+            })
+            .count();
+        v.estimated_cost = records
+            .iter()
+            .filter_map(|record| record["estimatedCost"].as_f64())
+            .sum();
+        v.unpriced_calls = records
+            .iter()
+            .filter(|record| {
+                record["usageState"] != "not_dispatched"
+                    && record["estimatedCost"].as_f64().is_none()
+            })
+            .count();
         v.unknown_calls = records
             .iter()
             .filter(|r| r["usageState"] == "unknown" || r["usageState"] == "partial")
             .count();
+    }
+    if let Some(id) = current {
+        let _ = host.cancel_task(id);
+    }
+    if let Some(id) = session {
+        let _ = host.request("session.close", json!({"sessionId":id}));
     }
     host.stop();
     drop(host);
     drop(db);
     if let Some(ack) = shutdown {
         let _ = ack.send(());
+    }
+}
+fn apply_snapshot(view: &mut View, snapshot: &serde_json::Value, replace_output: bool) {
+    view.session_stats = snapshot["stats"].clone();
+    view.messages = snapshot["messages"].as_array().cloned().unwrap_or_default();
+    view.message_count = snapshot["messageCount"].as_u64().unwrap_or(0) as usize;
+    if replace_output {
+        view.question = snapshot["question"].as_str().unwrap_or_default().into();
+    }
+    if replace_output && let Some(output) = snapshot["output"].as_str() {
+        view.output = output.into();
     }
 }
 #[cfg(test)]

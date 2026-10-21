@@ -25,6 +25,21 @@ export const slashCommands = [
     detail: "/login [服务商]（也可用 /subscribe）",
   },
   { command: "/ask", label: "直接提问", detail: "/ask [问题]" },
+  {
+    command: "/resume",
+    label: "恢复历史会话",
+    detail: "/resume [标题或会话 ID]",
+  },
+  {
+    command: "/thinking",
+    label: "设置思考强度",
+    detail: "/thinking off|minimal|low|medium|high|xhigh|max",
+  },
+  {
+    command: "/tools",
+    label: "设置工具调用",
+    detail: "/tools on|off（每次执行需确认）",
+  },
   { command: "/new", label: "新建会话", detail: "/new" },
   { command: "/help", label: "查看应用命令", detail: "/help" },
 ] as const;
@@ -33,6 +48,9 @@ export type ParsedCommand =
   | { kind: "model_picker"; search: string }
   | { kind: "login"; provider?: string }
   | { kind: "ask"; question: string }
+  | { kind: "resume"; search: string }
+  | { kind: "thinking"; level: string }
+  | { kind: "tools"; enabled: boolean }
   | { kind: "new" }
   | { kind: "model"; model: ModelSelection }
   | { kind: "preferences"; patch: Partial<Settings> }
@@ -81,6 +99,20 @@ export function parseCommand(text: string): ParsedCommand | null {
   if (/[\r\n]/.test(text.trim()))
     return invalid("请单独输入一行命令；以 // 开头可提交斜杠正文。");
   switch (name?.toLowerCase()) {
+    case "/history":
+    case "/resume":
+      return { kind: "resume", search: args.join(" ") };
+    case "/thinking":
+      return args.length === 1 &&
+        ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
+          args[0]!,
+        )
+        ? { kind: "thinking", level: args[0]! }
+        : invalid("/thinking off|minimal|low|medium|high|xhigh|max");
+    case "/tools":
+      return args.length === 1 && ["on", "off"].includes(args[0]!)
+        ? { kind: "tools", enabled: args[0] === "on" }
+        : invalid("/tools on|off（每次执行需确认）");
     case "/settings": {
       const page = args[0] ?? "home";
       if (

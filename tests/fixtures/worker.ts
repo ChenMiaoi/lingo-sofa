@@ -67,6 +67,10 @@ await runWorker({
           );
         }
         const scenario = JSON.stringify(body.messages.at(-1));
+        const toolRequest =
+          process.argv.includes("--tool-fixture") &&
+          scenario.includes("W0_TOOL_REQUEST") &&
+          !scenario.includes('"role":"tool"');
         const slow = scenario.includes("W0_SLOW");
         const disconnect = scenario.includes("W0_DISCONNECT");
         const partial = scenario.includes("W0_PARTIAL");
@@ -79,12 +83,42 @@ await runWorker({
           created: 1,
           model: body.model,
           choices: [
-            { index: 0, delta: { content: text }, finish_reason: null },
+            {
+              index: 0,
+              delta: toolRequest
+                ? {
+                    reasoning_content: "Visible fixture reasoning",
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "fixture-tool-call",
+                        type: "function",
+                        function: {
+                          name: "write",
+                          arguments: JSON.stringify({
+                            path: "approved-tool.txt",
+                            content: scenario.includes("W0_TOOL_LONG")
+                              ? "x".repeat(4500) + "REVIEW_END"
+                              : "APPROVED_TOOL",
+                          }),
+                        },
+                      },
+                    ],
+                  }
+                : { content: text },
+              finish_reason: null,
+            },
           ],
         };
         const finish = {
           ...chunk,
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: toolRequest ? "tool_calls" : "stop",
+            },
+          ],
         };
         const usageChunk = {
           ...chunk,
@@ -161,8 +195,8 @@ await runWorker({
           id: "w0-model",
           name: "W0 fixture",
           input: ["text"],
-          reasoning: false,
-          supportsTools: false,
+          reasoning: process.argv.includes("--tool-fixture"),
+          supportsTools: process.argv.includes("--tool-fixture"),
           contextWindow: desktopBudget ? 1048576 : 8192,
           maxTokens: 512,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

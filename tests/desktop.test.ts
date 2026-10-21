@@ -321,3 +321,57 @@ test("subscription commands remain local and support the subscribe alias", () =>
   expect(parseCommand("/login one two")?.kind).toBe("invalid");
   expect(completeCommand("/lo", 0)).toEqual({ text: "/login ", caret: 7 });
 });
+
+test("Ask renders Markdown without executable HTML, external images or active navigation", async () => {
+  const { AnswerMarkdown, toolRows, SessionStatus } =
+    await import("../apps/desktop/src/ask-answer");
+  const html = renderToStaticMarkup(
+    React.createElement(AnswerMarkdown, {
+      text: "## Summary\n\n**Strong** and `code`.\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```ts\nconst markup = '<script>alert(1)</script>';\n```\n\n![secret](https://example.invalid/tracker)\n\n<script>alert(2)</script>\n\n[click](javascript:alert(3))\n\n[Docs](https://example.com/docs)",
+    }),
+  );
+  expect(html).toContain("<h2>Summary</h2>");
+  expect(html).toContain("<strong>Strong</strong>");
+  expect(html).toContain("<table>");
+  expect(html).toContain("&lt;script&gt;");
+  for (const unsafe of ["<script>", "<img", "javascript:", "<a "])
+    expect(html).not.toContain(unsafe);
+  expect(html).toContain("https://example.com/docs");
+  const rows = toolRows(
+    [
+      {
+        type: "tool_execution_start",
+        id: "read",
+        name: "read",
+        text: '{"path":"config.ts"}',
+      },
+      {
+        type: "tool_execution_end",
+        id: "read",
+        name: "read",
+        text: "File contents",
+        isError: false,
+      },
+      {
+        type: "tool_execution_start",
+        id: "bash",
+        name: "bash",
+        text: '{"command":"test"}',
+      },
+    ],
+    false,
+  );
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatchObject({
+    status: "done",
+    args: '{"path":"config.ts"}',
+    result: "File contents",
+  });
+  expect(rows[1]?.status).toBe("interrupted");
+  const tinyCost = renderToStaticMarkup(
+    React.createElement(SessionStatus, {
+      model: { ...initialState.model, sessionEstimatedCost: 0.000003 },
+    }),
+  );
+  expect(tinyCost).toContain("&lt;$0.0001");
+});

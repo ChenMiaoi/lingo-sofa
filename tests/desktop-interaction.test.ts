@@ -7,6 +7,7 @@ import {
   type DesktopState,
   type ModelCatalog,
   type RequestLogin,
+  type LoadSessions,
 } from "../apps/desktop/src/api";
 
 const dom = new Window();
@@ -72,6 +73,7 @@ async function mount(
   ) => Promise<ModelCatalog> = catalog,
   onPerform?: Perform,
   requestLogin?: RequestLogin,
+  loadSessions?: LoadSessions,
 ) {
   const element = document.createElement("div");
   document.body.append(element);
@@ -89,6 +91,7 @@ async function mount(
           perform,
           loadModelCatalog: loadCatalog,
           requestLogin,
+          loadSessions,
         }),
       ),
     );
@@ -841,7 +844,7 @@ test("command suggestions complete prefixes and escaped slash text follows norma
     expect(ui.element.querySelector('[aria-label="应用命令"]')).not.toBeNull();
     expect(
       ui.element.querySelectorAll('[aria-label="应用命令"] .action'),
-    ).toHaveLength(9);
+    ).toHaveLength(12);
     await ui.key("ArrowDown");
     expect(ui.element.querySelector(".action.selected")!.textContent).toContain(
       "/model",
@@ -1564,6 +1567,303 @@ test("ask waits for active tasks and retains a question after submission fails",
     ).toBe("/ask First line\n  second line");
     expect(ui.element.textContent).toContain("暂时无法完成操作，请稍后重试。");
     expect(ui.element.textContent).not.toContain("Submission failed");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("history picker restores with search, arrows and Enter and Escape preserves the command draft", async () => {
+  const value = state("input");
+  const load = async () => ({
+    sessions: [
+      {
+        id: "first",
+        title: "First question",
+        modified: "2026-10-21T00:00:00Z",
+        messageCount: 2,
+      },
+      {
+        id: "second",
+        title: "Second question",
+        modified: "2026-10-20T00:00:00Z",
+        messageCount: 4,
+      },
+    ],
+    total: 2,
+  });
+  const ui = await mount(value, catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("搜索会话");
+    await ui.key("Escape");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("/resume");
+    expect(ui.calls).toHaveLength(0);
+    await ui.key("Enter");
+    await ui.key("ArrowDown");
+    await ui.key("Enter", true);
+    expect(ui.calls).toHaveLength(0);
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([
+      {
+        command: "session_request",
+        args: { request: { action: "resume", id: "second" } },
+      },
+    ]);
+    await ui.type("/resume First");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)?.args).toEqual({
+      request: { action: "resume", id: "first" },
+    });
+  } finally {
+    await ui.close();
+  }
+});
+test("thinking and tools commands configure locally and refuse changes during generation", async () => {
+  const value = state("input");
+  const ui = await mount(value);
+  try {
+    for (const [command, thinking, tools] of [
+      ["/thinking high", "high", false],
+      ["/tools on", "off", true],
+    ] as const) {
+      await ui.type(command);
+      await ui.key("Enter");
+      expect(ui.calls.at(-1)).toEqual({
+        command: "session_request",
+        args: {
+          request: command.startsWith("/thinking")
+            ? { action: "configure", thinking }
+            : { action: "configure", tools },
+        },
+      });
+    }
+    await ui.render({ ...value, model: { ...value.model, phase: "running" } });
+    const count = ui.calls.length;
+    await ui.type("/tools off");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(count);
+    expect(ui.element.textContent).toContain("请等待当前任务完成");
+  } finally {
+    await ui.close();
+  }
+});
+test("a followup leaves the restored history view and shows the live answer", async () => {
+  const value = state("ask-result");
+  value.model.messages = [
+    { role: "user", content: "Earlier question", truncated: false },
+  ];
+  value.model.messageCount = 1;
+  const ui = await mount(value);
+  try {
+    await ui.click("会话记录 · 1");
+    expect(ui.element.querySelector(".conversation-history")).not.toBeNull();
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, modelRevision: value.model.revision + 1 },
+      model: {
+        ...value.model,
+        revision: value.model.revision + 1,
+        phase: "running",
+        output: "Live followup answer",
+      },
+    });
+    expect(ui.element.querySelector(".conversation-history")).toBeNull();
+    expect(ui.element.querySelector(".answer-response")?.textContent).toContain(
+      "Live followup answer",
+    );
+  } finally {
+    await ui.close();
+  }
+});
+test("Ask keeps the question above the answer and its actions menu supports keyboard dismissal", async () => {
+  const value = state("ask-result");
+  value.desktop.operation = "ask";
+  value.model.question = "Explain this configuration";
+  value.model.output = "Configuration answer";
+  const ui = await mount(value);
+  try {
+    const question = ui.element.querySelector(".question-block")!;
+    expect(question.textContent).toContain("Explain this configuration");
+    expect(
+      question.compareDocumentPosition(
+        ui.element.querySelector(".answer-response")!,
+      ) & 4,
+    ).toBe(4);
+    const menu = ui.element.querySelector<HTMLDetailsElement>(".answer-menu")!;
+    const summary = menu.querySelector("summary")!;
+    await act(async () => {
+      menu.open = true;
+      summary.dispatchEvent(
+        new dom.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+        }) as unknown as Event,
+      );
+    });
+    expect(menu.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+test("thinking, persisted messages, tool progress and costs are visible; each tool needs an explicit decision", async () => {
+  const value = state("ask-result");
+  value.model = {
+    ...value.model,
+    phase: "running",
+    thinking: "high",
+    thinkingOutput: "Visible provider reasoning",
+    toolsEnabled: true,
+    messages: [{ role: "user", content: "Earlier question", truncated: false }],
+    messageCount: 1,
+    toolCalls: [
+      {
+        type: "tool_execution_start",
+        id: "tool",
+        name: "read",
+        text: "fixture.txt",
+      },
+    ],
+    toolApprovals: [
+      {
+        id: "approval",
+        name: "read",
+        args: '{"path":"fixture.txt"}',
+        cwd: "/workspace",
+      },
+    ],
+    estimatedCost: 0.125,
+    unpricedCalls: 2,
+  };
+  const ui = await mount(value);
+  try {
+    expect(ui.calls).toHaveLength(0);
+    expect(ui.element.textContent).toContain("Visible provider reasoning");
+    expect(document.activeElement?.textContent).toBe("拒绝本次");
+    await ui.click("会话记录 · 1");
+    expect(ui.element.textContent).toContain("Earlier question");
+    await ui.click("当前回答");
+    await ui.click("用量与费用");
+    expect(ui.element.textContent).toContain("$0.1250");
+    expect(ui.element.textContent).toContain("2 次费用未知");
+    await ui.click("拒绝本次");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "session_request",
+      args: {
+        request: { action: "decision", id: "approval", approved: false },
+      },
+    });
+    await ui.click("允许本次");
+    expect(ui.calls).toHaveLength(1);
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        toolApprovals: [
+          { ...value.model.toolApprovals[0]!, id: "next-approval" },
+        ],
+      },
+    });
+    await ui.click("允许本次");
+    expect(ui.calls.at(-1)?.args).toEqual({
+      request: { action: "decision", id: "next-approval", approved: true },
+    });
+  } finally {
+    await ui.close();
+  }
+});
+
+test("Ask merges each tool lifecycle, previews results and keeps usage in an Escape-dismissible status control", async () => {
+  const value = state("ask-result");
+  value.model = {
+    ...value.model,
+    output: "## Result\n\n**Readable** response.",
+    sessionEstimatedCost: 0.0042,
+    sessionStats: {
+      tokens: {
+        input: 12400,
+        output: 826,
+        reasoning: 386,
+        cacheRead: 8192,
+        cacheWrite: 0,
+        total: 13226,
+      },
+      toolCalls: 1,
+    },
+    toolCalls: [
+      {
+        type: "tool_execution_start",
+        id: "read",
+        name: "read",
+        text: '{"path":"config.ts"}',
+      },
+      {
+        type: "tool_execution_end",
+        id: "read",
+        name: "read",
+        text: "line one\nline two\nline three",
+        isError: false,
+      },
+    ],
+  };
+  const ui = await mount(value);
+  try {
+    expect(ui.element.querySelectorAll(".tool-row")).toHaveLength(1);
+    expect(
+      ui.element.querySelector(".tool-row summary")?.textContent,
+    ).toContain("config.ts");
+    expect(ui.element.querySelector(".tool-preview")?.textContent).toBe(
+      "line one\nline two …",
+    );
+    expect(ui.element.querySelector(".answer-prose h2")?.textContent).toBe(
+      "Result",
+    );
+    expect(ui.element.querySelector(".price-counter")?.textContent).toBe(
+      "$0.0042",
+    );
+    expect(ui.element.querySelector(".usage-panel")).toBeNull();
+    expect(
+      ui.element
+        .querySelector(".answer")!
+        .compareDocumentPosition(ui.element.querySelector(".command-header")!) &
+        4,
+    ).toBe(4);
+    await ui.click("用量与费用");
+    expect(ui.element.querySelector(".usage-panel")?.textContent).toContain(
+      "12,400",
+    );
+    const trigger =
+      ui.element.querySelector<HTMLButtonElement>(".usage-trigger")!;
+    await act(async () =>
+      trigger.dispatchEvent(
+        new dom.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+        }) as unknown as Event,
+      ),
+    );
+    expect(ui.element.querySelector(".usage-panel")).toBeNull();
+    expect(ui.calls).toHaveLength(0);
+    expect(document.activeElement).toBe(trigger);
+    const scroll = ui.element.querySelector<HTMLDivElement>(".answer")!;
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    scroll.scrollTop = 100;
+    await act(async () =>
+      scroll.dispatchEvent(new dom.Event("scroll") as unknown as Event),
+    );
+    await ui.render({
+      ...value,
+      model: { ...value.model, output: value.model.output + "\nMore content" },
+    });
+    expect(scroll.scrollTop).toBe(100);
   } finally {
     await ui.close();
   }

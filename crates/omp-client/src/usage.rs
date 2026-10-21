@@ -129,6 +129,14 @@ impl UsageLedger {
                 return Err("invalid_usage_count");
             }
             record["usage"] = usage;
+            if event["pricingKnown"] == true {
+                let cost = event["estimatedCost"]
+                    .as_f64()
+                    .filter(|cost| cost.is_finite() && *cost >= 0.0)
+                    .ok_or("invalid_usage_cost")?;
+                record["pricingKnown"] = json!(true);
+                record["estimatedCost"] = json!(cost);
+            }
         }
         if previous["usageState"] != "pending" {
             return if previous == &record {
@@ -239,6 +247,39 @@ mod tests {
                 .filter(|r| r["usageState"] == "reported")
                 .count(),
             1
+        );
+    }
+    #[test]
+    fn sdk_price_estimates_are_durable_and_unknown_costs_are_not_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.sqlite");
+        let mut ledger = UsageLedger::open(&path).unwrap();
+        ledger.acquire("worker", 2, &call("priced")).unwrap();
+        let mut priced = terminal("priced");
+        priced["pricingKnown"] = json!(true);
+        priced["estimatedCost"] = json!(0.125);
+        ledger.complete("worker", 2, &priced).unwrap();
+        ledger.complete("worker", 2, &priced).unwrap();
+        ledger.acquire("worker", 2, &call("subscription")).unwrap();
+        ledger
+            .complete("worker", 2, &terminal("subscription"))
+            .unwrap();
+        drop(ledger);
+        let ledger = UsageLedger::open(&path).unwrap();
+        let records = ledger.records();
+        assert_eq!(
+            records
+                .iter()
+                .filter_map(|r| r["estimatedCost"].as_f64())
+                .sum::<f64>(),
+            0.125
+        );
+        assert!(
+            records
+                .iter()
+                .find(|r| r["callId"] == "subscription")
+                .unwrap()["estimatedCost"]
+                .is_null()
         );
     }
     #[test]

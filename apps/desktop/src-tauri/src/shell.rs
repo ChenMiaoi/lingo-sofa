@@ -43,7 +43,7 @@ pub enum Mode {
     Input,
     Settings,
 }
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Context {
     pub text: String,
@@ -108,11 +108,11 @@ impl DesktopView {
             Mode::Menu => (264.0, 280.0),
             Mode::Translation => (500.0, 178.0),
             Mode::Ask => (660.0, 390.0),
-            Mode::AskResult => (660.0, 558.0),
+            Mode::AskResult => (660.0, 640.0),
             Mode::Input => (620.0, 324.0),
             Mode::Settings => match self.settings_return {
                 Some(Mode::Ask) => (660.0, 480.0),
-                Some(Mode::AskResult) => (660.0, 558.0),
+                Some(Mode::AskResult) => (660.0, 640.0),
                 _ => (620.0, 480.0),
             },
         }
@@ -198,6 +198,25 @@ impl Shell {
         self.position(app);
         Ok(())
     }
+    pub fn restore(&self, app: &tauri::AppHandle, service: &Service, snapshot: &serde_json::Value) {
+        if snapshot["sessionId"].as_str().is_none() {
+            return;
+        }
+        let mut v = self.view.lock().unwrap();
+        v.epoch += 1;
+        v.model_revision = service.state().revision;
+        v.context = serde_json::from_value(snapshot["metadata"]["context"].clone()).ok();
+        if let Some(context) = &mut v.context {
+            context.anchor = None;
+            context.anchor_valid = false;
+        }
+        v.translation.clear();
+        v.operation = "ask".into();
+        v.notice.clear();
+        v.mode = Mode::AskResult;
+        drop(v);
+        self.position(app);
+    }
     fn next(&self) -> u64 {
         self.sequence.fetch_add(1, Ordering::Relaxed)
     }
@@ -248,7 +267,13 @@ impl Shell {
         if v.epoch != epoch {
             return Err("capture_superseded");
         }
-        service.submit_new_question(revision, text)?;
+        service.submit_with_context(
+            revision,
+            text,
+            true,
+            true,
+            serde_json::json!({"context":v.context}),
+        )?;
         v.model_revision = revision;
         v.operation = "ask".into();
         v.mode = Mode::AskResult;
@@ -268,7 +293,13 @@ impl Shell {
         if v.epoch != epoch {
             return Err("capture_superseded");
         }
-        service.submit(revision, text, false)?;
+        service.submit_with_context(
+            revision,
+            text,
+            false,
+            true,
+            serde_json::json!({"context":v.context}),
+        )?;
         v.model_revision = revision;
         v.operation = "translate".into();
         v.mode = if v.context.as_ref().is_some_and(|c| c.kind == "input") {

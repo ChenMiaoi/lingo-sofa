@@ -17,6 +17,11 @@ function App() {
     }
   };
   useEffect(() => {
+    void call("session_request", { request: { action: "restore" } }).catch(
+      (error) => setNotice(errorMessage(error)),
+    );
+  }, []);
+  useEffect(() => {
     let disposed = false;
     let pending = false;
     const refresh = async () => {

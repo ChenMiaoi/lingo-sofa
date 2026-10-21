@@ -8,6 +8,7 @@ export interface View {
   phase: string;
   message: string;
   output: string;
+  question: string;
   keyConfigured: boolean;
   defaultModel: ModelSelection;
   configuredProviders: string[];
@@ -18,12 +19,53 @@ export interface View {
   reportedTokens: number;
   unknownCalls: number;
   settings: Settings;
+  sessionId: string | null;
+  messages: { role: string; content: string; truncated: boolean }[];
+  messageCount: number;
+  thinking: string;
+  toolsEnabled: boolean;
+  thinkingOutput: string;
+  toolCalls: {
+    type: string;
+    id: string;
+    name: string;
+    text: string;
+    isError?: boolean;
+  }[];
+  toolApprovals: { id: string; name: string; args: string; cwd: string }[];
+  estimatedCost: number;
+  unpricedCalls: number;
+  sessionStats: {
+    tokens: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cacheRead: number;
+      cacheWrite: number;
+      total: number;
+    };
+    toolCalls: number;
+  } | null;
+  sessionEstimatedCost: number;
+  sessionUnpricedCalls: number;
 }
+export interface SessionInfo {
+  id: string;
+  title: string;
+  modified: string;
+  messageCount: number;
+}
+export type LoadSessions = (
+  offset?: number,
+) => Promise<{ sessions: SessionInfo[]; total: number }>;
+export const loadSessions: LoadSessions = (offset = 0) =>
+  call("session_request", { request: { action: "list", offset } });
 export const initialView: View = {
   revision: 0,
   phase: "ready",
   message: "复制一段文字，开始翻译。",
   output: "",
+  question: "",
   keyConfigured: false,
   defaultModel: { provider: "deepseek", modelId: "deepseek-flash" },
   configuredProviders: [],
@@ -34,6 +76,19 @@ export const initialView: View = {
   reportedTokens: 0,
   unknownCalls: 0,
   settings: { target: "简体中文", pinned: true },
+  sessionId: null,
+  messages: [],
+  messageCount: 0,
+  thinking: "off",
+  toolsEnabled: false,
+  thinkingOutput: "",
+  toolCalls: [],
+  toolApprovals: [],
+  estimatedCost: 0,
+  unpricedCalls: 0,
+  sessionStats: null,
+  sessionEstimatedCost: 0,
+  sessionUnpricedCalls: 0,
 };
 export function call<T>(
   command: string,

@@ -9,6 +9,8 @@ import {
   unescapeCommandText,
 } from "./commands";
 import { AccountLogin } from "./account-login";
+import { AskAnswer, SessionStatus } from "./ask-answer";
+import { SessionPicker } from "./session-picker";
 import { ModelPicker } from "./model-picker";
 import type { LoadModelCatalog } from "./model-providers";
 import {
@@ -22,6 +24,8 @@ import {
   type Mode,
   subscriptionLogin,
   type RequestLogin,
+  loadSessions as defaultLoadSessions,
+  type LoadSessions,
 } from "./api";
 export type Perform = (
   command: string,
@@ -98,12 +102,14 @@ export function Desktop({
   perform,
   loadModelCatalog = defaultLoadModelCatalog,
   requestLogin = subscriptionLogin,
+  loadSessions = defaultLoadSessions,
 }: {
   state: DesktopState;
   notice?: string;
   perform: Perform;
   loadModelCatalog?: LoadModelCatalog;
   requestLogin?: RequestLogin;
+  loadSessions?: LoadSessions;
 }) {
   const { desktop: d, model } = state;
   const mode = d.mode;
@@ -116,6 +122,7 @@ export function Desktop({
   const [loginEntry, setLoginEntry] = useState<{ provider?: string } | null>(
     null,
   );
+  const [sessionSearch, setSessionSearch] = useState<string | null>(null);
   const [modelSearch, setModelSearch] = useState<string | null>(null);
   const [commandNotice, setCommandNotice] = useState("");
   const commandInFlight = useRef(false);
@@ -129,7 +136,6 @@ export function Desktop({
   });
   const queryInput = useRef<HTMLInputElement>(null);
   const draftInput = useRef<HTMLTextAreaElement>(null);
-  const answer = useRef<HTMLDivElement>(null);
   const busy =
     model.phase === "preparing" ||
     model.phase === "running" ||
@@ -175,6 +181,10 @@ export function Desktop({
       setCommandNotice(parsed.message);
       return;
     }
+    if (parsed.kind === "resume") {
+      setSessionSearch(parsed.search);
+      return;
+    }
     if (parsed.kind === "login") {
       setLoginEntry({ provider: parsed.provider });
       return;
@@ -212,29 +222,47 @@ export function Desktop({
         return;
       }
     }
+    if ((parsed.kind === "thinking" || parsed.kind === "tools") && busy) {
+      setCommandNotice("请等待当前任务完成或取消后修改思考与工具设置。");
+      return;
+    }
+    const configuring = parsed.kind === "thinking" || parsed.kind === "tools";
     if (commandInFlight.current) return;
     commandInFlight.current = true;
     const version = commandNoticeVersion.current;
     setCommandNotice(parsed.kind === "ask" ? "正在提交问题…" : "正在应用设置…");
     void perform(
-      parsed.kind === "ask"
-        ? isInput
-          ? "ask_text"
-          : "ask_question"
-        : parsed.kind === "new"
-          ? "new_session"
+      configuring
+        ? "session_request"
+        : parsed.kind === "ask"
+          ? isInput
+            ? "ask_text"
+            : "ask_question"
+          : parsed.kind === "new"
+            ? "new_session"
+            : parsed.kind === "model"
+              ? "select_model"
+              : "patch_settings",
+      configuring
+        ? {
+            request: {
+              action: "configure",
+              ...(parsed.kind === "thinking"
+                ? { thinking: parsed.level }
+                : parsed.kind === "tools"
+                  ? { tools: parsed.enabled }
+                  : {}),
+            },
+          }
+        : parsed.kind === "ask"
+          ? isInput
+            ? { text: parsed.question }
+            : { question: parsed.question }
           : parsed.kind === "model"
-            ? "select_model"
-            : "patch_settings",
-      parsed.kind === "ask"
-        ? isInput
-          ? { text: parsed.question }
-          : { question: parsed.question }
-        : parsed.kind === "model"
-          ? { model: parsed.model }
-          : parsed.kind === "preferences"
-            ? { patch: parsed.patch }
-            : undefined,
+            ? { model: parsed.model }
+            : parsed.kind === "preferences"
+              ? { patch: parsed.patch }
+              : undefined,
     )
       .then(
         (applied) => {
@@ -363,9 +391,6 @@ export function Desktop({
     if (mode === "ask" || mode === "ask-result") queryInput.current?.focus();
   }, [mode, d.epoch, d.modelRevision]);
   useEffect(() => {
-    if (answer.current) answer.current.scrollTop = answer.current.scrollHeight;
-  }, [model.output]);
-  useEffect(() => {
     const draft = draftInput.current;
     if (!isInput || !draft) return;
     draft.style.height = "auto";
@@ -375,6 +400,7 @@ export function Desktop({
     const keydown = (e: KeyboardEvent) => {
       if (
         loginEntry !== null ||
+        sessionSearch !== null ||
         modelSearch !== null ||
         mode === "settings" ||
         e.key !== "Escape" ||
@@ -399,22 +425,47 @@ export function Desktop({
     };
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
-  }, [mode, perform, commandMode, isInput, modelSearch, loginEntry]);
+  }, [
+    mode,
+    perform,
+    commandMode,
+    isInput,
+    modelSearch,
+    loginEntry,
+    sessionSearch,
+  ]);
   useEffect(() => {
+    setSessionSearch(null);
     setModelSearch(null);
     setLoginEntry(null);
   }, [mode, d.epoch]);
   useEffect(() => {
-    if (modelSearch !== null || loginEntry !== null) return;
+    if (modelSearch !== null || loginEntry !== null || sessionSearch !== null)
+      return;
     if (isInput) draftInput.current?.focus();
     else if (isAsk) queryInput.current?.focus();
-  }, [modelSearch, isInput, isAsk, loginEntry]);
+  }, [modelSearch, isInput, isAsk, loginEntry, sessionSearch]);
   const message =
     notice || (d.notice ? errorMessage(d.notice, state.shortcuts.macos) : "");
   const translationError = current && model.phase === "error";
   const translation =
     d.translation ||
     (current && model.phase !== "running" ? model.message : "正在翻译…");
+  if (sessionSearch !== null)
+    return (
+      <SessionPicker
+        search={sessionSearch}
+        load={loadSessions}
+        perform={perform}
+        onClose={(applied) => {
+          setSessionSearch(null);
+          if (applied) {
+            if (isInput) setInput("");
+            else setQuery("");
+          }
+        }}
+      />
+    );
   if (loginEntry !== null)
     return (
       <AccountLogin
@@ -571,114 +622,120 @@ export function Desktop({
         }}
       />
     );
+  const composer = (
+    <header
+      className={`command-header${isInput ? " draft-header" : ""}`}
+      data-tauri-drag-region
+    >
+      {mode === "ask-result" ? (
+        <span className="composer-prompt" aria-hidden="true">
+          ›
+        </span>
+      ) : (
+        <Icon name="search" />
+      )}
+      {isInput ? (
+        <textarea
+          ref={draftInput}
+          aria-label="需要翻译的原文或新问题"
+          placeholder={
+            selected === 1 && !commandMode
+              ? "输入问题，Enter 提问；/ 打开命令…"
+              : "输入文字，翻译或提问；/ 打开命令…"
+          }
+          rows={1}
+          maxLength={5000}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (isImeKey(e.nativeEvent)) return;
+            if (completeCommandInput(e)) return;
+            if (
+              (e.altKey || commandMode) &&
+              (e.key === "ArrowDown" || e.key === "ArrowUp")
+            ) {
+              e.preventDefault();
+              const count = commandMode
+                ? Math.max(commands.length, 1)
+                : inputActions.length;
+              setSelected(
+                (i) => (i + (e.key === "ArrowDown" ? 1 : -1) + count) % count,
+              );
+            }
+            if (
+              !e.shiftKey &&
+              shouldSubmitQuestion(
+                e.nativeEvent,
+                commandMode ? false : busy,
+                input,
+              )
+            ) {
+              e.preventDefault();
+              execute();
+            }
+          }}
+        />
+      ) : (
+        <input
+          ref={queryInput}
+          aria-label="Ask 问题或动作"
+          placeholder={
+            mode === "ask-result"
+              ? "继续追问，或 / 打开命令"
+              : "解释这段内容，或 / 打开命令"
+          }
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (isImeKey(e.nativeEvent) || (commandMode && e.shiftKey)) return;
+            if (completeCommandInput(e)) return;
+            if (
+              (mode === "ask" || commandMode) &&
+              (e.key === "ArrowDown" || e.key === "ArrowUp")
+            ) {
+              e.preventDefault();
+              setSelected(
+                (i) =>
+                  (i +
+                    (e.key === "ArrowDown" ? 1 : -1) +
+                    Math.max(
+                      commandMode ? commands.length : options.length,
+                      1,
+                    )) %
+                  Math.max(commandMode ? commands.length : options.length, 1),
+              );
+            }
+            if (
+              shouldSubmitQuestion(
+                e.nativeEvent,
+                commandMode ? false : busy,
+                query || options[selected]?.label || "",
+              )
+            ) {
+              e.preventDefault();
+              if (commandMode) execute();
+              else if (mode === "ask-result") {
+                if (query.trim())
+                  void perform("ask_question", {
+                    question: unescapeCommandText(query),
+                  });
+              } else execute();
+            }
+          }}
+        />
+      )}
+      <button className="sofa-mark" aria-label="返回阅读" onClick={back}>
+        <Icon name="sofa" />
+      </button>
+    </header>
+  );
   if (isAsk || isInput)
     return (
-      <main className={`launcher${isInput ? " input-launcher" : ""}`}>
-        <header
-          className={`command-header${isInput ? " draft-header" : ""}`}
-          data-tauri-drag-region
-        >
-          <Icon name="search" />
-          {isInput ? (
-            <textarea
-              ref={draftInput}
-              aria-label="需要翻译的原文或新问题"
-              placeholder={
-                selected === 1 && !commandMode
-                  ? "输入问题，Enter 提问；/ 打开命令…"
-                  : "输入文字，翻译或提问；/ 打开命令…"
-              }
-              rows={1}
-              maxLength={5000}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (isImeKey(e.nativeEvent)) return;
-                if (completeCommandInput(e)) return;
-                if (
-                  (e.altKey || commandMode) &&
-                  (e.key === "ArrowDown" || e.key === "ArrowUp")
-                ) {
-                  e.preventDefault();
-                  const count = commandMode
-                    ? Math.max(commands.length, 1)
-                    : inputActions.length;
-                  setSelected(
-                    (i) =>
-                      (i + (e.key === "ArrowDown" ? 1 : -1) + count) % count,
-                  );
-                }
-                if (
-                  !e.shiftKey &&
-                  shouldSubmitQuestion(
-                    e.nativeEvent,
-                    commandMode ? false : busy,
-                    input,
-                  )
-                ) {
-                  e.preventDefault();
-                  execute();
-                }
-              }}
-            />
-          ) : (
-            <input
-              ref={queryInput}
-              aria-label="Ask 问题或动作"
-              placeholder={
-                mode === "ask-result"
-                  ? "继续追问，或 / 打开命令"
-                  : "解释这段内容，或 / 打开命令"
-              }
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (isImeKey(e.nativeEvent) || (commandMode && e.shiftKey))
-                  return;
-                if (completeCommandInput(e)) return;
-                if (
-                  (mode === "ask" || commandMode) &&
-                  (e.key === "ArrowDown" || e.key === "ArrowUp")
-                ) {
-                  e.preventDefault();
-                  setSelected(
-                    (i) =>
-                      (i +
-                        (e.key === "ArrowDown" ? 1 : -1) +
-                        Math.max(
-                          commandMode ? commands.length : options.length,
-                          1,
-                        )) %
-                      Math.max(
-                        commandMode ? commands.length : options.length,
-                        1,
-                      ),
-                  );
-                }
-                if (
-                  shouldSubmitQuestion(
-                    e.nativeEvent,
-                    commandMode ? false : busy,
-                    query || options[selected]?.label || "",
-                  )
-                ) {
-                  e.preventDefault();
-                  if (commandMode) execute();
-                  else if (mode === "ask-result") {
-                    if (query.trim())
-                      void perform("ask_question", {
-                        question: unescapeCommandText(query),
-                      });
-                  } else execute();
-                }
-              }}
-            />
-          )}
-          <button className="sofa-mark" aria-label="返回阅读" onClick={back}>
-            <Icon name="sofa" />
-          </button>
-        </header>
-        <div className="context-bar">
+      <main
+        className={`launcher${isInput ? " input-launcher" : ""}${mode === "ask-result" ? " result-launcher" : ""}`}
+      >
+        {mode !== "ask-result" && composer}
+        <div className="context-bar" data-tauri-drag-region>
           {isInput ? (
             <span className="input-label">独立输入</span>
           ) : (
@@ -712,6 +769,14 @@ export function Desktop({
                 ? ` · ${Array.from(context.text).length} 字符`
                 : ""}
           </span>
+          <button
+            className="icon-button"
+            aria-label="会话历史"
+            title="会话历史 · /resume"
+            onClick={() => setSessionSearch("")}
+          >
+            <Icon name="chat" />
+          </button>
           <button
             className="icon-button"
             aria-label="设置"
@@ -842,54 +907,25 @@ export function Desktop({
             )}
           </section>
         ) : (
-          <section className="answer-section">
-            <div className="list-caption">
-              <span>
-                {d.operation === "translate"
-                  ? "译文 · 可继续追问"
-                  : "围绕当前原文"}
-              </span>
-              <button
-                onClick={() => {
-                  void perform("cancel_task");
-                  go("ask");
-                }}
-              >
-                返回动作
-              </button>
-            </div>
-            <div className="answer" ref={answer} aria-live="polite">
-              {current ? model.output || model.message : "正在准备回答…"}
-            </div>
-            <div className="answer-tools">
-              <button
-                disabled={!current || !model.output}
-                onClick={() => void perform("copy_result")}
-              >
-                <Icon name="copy" />
-                复制
-              </button>
-              {busy ? (
-                <button onClick={() => void perform("cancel_task")}>
-                  停止生成
-                </button>
-              ) : (
-                <button
-                  disabled={!model.sessionReady}
-                  title="整理上下文并保留要点，会产生模型调用"
-                  onClick={() => void perform("compact_session")}
-                >
-                  压缩会话
-                </button>
-              )}
-              <span>
-                {model.reportedTokens.toLocaleString()} tokens
-                {model.unknownCalls
-                  ? ` · ${model.unknownCalls} 次用量不完整`
-                  : ""}
-              </span>
-            </div>
-          </section>
+          <AskAnswer
+            key={d.epoch}
+            model={model}
+            current={current}
+            busy={busy}
+            operation={d.operation}
+            perform={perform}
+            onActions={() => {
+              void perform("cancel_task");
+              go("ask");
+            }}
+          />
+        )}
+        {mode === "ask-result" && (
+          <>
+            {" "}
+            {composer}
+            <SessionStatus model={model} />{" "}
+          </>
         )}
         <footer className="launcher-footer">
           <span>

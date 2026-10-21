@@ -427,3 +427,188 @@ fn subscription_authorization_preserves_existing_accounts_and_encrypts_completed
     assert_eq!(restored.state().default_model.provider, "openai");
     restored.shutdown();
 }
+
+#[test]
+fn omp_history_survives_new_and_restart_and_restores_complete_followup_context() {
+    use lingo_sofa_app_services::SessionRequest;
+    let directory = tempfile::tempdir().unwrap();
+    let service = start_options(directory.path(), &["--record-messages"]);
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    service.submit_with_context(1, "HISTORY_QUESTION_SENTINEL".into(), true, true,
+        serde_json::json!({"context":{"text":"FROZEN_SOURCE","origin":"Fixture","kind":"input","anchor":null,"anchorValid":false}})).unwrap();
+    let original = wait(&service, |v| {
+        v.revision == 1 && v.phase == "ready" && v.session_ready
+    });
+    let id = original.session_id.unwrap();
+    assert_eq!(original.question, "HISTORY_QUESTION_SENTINEL");
+    service.reset().unwrap();
+    wait(&service, |v| !v.session_ready && v.output.is_empty());
+    let list = service
+        .session_request(SessionRequest::List { offset: 0 })
+        .unwrap();
+    assert!(
+        list["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == id)
+    );
+    service
+        .submit_new_question(2, "UNRELATED_NEW_QUESTION".into())
+        .unwrap();
+    wait(&service, |v| v.revision == 2 && v.phase == "ready");
+    let opened = service
+        .session_request(SessionRequest::Resume { id: id.clone() })
+        .unwrap();
+    assert_eq!(opened["metadata"]["context"]["text"], "FROZEN_SOURCE");
+    assert_eq!(service.state().question, "HISTORY_QUESTION_SENTINEL");
+    assert!(
+        serde_json::to_string(&service.state().messages)
+            .unwrap()
+            .contains("HISTORY_QUESTION_SENTINEL")
+    );
+    service
+        .submit(3, "FOLLOWUP_AFTER_RESTORE".into(), true)
+        .unwrap();
+    wait(&service, |v| v.revision == 3 && v.phase == "ready");
+    assert_eq!(service.state().question, "FOLLOWUP_AFTER_RESTORE");
+    let sent = std::fs::read_to_string(directory.path().join("synthetic-messages.json")).unwrap();
+    assert!(sent.contains("HISTORY_QUESTION_SENTINEL"));
+    assert!(sent.contains("FOLLOWUP_AFTER_RESTORE"));
+    assert!(!sent.contains("UNRELATED_NEW_QUESTION"));
+    service.shutdown();
+    let restored = start(directory.path());
+    restored.session_request(SessionRequest::Restore).unwrap();
+    assert_eq!(restored.state().session_id.as_deref(), Some(id.as_str()));
+    assert!(restored.state().session_ready);
+    assert!(
+        restored
+            .session_request(SessionRequest::Resume {
+                id: "../credentials.sqlite".into()
+            })
+            .is_err()
+    );
+    restored.shutdown();
+}
+
+#[test]
+fn a_failed_resume_does_not_break_the_next_question() {
+    use lingo_sofa_app_services::SessionRequest;
+    let directory = tempfile::tempdir().unwrap();
+    let service = start(directory.path());
+    service
+        .save_provider("openai".into(), "synthetic-desktop-secret".into())
+        .unwrap();
+    service
+        .select_model(lingo_sofa_app_services::ModelSelection {
+            provider: "openai".into(),
+            model_id: "w0-openai".into(),
+        })
+        .unwrap();
+    service
+        .submit_new_question(1, "First question".into())
+        .unwrap();
+    let original = wait(&service, |v| v.revision == 1 && v.phase == "ready");
+    let id = original.session_id.unwrap();
+    assert!(
+        service
+            .session_request(SessionRequest::Resume {
+                id: "missing-session".into(),
+            })
+            .is_err()
+    );
+    assert!(!service.state().session_ready);
+    service
+        .submit(2, "Question after failed resume".into(), true)
+        .unwrap();
+    let recovered = wait(&service, |v| {
+        v.revision == 2 && (v.phase == "ready" || v.phase == "error")
+    });
+    assert_eq!(recovered.phase, "ready", "{}", recovered.message);
+    assert!(recovered.session_ready);
+    service
+        .session_request(SessionRequest::Resume { id })
+        .unwrap();
+    assert!(service.state().session_ready);
+    service.shutdown();
+}
+
+#[test]
+fn tool_execution_waits_for_each_decision_and_records_reasoning_and_results() {
+    use lingo_sofa_app_services::SessionRequest;
+    let directory = tempfile::tempdir().unwrap();
+    let service = start_options(directory.path(), &["--tool-fixture"]);
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    service
+        .session_request(SessionRequest::Configure {
+            thinking: Some("high".into()),
+            tools: None,
+        })
+        .unwrap();
+    service
+        .session_request(SessionRequest::Configure {
+            thinking: None,
+            tools: Some(true),
+        })
+        .unwrap();
+    assert_eq!(service.state().thinking, "high");
+    for (revision, approved) in [(1, false), (2, true), (3, true)] {
+        if directory.path().join("approved-tool.txt").exists() {
+            std::fs::remove_file(directory.path().join("approved-tool.txt")).unwrap();
+        }
+        service
+            .submit_new_question(
+                revision,
+                if revision == 3 {
+                    "W0_TOOL_REQUEST W0_TOOL_LONG".into()
+                } else {
+                    "W0_TOOL_REQUEST".into()
+                },
+            )
+            .unwrap();
+        let approval = wait(&service, |v| !v.tool_approvals.is_empty());
+        assert!(!directory.path().join("approved-tool.txt").exists());
+        if revision == 3 {
+            assert!(
+                approval.tool_approvals[0]["args"]
+                    .as_str()
+                    .unwrap()
+                    .contains("REVIEW_END")
+            );
+        }
+        let id = approval.tool_approvals[0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        service
+            .session_request(SessionRequest::Decision {
+                id: id.clone(),
+                approved,
+            })
+            .unwrap();
+        let done = wait(&service, |v| {
+            v.revision == revision && v.phase == "ready" && v.task_id.is_none()
+        });
+        assert!(done.tool_approvals.is_empty());
+        assert!(done.thinking_output.contains("Visible fixture reasoning"));
+        if approved {
+            assert_eq!(
+                std::fs::read_to_string(directory.path().join("approved-tool.txt")).unwrap(),
+                if revision == 3 {
+                    "x".repeat(4500) + "REVIEW_END"
+                } else {
+                    "APPROVED_TOOL".into()
+                }
+            );
+            assert!(!done.tool_calls.is_empty());
+        } else {
+            assert!(!directory.path().join("approved-tool.txt").exists());
+        }
+        assert!(
+            service
+                .session_request(SessionRequest::Decision { id, approved: true })
+                .is_err()
+        );
+    }
+    service.shutdown();
+}

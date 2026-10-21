@@ -3,17 +3,49 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFrames, sendFrame, type Frame } from "./ipc";
-import { restrictedSettings, createRestrictedSession } from "./restricted-sdk";
+import {
+  restrictedSettings,
+  createRestrictedSession,
+  type Thinking,
+} from "./restricted-sdk";
 import {
   SubscriptionLogin,
   safeAuthorizationUrl,
   subscriptionProviders,
 } from "./subscription-login";
 import { WorkerModels } from "./models";
+import {
+  SessionHistory,
+  sessionSnapshot,
+  displayMetadata,
+} from "./session-history";
+import { ToolApprovals } from "./tool-approval";
 import type {
   OAuthProvider as AIProvider,
   AuthCredential,
 } from "@oh-my-pi/pi-ai";
+
+function toolResultText(value: unknown): string {
+  if (
+    value &&
+    typeof value === "object" &&
+    "content" in value &&
+    Array.isArray(value.content)
+  ) {
+    return value.content
+      .map((part: unknown) =>
+        part &&
+        typeof part === "object" &&
+        "text" in part &&
+        typeof part.text === "string"
+          ? part.text
+          : "",
+      )
+      .filter(Boolean)
+      .join("\n");
+  }
+  return JSON.stringify(value) ?? "";
+}
 
 export interface WorkerOptions {
   provider: string;
@@ -138,6 +170,8 @@ export async function runWorker(options: WorkerOptions) {
     string,
     { revision: number; credential: AuthCredential | null }
   >();
+  const history = new SessionHistory(sdk, cwd);
+  const approvals = new ToolApprovals();
   const tasks = new Map<string, Promise<unknown>>();
   const sessions = new Map<
     string,
@@ -228,7 +262,11 @@ export async function runWorker(options: WorkerOptions) {
       purpose: scope.purpose,
       provider: model.provider,
       model: model.id,
-      pricingKnown: false,
+      pricingKnown:
+        snapshots.get(model.provider)?.credential?.type === "api_key" &&
+        Object.values((catalog ? catalog.native(model) : model).cost).some(
+          (cost) => cost > 0,
+        ),
     };
     const outer = ai.createAssistantMessageEventStream();
     const localError = (
@@ -316,7 +354,7 @@ export async function runWorker(options: WorkerOptions) {
       } finally {
         activeProviderCalls.delete(metadata.callId);
       }
-      const { input, output, cacheRead, cacheWrite, totalTokens } =
+      const { input, output, cacheRead, cacheWrite, totalTokens, cost } =
         message.usage.totalTokens > 0
           ? message.usage
           : (observedUsage ?? message.usage);
@@ -333,7 +371,10 @@ export async function runWorker(options: WorkerOptions) {
         stopReason: message.stopReason,
         usageState,
         ...(totalTokens > 0
-          ? { usage: { input, output, cacheRead, cacheWrite, totalTokens } }
+          ? {
+              usage: { input, output, cacheRead, cacheWrite, totalTokens },
+              estimatedCost: metadata.pricingKnown ? cost.total : null,
+            }
           : {}),
       };
       const ack = await admissionRequest("complete", completed);
@@ -672,30 +713,190 @@ export async function runWorker(options: WorkerOptions) {
           sessions: sessions.size,
           tasks: tasks.size,
         };
+      case "session.list": {
+        const offset = Number(frame.payload.offset ?? 0);
+        if (!Number.isSafeInteger(offset) || offset < 0)
+          throw new Error("invalid_page");
+        const all = await history.list();
+        return {
+          sessions: all.slice(offset, offset + 50).map((item) => ({
+            id: item.id,
+            title: (item.title || item.firstMessage || "空白会话").slice(
+              0,
+              100,
+            ),
+            modified: item.modified.toISOString(),
+            messageCount: item.messageCount,
+          })),
+          total: all.length,
+        };
+      }
+      case "session.latest":
+        return { id: await history.current() };
+      case "session.reset":
+        await Promise.all(
+          [...sessions.values()].map((entry) => entry.session.abort()),
+        );
+        await Promise.allSettled([...tasks.values()]);
+        for (const entry of sessions.values()) {
+          await entry.session.sessionManager.flush();
+          await entry.session.dispose();
+        }
+        sessions.clear();
+        await history.select(null);
+        return {};
+      case "session.decision": {
+        if (typeof frame.payload.approved !== "boolean")
+          throw new Error("invalid_approval");
+        approvals.decide(
+          String(frame.payload.sessionId),
+          String(frame.payload.id),
+          frame.payload.approved,
+        );
+        return {};
+      }
+      case "session.snapshot": {
+        const entry = sessionEntry(frame.payload);
+        return {
+          ...sessionSnapshot(entry.session),
+          metadata: displayMetadata(
+            history.metadata(entry.session.sessionManager),
+          ),
+        };
+      }
+      case "session.configure": {
+        const entry = sessionEntry(frame.payload);
+        if (entry.busy) throw new Error("session_busy");
+        const thinking = String(frame.payload.thinking ?? "off");
+        if (
+          !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
+            thinking,
+          )
+        )
+          throw new Error("invalid_thinking");
+        entry.session.setThinkingLevel(thinking as Thinking, true);
+        await entry.session.setActiveToolsByName(
+          frame.payload.tools === true
+            ? ["read", "bash", "edit", "write", "grep", "find"]
+            : [],
+        );
+        return { thinking: entry.session.thinkingLevel };
+      }
+      case "session.open":
       case "session.create": {
-        if (!snapshots.get(selection.provider)?.credential)
-          throw new Error("account_missing");
         if (sessions.size >= 4) throw new Error("session_limit");
-        const selectedModel = registry.find(
-          selection.provider,
-          selection.modelId,
-        );
-        if (!selectedModel) throw new Error("model_not_verified");
-        if (catalog) catalog.native(selectedModel);
-        const { session } = await createRestrictedSession(
-          sdk,
-          {
-            cwd,
-            agentDir,
-            authStorage: auth,
-            modelRegistry: registry,
-            model: selectedModel,
-          },
-          options.compaction,
-        );
-        const sessionId = randomUUID();
-        sessions.set(sessionId, { session, busy: false });
-        return { sessionId, tools: session.getActiveToolNames() };
+        if (frame.method === "session.create") {
+          const model = registry.find(selection.provider, selection.modelId);
+          if (!model || !snapshots.get(selection.provider)?.credential)
+            throw new Error("account_missing");
+          if (catalog) catalog.native(model);
+        }
+        const manager =
+          frame.method === "session.open"
+            ? await history.open(String(frame.payload.id))
+            : await history.create({
+                ...selection,
+                operation: String(frame.payload.operation ?? "ask"),
+                context: frame.payload.context,
+              });
+        try {
+          if (
+            frame.method === "session.create" &&
+            typeof frame.payload.title === "string"
+          )
+            await manager.setSessionName(
+              frame.payload.title.slice(0, 80),
+              "user",
+            );
+          const metadata = history.metadata(manager);
+          if (!snapshots.get(metadata.provider)?.credential)
+            throw new Error("account_missing");
+          if (frame.method === "session.open")
+            await handle({
+              ...frame,
+              method: "model.verify",
+              payload: {
+                provider: metadata.provider,
+                modelId: metadata.modelId,
+              },
+            });
+          const selectedModel = registry.find(
+            metadata.provider,
+            metadata.modelId,
+          );
+          if (!selectedModel) throw new Error("model_not_verified");
+          const { session } = await createRestrictedSession(
+            sdk,
+            {
+              cwd,
+              agentDir,
+              authStorage: auth,
+              modelRegistry: registry,
+              model: selectedModel,
+            },
+            options.compaction,
+            {
+              manager,
+              thinking: frame.payload.thinking as Thinking | undefined,
+              tools: frame.payload.tools === true,
+            },
+          );
+          if (frame.payload.tools !== true)
+            await session.setActiveToolsByName([]);
+          const sessionId = manager.getSessionId();
+          const beforeToolCall = session.agent.beforeToolCall;
+          session.agent.beforeToolCall = async (context, signal) => {
+            const original = await beforeToolCall?.(context, signal);
+            if (original?.block) return original;
+            const requestId = operations.getStore()?.requestId;
+            if (!requestId)
+              return { block: true, reason: "tool_without_request" };
+            const args = JSON.stringify(original?.args ?? context.args);
+            if (Buffer.byteLength(args) > 12_000)
+              return {
+                block: true,
+                reason:
+                  "Tool arguments exceed the review limit. Use a smaller request.",
+              };
+            const id = randomUUID();
+            const approved = await approvals.request(
+              sessionId,
+              id,
+              signal,
+              () =>
+                emitEvent(requestId, {
+                  type: "tool_approval",
+                  sessionId,
+                  id,
+                  name: context.tool.name,
+                  args,
+                  cwd,
+                }),
+            );
+            await emitEvent(requestId, {
+              type: "tool_approval_closed",
+              sessionId,
+              id,
+            });
+            return approved
+              ? original
+              : {
+                  block: true,
+                  reason: "User denied or cancelled tool execution.",
+                };
+          };
+          sessions.set(sessionId, { session, busy: false });
+          await history.select(sessionId);
+          return {
+            sessionId,
+            tools: session.getActiveToolNames(),
+            metadata: displayMetadata(metadata),
+            ...sessionSnapshot(session),
+          };
+        } catch (error) {
+          await manager.close();
+          throw error;
+        }
       }
       case "prompt": {
         const entry = sessionEntry(frame.payload);
@@ -707,15 +908,37 @@ export async function runWorker(options: WorkerOptions) {
           throw new Error("invalid_prompt");
         entry.busy = true;
         const unsubscribe = entry.session.subscribe((event) => {
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent.type === "text_delta"
-          )
+          if (event.type === "message_update") {
+            const update = event.assistantMessageEvent;
+            if (
+              update.type === "text_delta" ||
+              update.type === "thinking_delta"
+            )
+              void emitEvent(frame.id, {
+                sessionId: frame.payload.sessionId,
+                type: update.type,
+                text: update.delta,
+              }).catch(() => process.exit(2));
+          } else if (
+            event.type === "tool_execution_start" ||
+            event.type === "tool_execution_end"
+          ) {
+            const text =
+              event.type === "tool_execution_start"
+                ? JSON.stringify(event.args)
+                : toolResultText(event.result);
             void emitEvent(frame.id, {
               sessionId: frame.payload.sessionId,
-              type: "text_delta",
-              text: event.assistantMessageEvent.delta,
+              type: event.type,
+              id: event.toolCallId,
+              name: event.toolName,
+              text:
+                text.length > 4000
+                  ? text.slice(0, 4000) + "\n…（显示内容已截断）"
+                  : text,
+              isError: event.type === "tool_execution_end" && event.isError,
             }).catch(() => process.exit(2));
+          }
         });
         const prompt = operation(frame, "generation", () =>
           entry.session.prompt(frame.payload.text as string),
@@ -729,6 +952,7 @@ export async function runWorker(options: WorkerOptions) {
             sessionId: frame.payload.sessionId,
           };
         } finally {
+          await entry.session.sessionManager.flush();
           unsubscribe();
           tasks.delete(String(frame.payload.sessionId));
           entry.busy = false;
@@ -773,6 +997,7 @@ export async function runWorker(options: WorkerOptions) {
       case "session.close": {
         const entry = sessionEntry(frame.payload);
         if (entry.busy) throw new Error("session_busy");
+        await entry.session.sessionManager.flush();
         await entry.session.dispose();
         sessions.delete(String(frame.payload.sessionId));
         return { closed: true };

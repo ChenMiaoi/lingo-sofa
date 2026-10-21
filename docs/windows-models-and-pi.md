@@ -1,6 +1,6 @@
 # Windows 模型接入与 oh-my-pi SDK/Agent 架构
 
-2026-10-21 · 本文定义模型与认证的目标契约；当前桌面仅开放 DeepSeek API Key。总方案见 [技术方案](lingo-sofa-plan.md)，边界见 [模块设计](windows-modules.md)，验证项见 [阶段验收](windows-acceptance-plan.md)，现有实现与已测范围见 [当前架构](architecture.md) 和 [验收状态](acceptance.md)。
+2026-10-21 · 本文定义模型与认证的目标契约；当前桌面开放目录中的 API Key 与订阅登录服务商。总方案见 [技术方案](lingo-sofa-plan.md)，边界见 [模块设计](windows-modules.md)，验证项见 [阶段验收](windows-acceptance-plan.md)，现有实现与已测范围见 [当前架构](architecture.md) 和 [验收状态](acceptance.md)。
 
 ## 确定使用 oh-my-pi
 
@@ -31,11 +31,11 @@ React/TS UI → Tauri/Rust 应用服务
 
 安装包携带经验证的 Bun 与 OMP 依赖，用户无需自行安装 Bun 或 OMP；“无需用户安装 Bun”不等于“产品没有 Bun 运行时”。Tauri 仍使用系统 WebView，不因 OMP 进程改回 Electron。Bun、OMP 及所需 native addon 是受控内部组件，不是第二个用户需要管理的助手安装。
 
-推荐在 TS worker 中内嵌完整 OMP SDK，并暴露有限命令：创建/清理会话、提交翻译或 Ask、取消、选择已验证模型、模型目录、登录/退出/状态。worker 显式设置受限的空工具集、隔离 Settings、内存 SessionManager 和受控后台行为；不沿用原版 Pi 的空 resourceLoader 配置。选定 OMP 版本的登录、AuthStorage/ModelRegistry 适配与压缩事件能否满足约束，在 W0 验证。
+推荐在 TS worker 中内嵌完整 OMP SDK，并暴露有限命令：创建/清理会话、提交翻译或 Ask、取消、选择已验证模型、模型目录、登录/退出/状态。worker 显式设置默认关闭、逐次确认的工具集、隔离 Settings、文件 SessionManager 和受控后台行为；不沿用原版 Pi 的空 resourceLoader 配置。选定 OMP 版本的登录、AuthStorage/ModelRegistry 适配与压缩事件能否满足约束，在 W0 验证。
 
 Rust 与 worker 通过版本化私有命令/事件协议通信；可以参考 OMP RPC 的关联、背压和终态语义，但产品协议不等于直接暴露 OMP CLI 的全部 RPC。仅在现成 RPC 可以证明同等受限配置时才考虑替换 wrapper，不同时维护 SDK/RPC 两种运行路径。不能把 `--no-session` 当成禁用工具、扩展或重试。
 
-worker 首次 LLM/认证/目录操作时启动；首次免 Key 翻译不启动 OMP。只要还有活跃会话、任务、登录或凭证写入就不退出；所有会话明确关闭后才进入空闲回收。worker 退出后内存会话消失，必须告知用户新建会话，不在 Rust 再维护一套隐藏的完整对话以假装无损恢复。
+worker 首次 LLM/认证/目录操作时启动；首次免 Key 翻译不启动 OMP。只要还有活跃会话、任务、登录或凭证写入就不退出；所有会话明确关闭后才进入空闲回收。worker 退出后通过 OMP 文件会话显式恢复上下文，不在 Rust 维护第二套完整对话；不自动重发中断的模型调用或执行工具。
 
 ## 权威状态与会话边界
 
@@ -50,14 +50,14 @@ worker 首次 LLM/认证/目录操作时启动；首次免 Key 翻译不启动 O
 
 本节定义产品要求，W0 必须逐项证明可配置或可由受控 wrapper 实现，不能仅看 SDK 有参数就标为通过。
 
-- **工具与发现**：目标 active tools 为空。`toolNames` 本身不是白名单，须结合 `restrictToolNames` 并验证空工具列表语义；关闭 MCP、LSP、扩展、skills、上下文文件、模板与自定义命令的自动发现。不得从用户的 `~/.omp`、项目 `.env` 或其他工具目录自动获取配置/凭证。
-- **会话实例**：显式注入 SessionManager.inMemory 与隔离 Settings；每个并发顶层会话提供私有 AgentRegistry，避免默认进程级 Main 身份冲突。明确配置模型，不接受自动选择第一个可用模型。SDK 所需 SessionManager、AuthStorage、ModelRegistry 从包根导入，不能假设窄 `/sdk` 子路径都导出。
+- **工具与发现**：默认 active tools 为空；Ask 可启用内置文件与命令工具，每次执行须经过用户确认门。`toolNames` 本身不是白名单，须结合 `restrictToolNames` 并验证空工具列表语义；关闭 MCP、LSP、扩展、skills、上下文文件、模板与自定义命令的自动发现。不得从用户的 `~/.omp`、项目 `.env` 或其他工具目录自动获取配置/凭证。
+- **会话实例**：显式注入 SessionManager.create/open 与隔离 Settings；每个并发顶层会话提供私有 AgentRegistry，避免默认进程级 Main 身份冲突。明确配置模型，不接受自动选择第一个可用模型。SDK 所需 SessionManager、AuthStorage、ModelRegistry 从包根导入，不能假设窄 `/sdk` 子路径都导出。
 - **账户与回退**：每个会话绑定 accountId/provider/model。关闭自动账户轮换、跨模型/供应商回退与一般付费自动重试；认证刷新允许按原账户执行并独立验证是否重发请求。用户主动切换才改变绑定。相同 provider 的多个 Key 不能因 OMP 内置轮换而绕过产品选择。
 - **后台行为**：审查并控制模型预连接、在线目录刷新、cache warming、自动标题、memory/auto-learn、advisor、提醒和遥测。打开卡片/设置不能偷偷触发生成或上传正文；允许的无正文目录/连通性请求需单列验证。SDK 默认预热不等于已经满足本产品空闲网络约束。
 - **终态与销毁**：`agent_end` 不总是完成，按锁定版本区分非终态维护与真正结束，不能在压缩/重试尚未完成时释放队列槽位。关闭先阻止新入队，再 await dispose；销毁失败/超时保留 unknown 并回收 worker。
 - **凭证**：注入同一 AuthStorage 实例给 ModelRegistry/会话，使用与 Rust 密文存储相连的受控适配，不默认建立第二份 `~/.omp/agent/agent.db` 凭证库。SDK 是否支持所需存储与刷新钩子是 W0 硬门槛，broker 模式只可在满足相同本机/权限边界后评估，不预先承诺无需适配。
 
-上述接口依据 [OMP SDK 文档](https://github.com/can1357/oh-my-pi/blob/main/docs/sdk.md) 与 [账户解析规则](https://github.com/can1357/oh-my-pi/blob/main/docs/providers.md)。这些功能边界服务于翻译软件：OMP Agent 负责生成和会话，桌面产品不开放 coding agent 的文件或工具操作。
+上述接口依据 [OMP SDK 文档](https://github.com/can1357/oh-my-pi/blob/main/docs/sdk.md) 与 [账户解析规则](https://github.com/can1357/oh-my-pi/blob/main/docs/providers.md)。这些功能边界服务于翻译软件：OMP Agent 负责生成和会话，桌面默认关闭工具，用户可启用受单次确认控制的 Ask 文件与命令工具，具体边界见[会话指南](sessions.md)。
 
 ## 首版接入矩阵
 
@@ -96,11 +96,11 @@ OMP 的登录与推理行为仍需与官方流程核对，SDK 的存在不能代
 
 ## OMP worker 的必需契约
 
-正式实现已有 Rust 私有 IPC、Windows Job 回收、DPAPI/SQLite、持久化用量账本、有界队列和全局双并发限制。真实 DeepSeek 路径覆盖流式、取消和压缩内部调用计量；取消时缺失最终 usage 保留 unknown，价格尚未实现。兼容范围与待验项见 [验收状态](acceptance.md)。合成 OAuth 刷新验证不代表真实 OAuth 通过；下列生产契约仍需逐项核对。
+正式实现已有 Rust 私有 IPC、Windows Job 回收、DPAPI/SQLite、持久化用量账本、有界队列和全局双并发限制。真实 DeepSeek 路径覆盖流式、取消和压缩内部调用计量；取消时缺失最终 usage 保留 unknown，API Key 调用已有 SDK 价格估算，订阅及缺失价格保持未知。兼容范围与待验项见 [验收状态](acceptance.md)。合成 OAuth 刷新验证不代表真实 OAuth 通过；下列生产契约仍需逐项核对。
 
 - 按需启动、版本握手、关闭应用后退出；失败不影响取文和已完成卡片，不能自动重发未知生成。
 - JSON 记录含 requestId/sessionId，stdout 只输出协议、stderr 脱敏；消费流与背压不阻塞进程。OMP RPC 的“接受命令”与“会话完成”分开映射，终态以锁定版本为准。
-- 只允许生成、会话、目录和受控认证操作，不暴露 bash、文件、扩展安装、任意工作目录、用户全局 OMP 配置发现或其他工具凭据自动导入。
+- 开放生成、会话、目录和受控认证；Ask 文件与 bash 工具必须按次确认。仍不开放扩展安装、任意工作目录切换、用户全局 OMP 配置发现或其他工具凭据自动导入。
 - Rust 是账户 ID/默认值及 DPAPI 密文的持久化权威；OMP 负责 OAuth 交换/刷新，通过受控凭证适配层读写。刷新按账户串行，新的 token 由 Rust 原子保存并确认后才算提交，worker 不保留第二套长期明文账户库。W0 必须验证所选 SDK 的 AuthStorage 持久化适配、与 ModelRegistry 共享实例及刷新写回钩子；不满足时先解决接口/版本，而不是假设参数存在。
 - 固定 OMP、随包 Bun 与 Windows native addon 的版本、许可证和更新责任；全部计入安装体积与进程资源，应用升级协调 worker 退出和版本一致性。
 - 后端来源显示在诊断中；首版 UI 不要求用户理解 Rust/OMP 进程。OMP 登录成功不意味着模型调用、余额或所有目录模型都可用。

@@ -118,7 +118,7 @@ export class WorkerModels {
         {
           ...model,
           api: "lingo-worker",
-          supportsTools: false,
+          supportsTools: model.supportsTools,
           compactionModel: undefined,
           contextPromotionTarget: undefined,
           remoteCompaction: undefined,
