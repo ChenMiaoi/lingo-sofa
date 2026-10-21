@@ -96,6 +96,10 @@ function Icon({ name, className = "" }: { name: string; className?: string }) {
     </svg>
   );
 }
+// Recognized text is data, including lines that look like local commands.
+function ocrDraft(text: string) {
+  return text.replace(/^(\s*)\//, "$1//");
+}
 export function Desktop({
   state,
   notice = "",
@@ -117,7 +121,9 @@ export function Desktop({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(
+    mode === "input" && context?.kind === "ocr" ? ocrDraft(context.text) : "",
+  );
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("home");
   const [loginEntry, setLoginEntry] = useState<{ provider?: string } | null>(
     null,
@@ -148,7 +154,11 @@ export function Desktop({
   const isInput = mode === "input";
   const commandText = isInput ? input : query;
   const commandMode = (isInput || isAsk) && isCommandInput(commandText);
-  const commands = commandMode ? commandSuggestions(commandText) : [];
+  const commands = commandMode
+    ? commandSuggestions(commandText).filter(
+        (entry) => state.shortcuts.macos || entry.command !== "/ocr",
+      )
+    : [];
   const inputActions = [
     {
       id: "translate",
@@ -179,6 +189,27 @@ export function Desktop({
     if (!parsed) return;
     if (parsed.kind === "invalid") {
       setCommandNotice(parsed.message);
+      return;
+    }
+    if (parsed.kind === "ocr") {
+      if (!state.shortcuts.macos) {
+        setCommandNotice(errorMessage("ocr_unsupported"));
+        return;
+      }
+      if (busy) {
+        setCommandNotice("请等待当前任务完成或停止后再截图。");
+        return;
+      }
+      if (commandInFlight.current) return;
+      commandInFlight.current = true;
+      void perform(
+        "capture_ocr",
+        parsed.display ? { display: parsed.display } : undefined,
+      )
+        .catch((error) => setCommandNotice(errorMessage(error)))
+        .finally(() => {
+          commandInFlight.current = false;
+        });
       return;
     }
     if (parsed.kind === "resume") {
@@ -314,6 +345,7 @@ export function Desktop({
       selected,
       event.currentTarget.selectionStart ?? commandText.length,
       event.currentTarget.selectionEnd ?? commandText.length,
+      commands,
     );
     if (!completion) return false;
     event.preventDefault();
@@ -382,7 +414,7 @@ export function Desktop({
         setSelected(0);
       }
       if (mode === "input") {
-        setInput("");
+        setInput(context?.kind === "ocr" ? ocrDraft(context.text) : "");
         setSelected(0);
       }
     }
@@ -542,6 +574,17 @@ export function Desktop({
               : "快捷键未启用"}
           </kbd>
         </button>
+        {state.shortcuts.macos && (
+          <button disabled={busy} onClick={() => void perform("capture_ocr")}>
+            <Icon name="selection" />
+            截图翻译
+            <kbd>
+              {state.shortcuts.registered[4]
+                ? formatShortcut(state.shortcuts.bindings.ocr, true)
+                : "/ocr"}
+            </kbd>
+          </button>
+        )}
         <button onClick={() => go("input")}>
           <Icon name="pen" />
           输入翻译
@@ -737,7 +780,9 @@ export function Desktop({
         {mode !== "ask-result" && composer}
         <div className="context-bar" data-tauri-drag-region>
           {isInput ? (
-            <span className="input-label">独立输入</span>
+            <span className="input-label">
+              {context?.kind === "ocr" ? "截图识别 · 请校对" : "独立输入"}
+            </span>
           ) : (
             <button
               className="context-chip"
@@ -927,22 +972,28 @@ export function Desktop({
             <SessionStatus model={model} />{" "}
           </>
         )}
-        <footer className="launcher-footer">
-          <span>
-            {commandNotice ||
-              message ||
-              (commandMode
-                ? `↑↓ 选择 · Tab 补全 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
-                : current && model.phase === "error"
-                  ? model.message
-                  : isInput
-                    ? `${formatShortcut("Enter", state.shortcuts.macos)} 执行 · ${formatShortcut("Shift+Enter", state.shortcuts.macos)} 换行 · ${formatShortcut("Alt+↑↓", state.shortcuts.macos)} 选择`
-                    : mode === "ask"
-                      ? `↑↓ 选择\u3000 ${state.shortcuts.macos ? "↩" : "↵"} 执行\u3000 Esc 返回阅读`
-                      : `输入问题后 ${formatShortcut("Enter", state.shortcuts.macos)} 继续 · Esc 返回动作`)}
-          </span>
-          <span>{isInput ? "Esc 收起" : "Ask 模式 · 主动展开"}</span>
-        </footer>
+        {(mode !== "ask-result" ||
+          commandMode ||
+          !!commandNotice ||
+          !!message ||
+          (current && model.phase === "error")) && (
+          <footer className="launcher-footer">
+            <span>
+              {commandNotice ||
+                message ||
+                (commandMode
+                  ? `↑↓ 选择 · Tab 补全 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
+                  : current && model.phase === "error"
+                    ? model.message
+                    : isInput
+                      ? `${formatShortcut("Enter", state.shortcuts.macos)} 执行 · ${formatShortcut("Shift+Enter", state.shortcuts.macos)} 换行 · ${formatShortcut("Alt+↑↓", state.shortcuts.macos)} 选择`
+                      : mode === "ask"
+                        ? `↑↓ 选择\u3000 ${state.shortcuts.macos ? "↩" : "↵"} 执行\u3000 Esc 返回阅读`
+                        : "")}
+            </span>
+            <span>{isInput ? "Esc 收起" : "Ask 模式 · 主动展开"}</span>
+          </footer>
+        )}
       </main>
     );
   return (

@@ -1,4 +1,4 @@
-use lingo_sofa_app_services::{Service, View};
+use lingo_sofa_app_services::{Service, TranslationDisplay, View};
 use lingo_sofa_core::overlay::{Rect, SelectionFrame, place};
 use lingo_sofa_omp_client::Job;
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,8 @@ pub struct Context {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopView {
+    #[serde(skip)]
+    result_display: TranslationDisplay,
     pub mode: Mode,
     #[serde(skip)]
     settings_return: Option<Mode>,
@@ -94,7 +96,8 @@ impl DesktopView {
     fn back_mode(&self) -> Mode {
         if self.mode == Mode::Settings {
             self.settings_return.unwrap_or(Mode::Input)
-        } else if self.context.as_ref().is_some_and(|c| c.anchor_valid)
+        } else if self.result_display == TranslationDisplay::Below
+            && self.context.as_ref().is_some_and(|c| c.anchor_valid)
             && !self.translation.is_empty()
         {
             Mode::Translation
@@ -105,7 +108,14 @@ impl DesktopView {
     fn window_size(&self) -> (f64, f64) {
         match self.mode {
             Mode::Idle => (48.0, 48.0),
-            Mode::Menu => (264.0, 280.0),
+            Mode::Menu => (
+                264.0,
+                if cfg!(target_os = "macos") {
+                    328.0
+                } else {
+                    280.0
+                },
+            ),
             Mode::Translation => (500.0, 178.0),
             Mode::Ask => (660.0, 390.0),
             Mode::AskResult => (660.0, 640.0),
@@ -115,6 +125,18 @@ impl DesktopView {
                 Some(Mode::AskResult) => (660.0, 640.0),
                 _ => (620.0, 480.0),
             },
+        }
+    }
+    fn translation_mode(&self) -> Mode {
+        if self.result_display == TranslationDisplay::Below
+            && self
+                .context
+                .as_ref()
+                .is_some_and(|context| context.anchor_valid && context.anchor.is_some())
+        {
+            Mode::Translation
+        } else {
+            Mode::AskResult
         }
     }
 
@@ -147,6 +169,7 @@ impl Shell {
     pub fn new(helper: PathBuf) -> Self {
         Self {
             view: Arc::new(Mutex::new(DesktopView {
+                result_display: TranslationDisplay::Below,
                 mode: Mode::Idle,
                 settings_return: None,
                 context: None,
@@ -230,6 +253,11 @@ impl Shell {
         if text.trim().is_empty() || text.len() > 15000 {
             return Err("invalid_text");
         }
+        let kind = if kind == "input" {
+            self.submission_kind()
+        } else {
+            kind
+        };
         let epoch = self.input_context(text.clone(), kind);
         self.submit_translation(app, service, epoch, text)
     }
@@ -240,6 +268,8 @@ impl Shell {
             text,
             origin: if kind == "clipboard" {
                 "剪贴板"
+            } else if kind == "ocr" {
+                "截图识别"
             } else {
                 "输入文本"
             }
@@ -252,6 +282,48 @@ impl Shell {
         v.notice.clear();
         v.epoch
     }
+    fn submission_kind(&self) -> &'static str {
+        if self
+            .view
+            .lock()
+            .unwrap()
+            .context
+            .as_ref()
+            .is_some_and(|context| context.kind == "ocr")
+        {
+            "ocr"
+        } else {
+            "input"
+        }
+    }
+    #[cfg(target_os = "macos")]
+    pub fn ocr_translate(
+        &self,
+        app: &tauri::AppHandle,
+        service: &Service,
+        text: String,
+        bounds: Rect,
+        display: TranslationDisplay,
+        expected_epoch: u64,
+    ) -> Result<(), &'static str> {
+        let mut v = self.view.lock().unwrap();
+        if v.epoch != expected_epoch {
+            return Err("capture_superseded");
+        }
+        v.reset_context(Mode::Input);
+        v.context = Some(Context {
+            text: text.clone(),
+            origin: "截图识别".into(),
+            kind: "ocr".into(),
+            anchor: Some(bounds),
+            anchor_valid: true,
+        });
+        v.result_display = display;
+        v.notice.clear();
+        let epoch = v.epoch;
+        drop(v);
+        self.submit_translation(app, service, epoch, text)
+    }
     pub fn ask_text(
         &self,
         app: &tauri::AppHandle,
@@ -261,7 +333,7 @@ impl Shell {
         if text.trim().is_empty() || text.len() > 15000 {
             return Err("invalid_text");
         }
-        let epoch = self.input_context(text.clone(), "input");
+        let epoch = self.input_context(text.clone(), self.submission_kind());
         let revision = self.next();
         let mut v = self.view.lock().unwrap();
         if v.epoch != epoch {
@@ -302,11 +374,7 @@ impl Shell {
         )?;
         v.model_revision = revision;
         v.operation = "translate".into();
-        v.mode = if v.context.as_ref().is_some_and(|c| c.kind == "input") {
-            Mode::AskResult
-        } else {
-            Mode::Translation
-        };
+        v.mode = v.translation_mode();
         v.translation.clear();
         drop(v);
         self.position(app);
@@ -352,6 +420,15 @@ impl Shell {
         Ok(())
     }
     pub fn capture(&self, app: tauri::AppHandle, service: Service) {
+        self.capture_display(app, service, None);
+    }
+    pub fn capture_display(
+        &self,
+        app: tauri::AppHandle,
+        service: Service,
+        display: Option<TranslationDisplay>,
+    ) {
+        let display = display.unwrap_or(service.state().settings.translation_display);
         #[cfg(windows)]
         let (host, own, origin) = {
             let host = unsafe { GetForegroundWindow() };
@@ -399,6 +476,7 @@ impl Shell {
             v.translation.clear();
             v.mode = Mode::Idle;
             v.notice = "正在读取选中文字…".into();
+            v.result_display = display;
             v.epoch
         };
         let this = self.clone();
@@ -411,7 +489,7 @@ impl Shell {
             }
         });
     }
-    fn failure(&self, app: &tauri::AppHandle, code: &str) {
+    pub(crate) fn failure(&self, app: &tauri::AppHandle, code: &str) {
         let mut v = self.view.lock().unwrap();
         v.notice = code.into();
         v.mode = Mode::Menu;
@@ -492,7 +570,7 @@ impl Shell {
                     break;
                 }
                 let frame = rx
-                    .recv_timeout(Duration::from_millis(if selected { 900 } else { 1800 }))
+                    .recv_timeout(Duration::from_millis(if selected { 900 } else { 3000 }))
                     .map_err(|_| "selection_timeout")??;
                 match frame {
                     SelectionFrame::Selection { text, bounds } => {
@@ -587,7 +665,16 @@ impl Shell {
         };
         let scale = monitor.scale_factor();
         #[cfg(target_os = "macos")]
-        let anchor = anchor.map(|anchor| physical_anchor(anchor, scale));
+        let anchor = anchor.map(|anchor| {
+            if v.context
+                .as_ref()
+                .is_some_and(|context| context.kind == "ocr")
+            {
+                anchor
+            } else {
+                physical_anchor(anchor, scale)
+            }
+        });
         let (width, height) = v.window_size();
         let mut r = place(
             if v.mode == Mode::Translation {
@@ -738,5 +825,28 @@ mod tests {
         view.mode = Mode::Translation;
         assert!(view.expire_anchor());
         assert_eq!(view.mode, Mode::Idle);
+    }
+    #[test]
+    fn translation_display_uses_the_anchor_or_falls_back_to_the_panel() {
+        let shell = Shell::new("fixture-helper".into());
+        let mut view = shell.view.lock().unwrap();
+        view.context = Some(Context {
+            text: "fixture".into(),
+            origin: "Fixture".into(),
+            kind: "ocr".into(),
+            anchor: Some(Rect {
+                x: 100.0,
+                y: 200.0,
+                width: 300.0,
+                height: 50.0,
+            }),
+            anchor_valid: true,
+        });
+        assert_eq!(view.translation_mode(), Mode::Translation);
+        view.result_display = TranslationDisplay::Panel;
+        assert_eq!(view.translation_mode(), Mode::AskResult);
+        view.result_display = TranslationDisplay::Below;
+        view.context.as_mut().unwrap().anchor_valid = false;
+        assert_eq!(view.translation_mode(), Mode::AskResult);
     }
 }

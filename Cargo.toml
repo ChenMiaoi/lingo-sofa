@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/omp-client", "crates/app-services", "crates/selection-helper", "apps/desktop/src-tauri", "tests/runtime"]
+members = ["crates/core", "crates/omp-client", "crates/app-services", "crates/selection-helper", "crates/ocr-helper", "apps/desktop/src-tauri", "tests/runtime"]
 [workspace.package]
 version = "0.1.1"
 edition = "2024"

@@ -13,9 +13,14 @@ export function bundleInputs(
       `target/${debug ? "debug" : "release"}/lingo-sofa-desktop${suffix}`,
     ),
     join(root, "apps/desktop/dist/index.html"),
-    ...[`omp-worker${suffix}`, `selection-helper${suffix}`, nativeName].map(
-      (name) => join(root, "apps/desktop/src-tauri/resources", name),
-    ),
+    ...[
+      `omp-worker${suffix}`,
+      `selection-helper${suffix}`,
+      ...(nativeName.includes("darwin")
+        ? ["ocr-helper", "region-selector"]
+        : []),
+      nativeName,
+    ].map((name) => join(root, "apps/desktop/src-tauri/resources", name)),
   ];
 }
 

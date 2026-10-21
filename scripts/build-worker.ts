@@ -28,3 +28,32 @@ await copyFile(
     `apps/desktop/src-tauri/resources/selection-helper${runtime.executableSuffix}`,
   ),
 );
+
+if (process.platform === "darwin") {
+  const selector = resolve(
+    root,
+    "apps/desktop/src-tauri/resources/region-selector",
+  );
+  await run([
+    "xcrun",
+    "swiftc",
+    "-O",
+    "-target",
+    `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos11.0`,
+    resolve(root, "apps/desktop/native/region-selector.swift"),
+    "-o",
+    selector,
+  ]);
+  await run([
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lingo-sofa-ocr-helper",
+  ]);
+  await copyFile(
+    resolve(root, "target/release/lingo-sofa-ocr-helper"),
+    resolve(root, "apps/desktop/src-tauri/resources/ocr-helper"),
+  );
+}

@@ -26,6 +26,11 @@ export const slashCommands = [
   },
   { command: "/ask", label: "直接提问", detail: "/ask [问题]" },
   {
+    command: "/ocr",
+    label: "截图识别文字",
+    detail: "/ocr [below|panel] · 框选后直接翻译",
+  },
+  {
     command: "/resume",
     label: "恢复历史会话",
     detail: "/resume [标题或会话 ID]",
@@ -48,6 +53,7 @@ export type ParsedCommand =
   | { kind: "model_picker"; search: string }
   | { kind: "login"; provider?: string }
   | { kind: "ask"; question: string }
+  | { kind: "ocr"; display?: "below" | "panel" }
   | { kind: "resume"; search: string }
   | { kind: "thinking"; level: string }
   | { kind: "tools"; enabled: boolean }
@@ -69,6 +75,7 @@ export function completeCommand(
   selected: number,
   selectionStart = text.length,
   selectionEnd = selectionStart,
+  suggestions = commandSuggestions(text),
 ): { text: string; caret: number } | null {
   if (!isCommandInput(text) || /[\r\n]/.test(text)) return null;
   const match = /^([ \t]*)(\/\S*)(.*)$/.exec(text);
@@ -76,7 +83,7 @@ export function completeCommand(
   const start = match[1]!.length;
   const end = start + match[2]!.length;
   if (selectionStart < start || selectionEnd > end) return null;
-  const suggestion = commandSuggestions(text)[selected];
+  const suggestion = suggestions[selected];
   if (!suggestion) return null;
   const prefix = match[1] + suggestion.command;
   return { text: prefix + (match[3] || " "), caret: prefix.length + 1 };
@@ -99,6 +106,12 @@ export function parseCommand(text: string): ParsedCommand | null {
   if (/[\r\n]/.test(text.trim()))
     return invalid("请单独输入一行命令；以 // 开头可提交斜杠正文。");
   switch (name?.toLowerCase()) {
+    case "/ocr":
+      return !args.length
+        ? { kind: "ocr" }
+        : args.length === 1 && (args[0] === "panel" || args[0] === "below")
+          ? { kind: "ocr", display: args[0] }
+          : invalid("/ocr [below|panel]；执行后框选文字区域，Esc 取消。");
     case "/history":
     case "/resume":
       return { kind: "resume", search: args.join(" ") };

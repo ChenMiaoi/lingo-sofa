@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface Settings {
   target: string;
   pinned: boolean;
+  translationDisplay: "panel" | "below";
 }
 export interface View {
   revision: number;
@@ -75,7 +76,7 @@ export const initialView: View = {
   activeCalls: 0,
   reportedTokens: 0,
   unknownCalls: 0,
-  settings: { target: "简体中文", pinned: true },
+  settings: { target: "简体中文", pinned: true, translationDisplay: "below" },
   sessionId: null,
   messages: [],
   messageCount: 0,
@@ -100,8 +101,9 @@ export function errorMessage(error: unknown, macos = false): string {
   const code = String(error);
   const messages: Record<string, string> = {
     selection_unsupported: "此应用暂不支持读取选区，可复制后翻译。",
-    accessibility_permission_required:
-      "请在系统设置 → 隐私与安全性 → 辅助功能中允许 LingoSofa 读取选区；也可复制后翻译。",
+    accessibility_permission_required: macos
+      ? "请在系统设置 → 隐私与安全性 → 设备控制和数据访问（旧版称辅助功能）中允许系统提示的应用；从终端启动时需允许对应终端（如 Warp），安装版允许 LingoSofa。授权后重新打开应用；也可复制后翻译。"
+      : "请在系统设置 → 隐私与安全性 → 辅助功能中允许 LingoSofa 读取选区；也可复制后翻译。",
     selection_empty: "没有选中文字，请先选中一段内容。",
     selection_unavailable: "未能定位选区，可复制后翻译。",
     selection_timeout: "取文超时，已停止辅助进程，可复制后翻译。",
@@ -118,13 +120,37 @@ export function errorMessage(error: unknown, macos = false): string {
     text_too_long: "文本过长，请分段翻译。",
     invalid_text: "请输入需要翻译的文本。",
     clipboard_unavailable: "没有读到剪贴板文本，请先复制。",
-    shortcut_duplicate: "三项快捷键不能重复；请为每个操作选择不同组合。",
+    keychain_read_failed:
+      "当前无法访问钥匙串凭证；本次启动不再重复请求，重新打开应用后可再次授权。",
+    keychain_open_failed:
+      "当前无法打开钥匙串，请解锁系统登录钥匙串后重新打开应用。",
+    keychain_write_failed: "无法保存钥匙串凭证，请确认系统授权后重新打开应用。",
+    ocr_review_ready: "已在本机识别，请校对后翻译或提问。",
+    ocr_unsupported: "截图识别暂仅支持 macOS。",
+    ocr_os_unsupported: "本机截图识别需要 macOS 11 或更新版本。",
+    ocr_screen_permission_required:
+      "请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制中允许 LingoSofa，按系统提示重新打开应用后重试。",
+    ocr_busy: "截图识别正在进行，请完成框选或按 Esc 取消。",
+    ocr_capture_failed: "截图失败，请重新框选；受保护的画面可能无法截取。",
+    ocr_failed: "本机文字识别失败，请重新框选清晰的文字。",
+    ocr_empty: "没有识别到文字，请重新框选更清晰的区域。",
+    ocr_timeout: "截图或文字识别已超时，请重试或缩小区域。",
+    ocr_image_too_large: "截图区域过大，请缩小到 1600 万像素以内。",
+    ocr_text_too_long: "识别文字过长，请缩小区域后分段识别。",
+    shortcut_duplicate: "快捷键不能重复；请为每个操作选择不同组合。",
     shortcuts_storage_failed:
       "快捷键保存失败，原设置继续生效。请检查本地数据目录后重试。",
   };
-  const conflict = /^shortcut_conflict_([012])$/.exec(code);
-  const invalid = /^shortcut_invalid_([012])$/.exec(code);
-  const names = ["唤出输入面板", "翻译当前选区", "翻译剪贴板"];
+  const conflict = /^shortcut_conflict_([0-5])$/.exec(code);
+  const invalid = /^shortcut_invalid_([0-5])$/.exec(code);
+  const names = [
+    "唤出输入面板",
+    "翻译当前选区",
+    "翻译剪贴板",
+    "划词翻译另一种样式",
+    "截图 OCR",
+    "截图 OCR 另一种样式",
+  ];
   if (conflict)
     return `${names[Number(conflict[1])]}的快捷键无法注册，可能已被占用或由系统保留。请更换组合；原设置继续生效。`;
   if (invalid)
@@ -151,7 +177,7 @@ export type Mode =
 export interface ReadingContext {
   text: string;
   origin: string;
-  kind: "selection" | "clipboard" | "input";
+  kind: "selection" | "clipboard" | "input" | "ocr";
   anchor: { x: number; y: number; width: number; height: number } | null;
   anchorValid: boolean;
 }
@@ -193,11 +219,14 @@ export interface ShortcutBindings {
   input: string;
   selection: string;
   clipboard: string;
+  selectionAlternate: string;
+  ocr: string;
+  ocrAlternate: string;
 }
 export interface ShortcutSnapshot {
   macos: boolean;
   bindings: ShortcutBindings;
-  registered: [boolean, boolean, boolean];
+  registered: boolean[];
   revision: number;
   message: string;
 }
@@ -205,6 +234,9 @@ export const defaultShortcuts: ShortcutBindings = {
   input: "Alt+Shift+Space",
   selection: "Alt+Shift+S",
   clipboard: "Alt+Shift+T",
+  selectionAlternate: "Ctrl+Alt+Shift+S",
+  ocr: "Alt+Shift+O",
+  ocrAlternate: "Ctrl+Alt+Shift+O",
 };
 export const initialState: DesktopState = {
   updates: {
@@ -221,7 +253,7 @@ export const initialState: DesktopState = {
   shortcuts: {
     macos: false,
     bindings: defaultShortcuts,
-    registered: [false, false, false],
+    registered: [false, false, false, false],
     revision: 0,
     message: "",
   },
@@ -278,7 +310,9 @@ export function contextLabel(context: ReadingContext | null) {
     ? "已选文字"
     : context.kind === "clipboard"
       ? "剪贴板"
-      : "输入文本";
+      : context.kind === "ocr"
+        ? "截图识别"
+        : "输入文本";
 }
 
 export interface ModelSelection {

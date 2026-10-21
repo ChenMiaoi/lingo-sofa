@@ -41,6 +41,16 @@ test("untrusted error details are not rendered", () => {
   );
   expect(errorMessage("clipboard_unavailable")).toContain("剪贴板");
 });
+test("macOS selection permission guidance identifies terminal-launched development builds", () => {
+  const message = errorMessage("accessibility_permission_required", true);
+  expect(message).toContain("设备控制和数据访问");
+  expect(message).toContain("旧版称辅助功能");
+  expect(message).toContain("Warp");
+  expect(message).toContain("安装版允许 LingoSofa");
+  expect(
+    errorMessage("accessibility_permission_required", false),
+  ).not.toContain("Warp");
+});
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -110,6 +120,7 @@ test("Windows entry menu shows active custom bindings and does not claim failed 
     shortcuts: {
       ...initialState.shortcuts,
       bindings: {
+        ...initialState.shortcuts.bindings,
         input: "Ctrl+Alt+I",
         selection: "Ctrl+Alt+S",
         clipboard: "Ctrl+Alt+T",
@@ -176,6 +187,7 @@ test("macOS shortcut hints use native symbols while Windows keeps existing text"
       ...initialState.shortcuts,
       macos: true,
       bindings: {
+        ...initialState.shortcuts.bindings,
         input: "Ctrl+Alt+Shift+Super+I",
         selection: "Alt+Shift+S",
         clipboard: "Super+T",

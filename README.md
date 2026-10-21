@@ -20,7 +20,7 @@ LingoSofa is a floating translator for Windows. Select text, read its translatio
 
 [Preview](#preview) · [Get started](#get-started) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; screenshot OCR and some provider protocols remain unavailable; subscription login is implemented, with real-account acceptance still pending. See the [compatibility and acceptance status](docs/acceptance.md) for tested applications and remaining work.
+> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; macOS local screenshot OCR is implemented; Windows OCR and some provider protocols remain unavailable; subscription login is implemented, with real-account acceptance still pending. See the [compatibility and acceptance status](docs/acceptance.md) for tested applications and remaining work.
 
 ## Preview
 
@@ -75,6 +75,8 @@ The provider and model lists come from the bundled oh-my-pi SDK. API Key provide
 
 Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
+On macOS, choose screenshot text recognition from the floating menu or run `/ocr`. Recognition starts translation directly below the region; settings select a central panel instead. Control+Option+Shift+O uses the alternate layout without changing that preference. Images stay local. Windows OCR is planned. See the [macOS OCR guide](docs/macos-ocr.md).
+
 Type `/` in input or Ask to browse local app commands; use arrow keys to choose, Tab to complete the command (for example `/mo` → Tab → `/model `), and Enter to execute. `/ask [question]` asks directly (a new question in input, a contextual follow-up in Ask; omit the question to prepare for typing), `/login` opens subscription/account login, `/settings` opens settings, `/model` opens a searchable model list in the current window (arrows to choose, Enter to switch, Esc to return; `/model search terms` filters it; without credentials, choose a provider and model and enter its API Key in the same keyboard-driven overlay), `/model deepseek/deepseek-flash` changes the default, `/language en` sets the translation language, `/pin on` or `/pin off` sets window pinning, `/shortcuts` opens shortcut settings, and `/new` stops the current task and opens a blank input with a fresh session, preserving model and other settings. Navigation and configuration run locally; login connects to the selected provider. Prefix slash text with `//` to submit it as ordinary content.
 
 OMP file sessions preserve conversation history across restarts. Use `/resume [search]` to browse and restore with arrows and Enter; `/new` keeps the previous transcript. `/thinking high` selects reasoning effort, and `/tools on` enables Ask tools with explicit approval for every execution. Known API usage costs are shown as SDK estimates; subscription and missing prices remain unknown. See [Sessions, reasoning and tools](docs/sessions.md).
@@ -87,7 +89,7 @@ Selection support depends on the source application. Notepad, an isolated VS Cod
 
 LingoSofa runs locally and does not require a hosted LingoSofa backend. Text you submit for translation or questions, along with the conversation context needed for replies and compaction, goes to the provider of your selected default model using your account.
 
-Clipboard text is read only when you explicitly request a translation. Source text, translations and conversations stay in memory; credentials are encrypted locally, and the usage ledger stores call metadata without message bodies or keys. There is no telemetry or automatic replay of failed requests.
+Clipboard text is read only when you explicitly request a translation. Unsubmitted drafts stay in memory; submitted text, translations and conversations are stored locally by OMP; credentials are encrypted locally, and the usage ledger stores call metadata without message bodies or keys. There is no telemetry or automatic replay of failed requests.
 
 Reported usage describes calls observed by LingoSofa, not your entire provider bill. Cancelling a request cannot guarantee that the provider stops billing it. Read the [privacy guide](docs/privacy.md) for details.
 

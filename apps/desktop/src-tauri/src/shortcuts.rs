@@ -8,8 +8,30 @@ pub enum Action {
     Input,
     Selection,
     Clipboard,
+    SelectionAlternate,
+    Ocr,
+    OcrAlternate,
 }
-const ACTIONS: [Action; 3] = [Action::Input, Action::Selection, Action::Clipboard];
+const ACTIONS: [Action; 6] = [
+    Action::Input,
+    Action::Selection,
+    Action::Clipboard,
+    Action::SelectionAlternate,
+    Action::Ocr,
+    Action::OcrAlternate,
+];
+fn active_count() -> usize {
+    if cfg!(target_os = "macos") { 6 } else { 4 }
+}
+fn selection_alternate() -> String {
+    "Ctrl+Alt+Shift+S".into()
+}
+fn ocr() -> String {
+    "Alt+Shift+O".into()
+}
+fn ocr_alternate() -> String {
+    "Ctrl+Alt+Shift+O".into()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -17,6 +39,12 @@ pub struct Bindings {
     pub input: String,
     pub selection: String,
     pub clipboard: String,
+    #[serde(default = "selection_alternate")]
+    pub selection_alternate: String,
+    #[serde(default = "ocr")]
+    pub ocr: String,
+    #[serde(default = "ocr_alternate")]
+    pub ocr_alternate: String,
 }
 impl Default for Bindings {
     fn default() -> Self {
@@ -24,17 +52,63 @@ impl Default for Bindings {
             input: "Alt+Shift+Space".into(),
             selection: "Alt+Shift+S".into(),
             clipboard: "Alt+Shift+T".into(),
+            selection_alternate: selection_alternate(),
+            ocr: ocr(),
+            ocr_alternate: ocr_alternate(),
         }
     }
 }
 impl Bindings {
-    fn values(&self) -> [&str; 3] {
-        [&self.input, &self.selection, &self.clipboard]
+    fn from_stored(body: &str) -> Result<Self, String> {
+        let stored: serde_json::Value =
+            serde_json::from_str(body).map_err(|_| "shortcuts_invalid_storage")?;
+        let mut bindings: Self =
+            serde_json::from_value(stored.clone()).map_err(|_| "shortcuts_invalid_storage")?;
+        // Keep every existing combination. A new default must not collide with
+        // an older custom binding and prevent the application from starting.
+        for (index, name) in [(3, "selectionAlternate"), (4, "ocr"), (5, "ocrAlternate")] {
+            if index >= active_count() || stored.get(name).is_some() {
+                continue;
+            }
+            let values = bindings.values();
+            let keys: Vec<_> = values
+                .iter()
+                .take(active_count())
+                .map(|value| value.parse::<Shortcut>().ok())
+                .collect();
+            if keys[index].is_some_and(|key| {
+                keys.iter()
+                    .enumerate()
+                    .any(|(other, value)| other != index && *value == Some(key))
+            }) {
+                let replacement = (1..=24)
+                    .map(|number| format!("Ctrl+Alt+F{number}"))
+                    .find(|value| !keys.contains(&value.parse::<Shortcut>().ok()))
+                    .ok_or("shortcut_duplicate")?;
+                match index {
+                    3 => bindings.selection_alternate = replacement,
+                    4 => bindings.ocr = replacement,
+                    5 => bindings.ocr_alternate = replacement,
+                    _ => unreachable!(),
+                }
+            }
+        }
+        Ok(bindings)
     }
-    fn validate(&self) -> Result<(Self, [Shortcut; 3]), String> {
+    fn values(&self) -> [&str; 6] {
+        [
+            &self.input,
+            &self.selection,
+            &self.clipboard,
+            &self.selection_alternate,
+            &self.ocr,
+            &self.ocr_alternate,
+        ]
+    }
+    fn validate(&self) -> Result<(Self, [Shortcut; 6]), String> {
         self.validate_for_platform(cfg!(target_os = "macos"))
     }
-    fn validate_for_platform(&self, macos: bool) -> Result<(Self, [Shortcut; 3]), String> {
+    fn validate_for_platform(&self, macos: bool) -> Result<(Self, [Shortcut; 6]), String> {
         let mut values = Vec::new();
         let mut keys = Vec::new();
         for (index, value) in self.values().iter().enumerate() {
@@ -108,7 +182,9 @@ impl Bindings {
             }
             normalized.push_str(&key.ok_or_else(invalid)?);
             let parsed = normalized.parse::<Shortcut>().map_err(|_| invalid())?;
-            if keys.iter().any(|k: &Shortcut| k.id() == parsed.id()) {
+            if index < (if macos { 6 } else { 4 })
+                && keys.iter().any(|k: &Shortcut| k.id() == parsed.id())
+            {
                 return Err("shortcut_duplicate".into());
             }
             values.push(normalized);
@@ -119,6 +195,9 @@ impl Bindings {
                 input: values[0].clone(),
                 selection: values[1].clone(),
                 clipboard: values[2].clone(),
+                selection_alternate: values[3].clone(),
+                ocr: values[4].clone(),
+                ocr_alternate: values[5].clone(),
             },
             keys.try_into().unwrap(),
         ))
@@ -144,14 +223,14 @@ impl Registry for AppRegistry<'_> {
 pub struct Snapshot {
     pub macos: bool,
     pub bindings: Bindings,
-    pub registered: [bool; 3],
+    pub registered: Vec<bool>,
     pub revision: u64,
     pub message: String,
 }
 pub struct Manager {
     db: rusqlite::Connection,
     bindings: Bindings,
-    keys: [Shortcut; 3],
+    keys: [Shortcut; 6],
     held: HashMap<u32, Shortcut>,
     revision: u64,
     message: String,
@@ -165,9 +244,7 @@ impl Manager {
             .optional()
             .map_err(|_| "shortcuts_storage_failed")?;
         let bindings = match body {
-            Some(body) => {
-                serde_json::from_str::<Bindings>(&body).map_err(|_| "shortcuts_invalid_storage")?
-            }
+            Some(body) => Bindings::from_stored(&body)?,
             None => Bindings::default(),
         };
         let (bindings, keys) = bindings.validate()?;
@@ -181,7 +258,7 @@ impl Manager {
         })
     }
     pub fn initialize(&mut self, registry: &impl Registry) {
-        for key in self.keys {
+        for key in self.keys.iter().take(active_count()).copied() {
             if registry.register(key).is_ok() {
                 self.held.insert(key.id(), key);
             }
@@ -194,7 +271,12 @@ impl Manager {
         Snapshot {
             macos: cfg!(target_os = "macos"),
             bindings: self.bindings.clone(),
-            registered: self.keys.map(|key| self.held.contains_key(&key.id())),
+            registered: self
+                .keys
+                .iter()
+                .take(active_count())
+                .map(|key| self.held.contains_key(&key.id()))
+                .collect(),
             revision: self.revision,
             message: self.message.clone(),
         }
@@ -223,7 +305,7 @@ impl Manager {
     pub fn save(&mut self, proposed: Bindings, registry: &impl Registry) -> Result<(), String> {
         let (bindings, keys) = proposed.validate()?;
         let old: HashSet<_> = self.held.keys().copied().collect();
-        for (index, key) in keys.iter().enumerate() {
+        for (index, key) in keys.iter().take(active_count()).enumerate() {
             if !self.held.contains_key(&key.id()) {
                 if registry.register(*key).is_err() {
                     self.cleanup(registry, &old);
@@ -243,7 +325,10 @@ impl Manager {
         self.keys = keys;
         self.revision += 1;
         self.message = "快捷键已保存并生效。".into();
-        self.cleanup(registry, &keys.iter().map(Shortcut::id).collect());
+        self.cleanup(
+            registry,
+            &keys.iter().take(active_count()).map(Shortcut::id).collect(),
+        );
         Ok(())
     }
 }
@@ -281,6 +366,7 @@ mod tests {
             input: "Ctrl+Alt+I".into(),
             selection: "Ctrl+Alt+S".into(),
             clipboard: "Ctrl+Alt+T".into(),
+            ..Bindings::default()
         }
     }
     #[test]
@@ -379,6 +465,7 @@ mod tests {
             input: "⌘⌥I".into(),
             selection: "Command+Shift+S".into(),
             clipboard: "Meta+T".into(),
+            ..Bindings::default()
         };
         manager.save(proposed.clone(), &registry).unwrap();
         assert_eq!(
@@ -391,7 +478,7 @@ mod tests {
         assert_eq!(reopened.bindings, proposed.validate().unwrap().0);
         let next_registry = Fake::default();
         reopened.initialize(&next_registry);
-        assert_eq!(reopened.snapshot().registered, [true; 3]);
+        assert_eq!(reopened.snapshot().registered, vec![true; active_count()]);
         next_registry
             .blocked
             .borrow_mut()
@@ -417,11 +504,15 @@ mod tests {
         let input = manager.keys[0];
         registry.blocked.borrow_mut().insert(input.id());
         manager.initialize(&registry);
-        assert_eq!(manager.snapshot().registered, [false, true, true]);
+        assert_eq!(manager.snapshot().registered, {
+            let mut flags = vec![true; active_count()];
+            flags[0] = false;
+            flags
+        });
         assert_eq!(manager.action(&input), None);
         registry.blocked.borrow_mut().clear();
         manager.save(Bindings::default(), &registry).unwrap();
-        assert_eq!(manager.snapshot().registered, [true; 3]);
+        assert_eq!(manager.snapshot().registered, vec![true; active_count()]);
         assert_eq!(manager.action(&input), Some(Action::Input));
     }
     #[test]
@@ -459,7 +550,7 @@ mod tests {
         let mut swap = Bindings::default();
         std::mem::swap(&mut swap.input, &mut swap.selection);
         manager.save(swap.clone(), &registry).unwrap();
-        assert_eq!(registry.held.borrow().len(), 3);
+        assert_eq!(registry.held.borrow().len(), active_count());
         assert_eq!(
             manager.action(&"Alt+Shift+S".parse().unwrap()),
             Some(Action::Input)
@@ -471,5 +562,47 @@ mod tests {
         assert_eq!(manager.action(&stale), None);
         assert!(manager.snapshot().message.contains("未能释放"));
         assert_eq!(Manager::open(&path).unwrap().bindings, changed());
+    }
+    #[test]
+    fn legacy_bindings_keep_old_combinations_and_avoid_new_default_collisions() {
+        let old =
+            r#"{"input":"Ctrl+Alt+Shift+S","selection":"Alt+Shift+O","clipboard":"Alt+Shift+T"}"#;
+        let bindings = Bindings::from_stored(old).unwrap();
+        assert_eq!(bindings.input, "Ctrl+Alt+Shift+S");
+        assert_eq!(bindings.selection, "Alt+Shift+O");
+        assert_ne!(bindings.selection_alternate, bindings.input);
+        if cfg!(target_os = "macos") {
+            assert_ne!(bindings.ocr, bindings.selection);
+        }
+        assert!(bindings.validate().is_ok());
+    }
+    #[test]
+    fn alternate_and_ocr_shortcuts_route_separately_without_changing_old_actions() {
+        let mut manager = Manager::open(std::path::Path::new(":memory:")).unwrap();
+        manager.initialize(&Fake::default());
+        assert_eq!(
+            manager.action(&"Alt+Shift+S".parse().unwrap()),
+            Some(Action::Selection)
+        );
+        assert_eq!(
+            manager.action(&"Ctrl+Alt+Shift+S".parse().unwrap()),
+            Some(Action::SelectionAlternate)
+        );
+        assert_eq!(
+            manager.action(&"Alt+Shift+O".parse().unwrap()),
+            if cfg!(target_os = "macos") {
+                Some(Action::Ocr)
+            } else {
+                None
+            }
+        );
+        assert_eq!(
+            manager.action(&"Ctrl+Alt+Shift+O".parse().unwrap()),
+            if cfg!(target_os = "macos") {
+                Some(Action::OcrAlternate)
+            } else {
+                None
+            }
+        );
     }
 }

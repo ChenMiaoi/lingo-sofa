@@ -422,6 +422,9 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
             input: "Command+Option+Q",
             selection: "Option+Shift+S",
             clipboard: "Option+Shift+T",
+            selectionAlternate: "Ctrl+Option+Shift+S",
+            ocr: "Option+Shift+O",
+            ocrAlternate: "Ctrl+Option+Shift+O",
           },
         },
       },
@@ -594,7 +597,7 @@ test("settings categories navigate independently and preserve shortcut edits acr
     expect(
       ui.element.querySelector('[aria-label="快捷键"] .setting-current-value')!
         .textContent,
-    ).toBe("0/3 已启用");
+    ).toBe("0/4 已启用");
     await ui.click("快捷键");
     expect(
       ui.element.querySelector("#api-key")!.closest("[hidden]"),
@@ -1687,6 +1690,7 @@ test("Ask keeps the question above the answer and its actions menu supports keyb
   value.model.output = "Configuration answer";
   const ui = await mount(value);
   try {
+    expect(ui.element.querySelector(".launcher-footer")).toBeNull();
     const question = ui.element.querySelector(".question-block")!;
     expect(question.textContent).toContain("Explain this configuration");
     expect(
@@ -1708,6 +1712,13 @@ test("Ask keeps the question above the answer and its actions menu supports keyb
     expect(menu.open).toBe(false);
     expect(document.activeElement).toBe(summary);
     expect(ui.calls).toHaveLength(0);
+    await ui.render({
+      ...value,
+      model: { ...value.model, phase: "error", message: "Request failed" },
+    });
+    expect(ui.element.querySelector(".launcher-footer")?.textContent).toContain(
+      "Request failed",
+    );
   } finally {
     await ui.close();
   }
@@ -1865,6 +1876,178 @@ test("Ask merges each tool lifecycle, previews results and keeps usage in an Esc
       model: { ...value.model, output: value.model.output + "\nMore content" },
     });
     expect(scroll.scrollTop).toBe(100);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("macOS OCR is local, preserves a cancelled command draft and prefills an editable review without submitting", async () => {
+  const value = state("input");
+  value.shortcuts = { ...value.shortcuts, macos: true };
+  const ui = await mount(value);
+  try {
+    await ui.type("/ocr");
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([{ command: "capture_ocr", args: undefined }]);
+    await ui.render({ ...value, desktop: { ...value.desktop } });
+    const field = () =>
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(field().value).toBe("/ocr");
+    const reviewed = {
+      ...value,
+      desktop: {
+        ...value.desktop,
+        epoch: value.desktop.epoch + 1,
+        context: {
+          ...context,
+          kind: "ocr" as const,
+          origin: "截图识别",
+          text: "Recognized words\n本机识别",
+          anchor: null,
+          anchorValid: false,
+        },
+      },
+    };
+    await ui.render(reviewed);
+    expect(field().value).toBe("Recognized words\n本机识别");
+    expect(ui.element.textContent).toContain("截图识别 · 请校对");
+    expect(ui.calls).toHaveLength(1);
+    await ui.type("Corrected words");
+    await ui.render({ ...reviewed, desktop: { ...reviewed.desktop } });
+    expect(field().value).toBe("Corrected words");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "translate_text",
+      args: { text: "Corrected words" },
+    });
+  } finally {
+    await ui.close();
+  }
+});
+
+test("OCR content that looks like a command remains ordinary text, and Windows keeps OCR unavailable", async () => {
+  const value = state("input");
+  value.shortcuts = { ...value.shortcuts, macos: true };
+  value.desktop.context = {
+    ...context,
+    kind: "ocr",
+    text: "/tools on",
+    anchor: null,
+    anchorValid: false,
+  };
+  const ui = await mount(value);
+  try {
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("//tools on");
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([
+      { command: "translate_text", args: { text: "/tools on" } },
+    ]);
+    await ui.render({
+      ...value,
+      shortcuts: { ...value.shortcuts, macos: false },
+    });
+    await ui.type("/ocr");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+    expect(ui.element.textContent).toContain("截图识别暂仅支持 macOS");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("Windows Tab completion follows the visible commands after filtering macOS OCR", async () => {
+  const value = state("input");
+  value.shortcuts = { ...value.shortcuts, macos: false };
+  const ui = await mount(value);
+  try {
+    await ui.type("/");
+    const entries = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="应用命令"] .action',
+      ),
+    ];
+    const index = entries.findIndex((entry) =>
+      entry.textContent?.includes("/resume"),
+    );
+    expect(index).toBeGreaterThan(0);
+    for (let i = 0; i < index; i++) await ui.key("ArrowDown");
+    await ui.key("Tab");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("/resume ");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("translation placement saves independently and shortcuts label both styles", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    macos: true,
+    registered: Array(6).fill(true),
+  };
+  const ui = await mount(value);
+  try {
+    await ui.click("翻译偏好");
+    const display = ui.element.querySelector<HTMLSelectElement>(
+      "#translation-display",
+    )!;
+    await act(async () => {
+      display.value = "panel";
+      display.dispatchEvent(
+        new dom.Event("change", { bubbles: true }) as unknown as Event,
+      );
+    });
+    expect(ui.calls.at(-1)).toEqual({
+      command: "patch_settings",
+      args: { patch: { translationDisplay: "panel" } },
+    });
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        settings: { ...value.model.settings, translationDisplay: "panel" },
+      },
+    });
+    await ui.click("返回设置");
+    await ui.click("快捷键");
+    expect(
+      ui.element.querySelector('label[for="shortcut-ocr"]')?.textContent,
+    ).toContain("悬浮栏");
+    expect(
+      ui.element.querySelector('label[for="shortcut-ocrAlternate"]')
+        ?.textContent,
+    ).toContain("原文下方");
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-ocrAlternate")
+        ?.value,
+    ).toBe("Ctrl+Option+Shift+O");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("OCR commands can override placement once without saving a preference", async () => {
+  const value = state("input");
+  value.shortcuts = { ...value.shortcuts, macos: true };
+  const ui = await mount(value);
+  try {
+    await ui.type("/ocr panel");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "capture_ocr",
+      args: { display: "panel" },
+    });
+    await ui.type("/ocr below");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "capture_ocr",
+      args: { display: "below" },
+    });
+    expect(ui.calls.every((call) => call.command === "capture_ocr")).toBe(true);
   } finally {
     await ui.close();
   }

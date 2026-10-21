@@ -138,7 +138,9 @@ export function displayMetadata(metadata: SessionMetadata) {
     context: {
       text: source.text + (source.truncated ? "\n…（原文显示摘要已截断）" : ""),
       origin: displayText(String(context.origin ?? ""), 512).text,
-      kind: ["selection", "clipboard", "input"].includes(String(context.kind))
+      kind: ["selection", "clipboard", "input", "ocr"].includes(
+        String(context.kind),
+      )
         ? context.kind
         : "input",
       anchor: null,

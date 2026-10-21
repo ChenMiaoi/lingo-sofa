@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod ocr;
 mod shell;
 mod shortcuts;
 mod subscription;
 mod updates;
 use lingo_sofa_app_services::{
     LoginRequest, ModelSelection, Service, SessionRequest, Settings, SettingsPatch,
+    TranslationDisplay,
 };
 use shell::{Mode, Shell};
 use std::sync::Mutex;
@@ -86,14 +88,34 @@ fn back_reading(
 }
 #[tauri::command]
 fn capture_selection(
+    display: Option<TranslationDisplay>,
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     shell: tauri::State<Shell>,
     service: tauri::State<Service>,
 ) -> Result<(), String> {
     allowed(&window)?;
-    shell.capture(app, service.inner().clone());
+    shell.capture_display(app, service.inner().clone(), display);
     Ok(())
+}
+#[tauri::command]
+async fn capture_ocr(
+    display: Option<TranslationDisplay>,
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<'_, Shell>,
+    service: tauri::State<'_, Service>,
+    state: tauri::State<'_, ocr::CaptureState>,
+) -> Result<(), String> {
+    allowed(&window)?;
+    ocr::capture(
+        app,
+        shell.inner().clone(),
+        service.inner().clone(),
+        state.inner().clone(),
+        display,
+    )
+    .await
 }
 fn clipboard(app: &tauri::AppHandle) -> Result<String, String> {
     let text = app
@@ -427,6 +449,7 @@ fn set_auto_update(
 fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
+        .manage(ocr::CaptureState::default())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(shell) = app.try_state::<Shell>() {
                 shell.mode(app, Mode::Input);
@@ -447,6 +470,18 @@ fn main() {
                         .lock()
                         .unwrap()
                         .action(shortcut);
+                    let capturing = app.state::<ocr::CaptureState>().active();
+                    if action.is_some() {
+                        app.state::<ocr::CaptureState>().cancel();
+                    }
+                    if capturing
+                        && matches!(
+                            action,
+                            Some(shortcuts::Action::Ocr | shortcuts::Action::OcrAlternate)
+                        )
+                    {
+                        return;
+                    }
                     match action {
                         Some(shortcuts::Action::Input) => {
                             // Repeated activation while typing must retain the current draft.
@@ -459,6 +494,37 @@ fn main() {
                         }
                         Some(shortcuts::Action::Selection) => {
                             shell.capture(app.clone(), service.inner().clone())
+                        }
+                        Some(shortcuts::Action::SelectionAlternate) => {
+                            shell.capture_display(
+                                app.clone(),
+                                service.inner().clone(),
+                                Some(service.state().settings.translation_display.alternate()),
+                            );
+                        }
+                        Some(shortcuts::Action::Ocr | shortcuts::Action::OcrAlternate) => {
+                            let display = if action == Some(shortcuts::Action::OcrAlternate) {
+                                Some(service.state().settings.translation_display.alternate())
+                            } else {
+                                None
+                            };
+                            let app = app.clone();
+                            let shell = shell.inner().clone();
+                            let service = service.inner().clone();
+                            let state = app.state::<ocr::CaptureState>().inner().clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(error) = ocr::capture(
+                                    app.clone(),
+                                    shell.clone(),
+                                    service,
+                                    state,
+                                    display,
+                                )
+                                .await
+                                {
+                                    shell.failure(&app, &error);
+                                }
+                            });
                         }
                         Some(shortcuts::Action::Clipboard) => match clipboard(app) {
                             Ok(text) => {
@@ -480,6 +546,7 @@ fn main() {
             set_mode,
             back_reading,
             capture_selection,
+            capture_ocr,
             translate_clipboard,
             translate_text,
             ask_text,
@@ -543,6 +610,7 @@ fn main() {
                         "open" => shell.mode(app, Mode::Input),
                         "settings" => shell.mode(app, Mode::Settings),
                         "quit" => {
+                            app.state::<ocr::CaptureState>().cancel();
                             shell.shutdown();
                             app.state::<Service>().shutdown();
                             app.exit(0);
@@ -569,6 +637,7 @@ fn main() {
         .expect("Unable to initialize LingoSofa")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                app.state::<ocr::CaptureState>().cancel();
                 app.state::<Shell>().shutdown();
                 app.state::<Service>().shutdown();
             }

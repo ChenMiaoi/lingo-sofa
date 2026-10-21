@@ -75,6 +75,7 @@ fn desktop_service_streams_asks_compacts_cancels_and_recovers_persisted_state() 
         .settings(Settings {
             target: "English".into(),
             pinned: false,
+            ..Settings::default()
         })
         .unwrap();
     wait(&service, |v| v.settings.target == "English");
@@ -277,14 +278,22 @@ fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings(
     let service = start(directory.path());
     service
         .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            translation_display: Some(lingo_sofa_app_services::TranslationDisplay::Panel),
+            ..Default::default()
+        })
+        .unwrap();
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
             target: Some("English".into()),
             pinned: None,
+            ..Default::default()
         })
         .unwrap();
     service
         .patch_settings(lingo_sofa_app_services::SettingsPatch {
             target: None,
             pinned: Some(false),
+            ..Default::default()
         })
         .unwrap();
     let state = wait(&service, |v| {
@@ -300,7 +309,8 @@ fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings(
         service
             .patch_settings(lingo_sofa_app_services::SettingsPatch {
                 target: Some("unsupported".into()),
-                pinned: None
+                pinned: None,
+                ..Default::default()
             })
             .is_err()
     );
@@ -308,12 +318,17 @@ fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings(
     let service = start(directory.path());
     assert_eq!(service.state().settings.target, "English");
     assert!(!service.state().settings.pinned);
+    assert_eq!(
+        service.state().settings.translation_display,
+        lingo_sofa_app_services::TranslationDisplay::Panel
+    );
     let db = rusqlite::Connection::open(directory.path().join("settings.sqlite")).unwrap();
     db.execute_batch("CREATE TRIGGER reject_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
     assert_eq!(
         service.patch_settings(lingo_sofa_app_services::SettingsPatch {
             target: Some("日本語".into()),
-            pinned: None
+            pinned: None,
+            ..Default::default()
         }),
         Err("settings_write_failed")
     );

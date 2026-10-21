@@ -733,7 +733,7 @@ kbd {
 }
 .shortcut-row {
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr) 48px;
+  grid-template-columns: 156px minmax(0, 1fr) 48px;
   align-items: center;
   gap: 10px;
   margin: 10px 0;

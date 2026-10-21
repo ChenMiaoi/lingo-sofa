@@ -4,6 +4,22 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { bundleInputs, requireBundleInputs } from "../scripts/bundle-inputs";
 
+test("macOS bundles its native OCR helper and Windows keeps the existing runtime inputs", () => {
+  expect(
+    bundleInputs("/fixture", true, "", "pi_natives.darwin-arm64.node").some(
+      (file) => file.endsWith("/ocr-helper"),
+    ),
+  ).toBe(true);
+  expect(
+    bundleInputs(
+      "/fixture",
+      true,
+      ".exe",
+      "pi_natives.win32-x64-baseline.node",
+    ).some((file) => file.includes("ocr-helper")),
+  ).toBe(false);
+});
+
 test("bundling requires the selected profile, frontend, both helpers and native addon", async () => {
   const root = await mkdtemp(join(tmpdir(), "lingo-sofa-bundle-inputs-"));
   try {

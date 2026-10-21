@@ -2,6 +2,8 @@
 
 2026-10-21 · 所有选型为待验证建议，本轮未运行引擎或下载模型。流程见 [产品规划](windows-product.md)，隔离边界见 [模块设计](windows-modules.md)，阶段要求见 [验收计划](windows-acceptance-plan.md)。
 
+本文仅描述 Windows 待实现方案。macOS 已使用 Apple Vision 和系统框选截图，见 [macOS 截图识别](macos-ocr.md)；该实现与原生图片回归不代表 Windows 候选引擎通过验收。
+
 ## 推荐路线
 
 优先验证 **PaddleOCR 轻量检测/识别模型 + ONNX Runtime CPU + Rust 工作进程**。首轮候选为 `PP-OCRv6_small_det` + `PP-OCRv6_small_rec`，同时比较 tiny 检测与轻量识别组合的速度/错误，保留 `PP-OCRv5_mobile_det` + `PP-OCRv5_mobile_rec` 作为兼容基线。W0 才锁定具体模型，不能先宣称 v6 在桌面截图上最好。

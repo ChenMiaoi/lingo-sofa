@@ -11,6 +11,9 @@ const fields = [
   ["input", "唤出输入面板"],
   ["selection", "翻译当前选区"],
   ["clipboard", "翻译剪贴板"],
+  ["selectionAlternate", "划词翻译"],
+  ["ocr", "截图 OCR"],
+  ["ocrAlternate", "截图 OCR"],
 ] as const;
 
 function editableBindings(
@@ -21,6 +24,9 @@ function editableBindings(
     input: editableShortcut(bindings.input, macos),
     selection: editableShortcut(bindings.selection, macos),
     clipboard: editableShortcut(bindings.clipboard, macos),
+    selectionAlternate: editableShortcut(bindings.selectionAlternate, macos),
+    ocr: editableShortcut(bindings.ocr, macos),
+    ocrAlternate: editableShortcut(bindings.ocrAlternate, macos),
   };
 }
 
@@ -28,7 +34,9 @@ export function ShortcutSettings({
   snapshot,
   notice,
   perform,
+  display = "below",
 }: {
+  display?: "panel" | "below";
   snapshot: ShortcutSnapshot;
   notice: string;
   perform: Perform;
@@ -47,47 +55,56 @@ export function ShortcutSettings({
           : "填写组合，例如 Ctrl+Alt+Q。须包含 Ctrl 或 Alt。"}
         支持字母、数字、Space 和 F1–F24。
       </p>
-      {fields.map(([name, label], index) => (
-        <div className="shortcut-row" key={name}>
-          <label htmlFor={`shortcut-${name}`}>{label}</label>
-          <div className="shortcut-edit">
-            <input
-              id={`shortcut-${name}`}
-              aria-describedby={`shortcut-help${snapshot.macos ? ` shortcut-preview-${name}` : ""}`}
-              maxLength={48}
-              value={draft[name]}
-              spellCheck={false}
-              disabled={saving}
-              onChange={(e) => {
-                setDraft({ ...draft, [name]: e.target.value });
-                setDirty(true);
-              }}
-            />
-            {snapshot.macos && (
-              <output
-                id={`shortcut-preview-${name}`}
-                className="shortcut-preview"
-              >
-                {formatShortcut(draft[name], true)}
-              </output>
-            )}
+      {fields
+        .filter((_, index) => snapshot.macos || index < 4)
+        .map(([name, label], index) => (
+          <div className="shortcut-row" key={name}>
+            <label htmlFor={`shortcut-${name}`}>
+              {label}
+              {name === "selection" || name === "ocr"
+                ? ` · ${display === "below" ? "原文下方" : "悬浮栏"}`
+                : name.endsWith("Alternate")
+                  ? ` · ${display === "below" ? "悬浮栏" : "原文下方"}`
+                  : ""}
+            </label>
+            <div className="shortcut-edit">
+              <input
+                id={`shortcut-${name}`}
+                aria-describedby={`shortcut-help${snapshot.macos ? ` shortcut-preview-${name}` : ""}`}
+                maxLength={48}
+                value={draft[name]}
+                spellCheck={false}
+                disabled={saving}
+                onChange={(e) => {
+                  setDraft({ ...draft, [name]: e.target.value });
+                  setDirty(true);
+                }}
+              />
+              {snapshot.macos && (
+                <output
+                  id={`shortcut-preview-${name}`}
+                  className="shortcut-preview"
+                >
+                  {formatShortcut(draft[name], true)}
+                </output>
+              )}
+            </div>
+            <span
+              className={
+                snapshot.registered[index]
+                  ? "shortcut-ready"
+                  : "shortcut-unavailable"
+              }
+            >
+              {draft[name] !==
+              editableShortcut(snapshot.bindings[name], snapshot.macos)
+                ? "待保存"
+                : snapshot.registered[index]
+                  ? "已启用"
+                  : "未启用"}
+            </span>
           </div>
-          <span
-            className={
-              snapshot.registered[index]
-                ? "shortcut-ready"
-                : "shortcut-unavailable"
-            }
-          >
-            {draft[name] !==
-            editableShortcut(snapshot.bindings[name], snapshot.macos)
-              ? "待保存"
-              : snapshot.registered[index]
-                ? "已启用"
-                : "未启用"}
-          </span>
-        </div>
-      ))}
+        ))}
       <div className="shortcut-buttons">
         <button
           disabled={saving}

@@ -8,7 +8,11 @@ import type { Perform } from "./view";
 
 const categories = [
   { id: "models", title: "模型与服务商", detail: "配置多个服务商与默认模型" },
-  { id: "preferences", title: "翻译偏好", detail: "默认语言与窗口置顶" },
+  {
+    id: "preferences",
+    title: "翻译偏好",
+    detail: "默认语言、译文位置与窗口置顶",
+  },
   { id: "shortcuts", title: "快捷键", detail: "全局组合与启用状态" },
   { id: "updates", title: "关于与更新", detail: "版本信息与自动检查更新" },
 ] as const;
@@ -64,7 +68,7 @@ export function Settings({
     updates: updateSummary(state.updates),
     models: `${model.defaultModel.provider} / ${model.defaultModel.modelId}`,
     preferences: model.settings.target,
-    shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/3 已启用`,
+    shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/${state.shortcuts.macos ? 6 : 4} 已启用`,
   };
   return (
     <main className="launcher settings-launcher">
@@ -149,6 +153,25 @@ export function Settings({
         >
           <h2 id="preferences-heading">翻译偏好</h2>
           <div className="preference-row">
+            <label htmlFor="translation-display">划词与 OCR 译文位置</label>
+            <select
+              id="translation-display"
+              value={model.settings.translationDisplay}
+              onChange={(event) =>
+                void perform("patch_settings", {
+                  patch: { translationDisplay: event.target.value },
+                })
+              }
+            >
+              <option value="below">原文下方 · 贴合显示</option>
+              <option value="panel">悬浮栏 · 集中面板</option>
+            </select>
+          </div>
+          <p className="settings-help">
+            OCR
+            框选后直接翻译；空间不足时在区域上方显示。快捷键可临时使用另一种样式，不修改默认设置。
+          </p>
+          <div className="preference-row">
             <label htmlFor="target">默认翻译语言</label>
             <select
               id="target"
@@ -184,6 +207,7 @@ export function Settings({
           <ShortcutSettings
             key={state.shortcuts.revision}
             snapshot={state.shortcuts}
+            display={model.settings.translationDisplay}
             notice={notice}
             perform={perform}
           />
