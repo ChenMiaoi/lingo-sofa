@@ -102,3 +102,24 @@ export function updaterManifest(
     throw new Error("Invalid release date");
   return { version, notes, pub_date: date, platforms };
 }
+
+export function verifyReleaseDraft(
+  release: {
+    id: number;
+    tag_name: string;
+    draft: boolean;
+    prerelease: boolean;
+  },
+  id: number,
+  tag: string,
+) {
+  const { prerelease } = releaseTag(tag);
+  if (
+    !Number.isSafeInteger(id) ||
+    release.id !== id ||
+    !release.draft ||
+    release.tag_name !== tag ||
+    release.prerelease !== prerelease
+  )
+    throw new Error("Only the matching draft release may be published");
+}

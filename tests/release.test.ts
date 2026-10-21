@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   releaseTag,
+  verifyReleaseDraft,
   verifyReleaseVersions,
   requiredAssets,
   updaterAssets,
@@ -132,4 +133,22 @@ test("publication requires all uploaded installers and version-bound updater sig
       manifest.pub_date,
     ),
   ).toThrow();
+});
+
+test("publication identifies drafts by ID and refuses published or mismatched releases", () => {
+  const draft = {
+    id: 123,
+    tag_name: "v1.2.3-rc1",
+    draft: true,
+    prerelease: true,
+  };
+  expect(() => verifyReleaseDraft(draft, 123, draft.tag_name)).not.toThrow();
+  expect(() => verifyReleaseDraft(draft, 124, draft.tag_name)).toThrow();
+  expect(() =>
+    verifyReleaseDraft({ ...draft, draft: false }, 123, draft.tag_name),
+  ).toThrow();
+  expect(() =>
+    verifyReleaseDraft({ ...draft, prerelease: false }, 123, draft.tag_name),
+  ).toThrow();
+  expect(() => verifyReleaseDraft(draft, 123, "v1.2.3-rc2")).toThrow();
 });

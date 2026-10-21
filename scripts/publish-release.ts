@@ -5,6 +5,7 @@ import {
   updaterManifest,
   updaterAssets,
   verifyReleaseAssets,
+  verifyReleaseDraft,
   type ReleaseAsset,
 } from "./release-policy";
 
@@ -23,8 +24,11 @@ if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo))
 const { tag, version, prerelease } = releaseTag(
   process.env.GITHUB_REF_NAME ?? "",
 );
+const releaseId = process.env.RELEASE_ID ?? "";
+if (!/^[1-9]\d*$/.test(releaseId))
+  throw new Error("Missing numeric draft release ID");
 const release = JSON.parse(
-  await gh(["api", `repos/${repo}/releases/tags/${tag}`]),
+  await gh(["api", `repos/${repo}/releases/${releaseId}`]),
 ) as {
   id: number;
   tag_name: string;
@@ -33,12 +37,7 @@ const release = JSON.parse(
   body: string | null;
   assets: ReleaseAsset[];
 };
-if (
-  !release.draft ||
-  release.tag_name !== tag ||
-  release.prerelease !== prerelease
-)
-  throw new Error("Only the matching draft release may be published");
+verifyReleaseDraft(release, Number(releaseId), tag);
 verifyReleaseAssets(repo, tag, release.assets);
 const signatures: Record<string, string> = {};
 for (const asset of updaterAssets(version)) {
