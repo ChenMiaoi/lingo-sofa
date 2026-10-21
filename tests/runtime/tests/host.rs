@@ -553,13 +553,15 @@ fn model_admission_rejects_third_call_and_cancel_releases_one_slot() {
     let first = host
         .send("prompt", json!({"sessionId":a,"text":"W0_SLOW"}))
         .unwrap();
-    host.wait_event(first, "text_delta", Duration::from_secs(5))
+    host.wait_event(first, "text_delta", Duration::from_secs(10))
         .unwrap();
     let second = host
         .send("prompt", json!({"sessionId":b,"text":"W0_SLOW"}))
         .unwrap();
-    host.wait_event(second, "text_delta", Duration::from_secs(5))
+    host.wait_event(second, "text_delta", Duration::from_secs(10))
         .unwrap();
+    // Slow fixture calls must remain admitted until explicitly cancelled, even on a slow runner.
+    std::thread::sleep(Duration::from_secs(6));
     assert_eq!(host.usage.active(), 2);
     let denied = host
         .send(
@@ -618,7 +620,7 @@ fn disconnect_and_cancel_preserve_unknown_or_partial_usage_without_replay() {
             json!({"sessionId":session,"text":"W0_PARTIAL W0_SLOW"}),
         )
         .unwrap();
-    host.wait_event(partial, "text_delta", Duration::from_secs(5))
+    host.wait_event(partial, "text_delta", Duration::from_secs(10))
         .unwrap();
     // The fixture puts usage on the same chunk as text, before text_delta.
     host.request("cancel", json!({"sessionId":session}))
@@ -851,12 +853,12 @@ fn blockers(host: &mut Host) -> [(String, u64); 2] {
     let first = host
         .send("prompt", json!({"sessionId":a,"text":"W0_SLOW"}))
         .unwrap();
-    host.wait_event(first, "text_delta", Duration::from_secs(5))
+    host.wait_event(first, "text_delta", Duration::from_secs(10))
         .unwrap();
     let second = host
         .send("prompt", json!({"sessionId":b,"text":"W0_SLOW"}))
         .unwrap();
-    host.wait_event(second, "text_delta", Duration::from_secs(5))
+    host.wait_event(second, "text_delta", Duration::from_secs(10))
         .unwrap();
     [(a, first), (b, second)]
 }
@@ -1010,7 +1012,7 @@ fn running_business_result_is_fenced_after_revision_changes_and_session_stays_se
         std::thread::sleep(Duration::from_millis(5));
     }
     let request = host.usage.records()[0]["requestId"].as_u64().unwrap();
-    host.wait_event(request, "text_delta", Duration::from_secs(5))
+    host.wait_event(request, "text_delta", Duration::from_secs(10))
         .unwrap();
     let fresh = host
         .submit_task(Task {
@@ -1184,7 +1186,7 @@ fn task_event_wait_terminal_and_timeout_preserve_host_and_cancellation() {
         Err("task_wait_timeout")
     );
     assert_eq!(host.pid(), pid);
-    host.wait_task_event(task, "text_delta", Duration::from_secs(5))
+    host.wait_task_event(task, "text_delta", Duration::from_secs(10))
         .unwrap();
     host.cancel_task(task).unwrap();
     assert_eq!(

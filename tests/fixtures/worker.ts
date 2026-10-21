@@ -96,33 +96,58 @@ await runWorker({
             prompt_tokens_details: { cached_tokens: 12 },
           },
         };
+        let releaseSlow: (() => void) | undefined;
+        const cancelled = new Promise<void>((resolve) => {
+          releaseSlow = resolve;
+        });
         return new Response(
           new ReadableStream({
-            async start(controller) {
+            start(controller) {
               controller.enqueue(
                 new TextEncoder().encode(
                   `data: ${JSON.stringify({ ...chunk, ...(partial ? { usage: usageChunk.usage } : {}) })}\n\n`,
                 ),
               );
-              if (disconnect) {
-                await Bun.sleep(150);
-                controller.error(new Error("synthetic_disconnect"));
-                return;
-              }
-              if (slow) await Bun.sleep(5000);
-              try {
-                controller.enqueue(
-                  new TextEncoder().encode(
-                    `data: ${JSON.stringify(finish)}\n\ndata: ${JSON.stringify(usageChunk)}\n\ndata: [DONE]\n\n`,
-                  ),
-                );
-                controller.close();
-              } catch {
-                /* The caller can cancel while the fixture is waiting. */
-              }
+              // Return from start immediately so the first SSE chunk can flush on Windows.
+              void (async () => {
+                if (disconnect) {
+                  await Bun.sleep(150);
+                  controller.error(new Error("synthetic_disconnect"));
+                  return;
+                }
+                if (slow) {
+                  // Capacity tests hold these calls until cancellation, independent of CPU speed.
+                  if (request.signal.aborted) releaseSlow?.();
+                  else
+                    request.signal.addEventListener(
+                      "abort",
+                      () => releaseSlow?.(),
+                      { once: true },
+                    );
+                  await cancelled;
+                }
+                try {
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      `data: ${JSON.stringify(finish)}\n\ndata: ${JSON.stringify(usageChunk)}\n\ndata: [DONE]\n\n`,
+                    ),
+                  );
+                  controller.close();
+                } catch {
+                  /* The caller can cancel while the fixture is waiting. */
+                }
+              })();
+            },
+            cancel() {
+              releaseSlow?.();
             },
           }),
-          { headers: { "content-type": "text/event-stream" } },
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "cache-control": "no-cache",
+            },
+          },
         );
       },
     });
