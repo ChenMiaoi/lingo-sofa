@@ -19,6 +19,7 @@ export function Settings({
   onBack,
   loadCatalog,
   initialPage = "home",
+  onLogin,
 }: {
   state: DesktopState;
   notice: string;
@@ -26,6 +27,7 @@ export function Settings({
   onBack: () => void;
   loadCatalog: LoadModelCatalog;
   initialPage?: SettingsPage;
+  onLogin: (provider?: string) => void;
 }) {
   const { model } = state;
   const [page, setPage] = useState<SettingsPage>(initialPage);
@@ -127,6 +129,7 @@ export function Settings({
             model={model}
             perform={perform}
             loadCatalog={loadCatalog}
+            onLogin={onLogin}
             active={page === "models"}
           />
         </div>

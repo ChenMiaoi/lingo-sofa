@@ -176,11 +176,62 @@ await runWorker({
       },
     });
 
+    let loginState: Record<string, unknown> = {};
     return {
       close: () => server.stop(true),
       stats: () => ({ httpCalls, refreshes }),
       handle: async (frame) => {
         switch (frame.method) {
+          case "auth.providers":
+            return {
+              providers: [
+                {
+                  id: "test-subscription",
+                  name: "Synthetic subscription",
+                  provider: "openai",
+                },
+              ],
+            };
+          case "auth.start": {
+            if (frame.payload.provider !== "test-subscription")
+              throw new Error("invalid_login_provider");
+            loginState = {
+              attempt: "synthetic-attempt",
+              provider: "openai",
+              phase: "prompt",
+              prompt: {
+                id: 1,
+                message: "Code",
+                secret: true,
+                allowEmpty: false,
+              },
+            };
+            return { ...loginState };
+          }
+          case "auth.status":
+            return { ...loginState };
+          case "auth.cancel":
+            loginState = { ...loginState, phase: "cancelled" };
+            return { ...loginState };
+          case "auth.input": {
+            if (
+              frame.payload.value !== "synthetic-authorization-code" ||
+              loginState.phase !== "prompt"
+            )
+              throw new Error("invalid_login_input");
+            await auth.credentials.set("openai", {
+              type: "oauth",
+              access: "synthetic-subscription-access",
+              refresh: "synthetic-subscription-refresh",
+              expires: Date.now() + 3600000,
+            });
+            loginState = {
+              attempt: "synthetic-attempt",
+              provider: "openai",
+              phase: "complete",
+            };
+            return { ...loginState };
+          }
           case "model.catalog": {
             const provider = frame.payload.provider;
             const entries = [

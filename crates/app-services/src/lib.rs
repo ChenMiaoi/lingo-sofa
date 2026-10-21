@@ -78,7 +78,30 @@ impl Default for View {
         }
     }
 }
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LoginRequest {
+    Providers,
+    Start {
+        provider: String,
+    },
+    Status {
+        attempt: String,
+    },
+    Input {
+        attempt: String,
+        prompt: u64,
+        value: String,
+    },
+    Cancel {
+        attempt: String,
+    },
+}
 enum Command {
+    Login {
+        request: LoginRequest,
+        reply: SyncSender<Result<serde_json::Value, &'static str>>,
+    },
     Reset,
     Key {
         provider: String,
@@ -191,6 +214,33 @@ impl Service {
             key: Zeroizing::new(key),
             reply,
         })?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")?
+    }
+    pub fn subscription_login(
+        &self,
+        request: LoginRequest,
+    ) -> Result<serde_json::Value, &'static str> {
+        match &request {
+            LoginRequest::Start { provider } => {
+                models::validate_provider(provider)?;
+                self.generation.fetch_add(1, Ordering::SeqCst);
+            }
+            LoginRequest::Input { attempt, value, .. } => {
+                if attempt.len() > 64 || value.len() > 8192 {
+                    return Err("invalid_login_input");
+                }
+            }
+            LoginRequest::Status { attempt } | LoginRequest::Cancel { attempt } => {
+                if attempt.len() > 64 {
+                    return Err("invalid_login_input");
+                }
+            }
+            LoginRequest::Providers => {}
+        }
+        let (reply, result) = mpsc::sync_channel(1);
+        self.send(Command::Login { request, reply })?;
         result
             .recv_timeout(Duration::from_secs(30))
             .map_err(|_| "service_timeout")?
@@ -366,6 +416,55 @@ fn serve(
         if let Some(command) = command {
             let result = (|| -> Result<(), &'static str> {
                 match command {
+                    Command::Login { request, reply } => {
+                        let result = (|| -> Result<serde_json::Value, &'static str> {
+                            let method = match &request {
+                                LoginRequest::Providers => "auth.providers",
+                                LoginRequest::Start { provider } => {
+                                    let catalog = host.request("auth.providers", json!({}))?;
+                                    let entry = catalog["providers"]
+                                        .as_array()
+                                        .and_then(|entries| {
+                                            entries
+                                                .iter()
+                                                .find(|entry| entry["id"] == provider.as_str())
+                                        })
+                                        .ok_or("login_provider_unsupported")?;
+                                    let account = entry["provider"]
+                                        .as_str()
+                                        .ok_or("login_provider_unsupported")?;
+                                    models::validate_provider(account)?;
+                                    host.stop();
+                                    host.allow_account(account);
+                                    current = None;
+                                    session = None;
+                                    verified = false;
+                                    let mut v = state.lock().unwrap();
+                                    v.session_ready = false;
+                                    v.task_id = None;
+                                    v.phase = "ready".into();
+                                    v.output.clear();
+                                    "auth.start"
+                                }
+                                LoginRequest::Status { .. } => "auth.status",
+                                LoginRequest::Input { .. } => "auth.input",
+                                LoginRequest::Cancel { .. } => "auth.cancel",
+                            };
+                            let response = host.request(
+                                method,
+                                serde_json::to_value(&request)
+                                    .map_err(|_| "invalid_login_input")?,
+                            )?;
+                            if response["phase"] == "complete" {
+                                let mut v = state.lock().unwrap();
+                                v.configured_providers = host.vault.accounts()?;
+                                v.key_configured =
+                                    v.configured_providers.contains(&v.default_model.provider);
+                            }
+                            Ok(response)
+                        })();
+                        let _ = reply.send(result);
+                    }
                     Command::Reset => {
                         host.stop();
                         current = None;
@@ -399,7 +498,7 @@ fn serve(
                             if provider != "deepseek" && !key.is_empty() {
                                 let catalog =
                                     host.request("model.catalog", json!({"provider":provider}))?;
-                                if catalog["supported"] != true {
+                                if catalog["supported"] != true || catalog["apiKey"] == false {
                                     return Err("provider_unsupported");
                                 }
                             }

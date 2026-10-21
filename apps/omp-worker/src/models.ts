@@ -1,3 +1,4 @@
+import { subscriptionProviders } from "./subscription-login";
 import type * as AI from "@oh-my-pi/pi-ai";
 import type { ModelRegistry } from "@oh-my-pi/pi-coding-agent";
 
@@ -9,13 +10,18 @@ type Transport = NonNullable<
 const supportedApis = new Set([
   "openai-completions",
   "openai-responses",
+  "openai-codex-responses",
   "anthropic-messages",
   "google-generative-ai",
+  "google-gemini-cli",
+  "openrouter",
+  "ollama-chat",
 ]);
 
 /** The SDK owns provider metadata, model limits and native wire protocols. */
 export class WorkerModels {
   private readonly models: Model[];
+  private readonly logins: ReturnType<typeof subscriptionProviders>;
   private readonly wrapped = new Map<string, SupportedModel>();
   constructor(
     private readonly registry: ModelRegistry,
@@ -27,12 +33,17 @@ export class WorkerModels {
     this.models = registry
       .getAll()
       .filter((model) => model.input.includes("text"));
+    this.logins = subscriptionProviders(
+      ai,
+      new Set(this.models.map((model) => model.provider)),
+    );
   }
   private supported(model: Model): model is SupportedModel {
     try {
       return (
         supportedApis.has(model.api) &&
-        this.ai.listProvidersWithEnvKey().includes(model.provider) &&
+        (this.ai.listProvidersWithEnvKey().includes(model.provider) ||
+          this.logins.some((entry) => entry.provider === model.provider)) &&
         new URL(model.baseUrl).protocol === "https:" &&
         !/[{}]/.test(model.baseUrl) &&
         typeof model.contextWindow === "number" &&
@@ -55,6 +66,12 @@ export class WorkerModels {
           return {
             id,
             name: this.ai.getProviderDefinition(id)?.name ?? id,
+            apiKey:
+              id !== "openai-codex" &&
+              this.ai.listProvidersWithEnvKey().includes(id),
+            login: this.logins.find((entry) => entry.provider === id)?.id,
+            loginMethod: this.logins.find((entry) => entry.provider === id)
+              ?.method,
             supported: models.some((model) => this.supported(model)),
             modelCount: models.filter((model) => this.supported(model)).length,
           };
@@ -67,6 +84,9 @@ export class WorkerModels {
     return {
       providers: [],
       supported: all.length > 0,
+      apiKey:
+        provider !== "openai-codex" &&
+        this.ai.listProvidersWithEnvKey().includes(provider),
       total: all.length,
       models: all.slice(offset, offset + 100).map((model) => ({
         id: model.id,

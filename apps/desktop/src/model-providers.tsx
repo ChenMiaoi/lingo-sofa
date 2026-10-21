@@ -17,11 +17,13 @@ export function ModelProviders({
   perform,
   loadCatalog,
   active,
+  onLogin,
 }: {
   model: View;
   perform: Perform;
   loadCatalog: LoadModelCatalog;
   active: boolean;
+  onLogin: (provider?: string) => void;
 }) {
   const [providers, setProviders] = useState<ModelCatalog["providers"]>([]);
   const [provider, setProvider] = useState(model.defaultModel.provider);
@@ -85,7 +87,8 @@ export function ModelProviders({
     model.defaultModel.provider === provider &&
     model.defaultModel.modelId === selectedModel;
   const providerInfo = providers.find((entry) => entry.id === provider);
-  const canConfigure = providerInfo?.supported ?? false;
+  const canSelect = providerInfo?.supported ?? false;
+  const canConfigure = providerInfo?.apiKey ?? canSelect;
   const saveKey = async (value: string) => {
     setSaving(true);
     try {
@@ -100,6 +103,7 @@ export function ModelProviders({
       className="settings-group model-providers"
       aria-label="模型与服务商"
     >
+      <button onClick={() => onLogin()}>订阅账户登录</button>
       <div className="default-model-summary">
         <span>当前默认模型</span>
         <strong>
@@ -203,7 +207,7 @@ export function ModelProviders({
           <select
             id="default-model"
             value={selectedModel}
-            disabled={saving || loading || !canConfigure}
+            disabled={saving || loading || !canSelect}
             onChange={(event) => setSelectedModel(event.target.value)}
           >
             <option value="">选择模型</option>
@@ -245,7 +249,7 @@ export function ModelProviders({
             <button
               disabled={
                 !configured ||
-                !canConfigure ||
+                !canSelect ||
                 !selectedModel ||
                 current ||
                 saving ||
@@ -268,7 +272,8 @@ export function ModelProviders({
         </div>
       </div>
       <p className="model-scope-note">
-        支持 API Key 服务商；OAuth、云平台特殊凭证与自定义地址暂未接入。
+        支持 API Key，以及 ChatGPT/Codex、Claude
+        订阅登录；其他认证方式和自定义地址暂未接入。
       </p>
       <p>
         切换默认模型会结束当前会话。后续翻译与提问将把文本发送至所选服务商。

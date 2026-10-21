@@ -71,7 +71,9 @@ impl Vault {
             } else {
                 credential["type"] == "oauth"
                     && nonempty("access")
-                    && nonempty("refresh")
+                    && credential["refresh"]
+                        .as_str()
+                        .is_some_and(|value| value.len() <= 8192)
                     && credential["expires"]
                         .as_u64()
                         .is_some_and(|expires| expires <= 9_007_199_254_740_991)
@@ -165,6 +167,27 @@ mod tests {
         assert_eq!(vault.read("deepseek").unwrap()["revision"], 2);
         assert!(vault.commit("deepseek", 1, &credential).is_err());
         assert!(vault.read("deepseek").unwrap()["credential"].is_null());
+    }
+
+    #[test]
+    fn non_refreshable_sdk_grants_keep_their_empty_refresh_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = Vault::open(&dir.path().join("vault.sqlite")).unwrap();
+        let credential = json!({"type":"oauth","access":"synthetic-static-access","refresh":"","expires":9_007_199_254_740_991_u64});
+        vault.commit("subscription", 0, &credential).unwrap();
+        assert_eq!(
+            vault.read("subscription").unwrap()["credential"],
+            credential
+        );
+        assert!(
+            vault
+                .commit(
+                    "subscription",
+                    1,
+                    &json!({"type":"oauth","access":"synthetic-static-access","expires":1})
+                )
+                .is_err()
+        );
     }
 
     #[test]

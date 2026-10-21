@@ -198,6 +198,9 @@ export interface ModelSelection {
   modelId: string;
 }
 export interface ProviderInfo {
+  apiKey?: boolean;
+  login?: string;
+  loginMethod?: string;
   id: string;
   name: string;
   supported: boolean;
@@ -221,3 +224,35 @@ export function loadModelCatalog(
 ): Promise<ModelCatalog> {
   return call("model_catalog", { provider: provider ?? null, offset });
 }
+
+export interface LoginProvider {
+  method?: string;
+  modelsSupported?: boolean;
+  id: string;
+  name: string;
+  provider: string;
+}
+export interface LoginState {
+  attempt: string;
+  provider: string;
+  phase: "waiting" | "prompt" | "complete" | "error" | "cancelled";
+  url?: string;
+  instructions?: string;
+  prompt?: {
+    id: number;
+    message: string;
+    secret: boolean;
+    allowEmpty: boolean;
+    browser?: { url: string; cookieNames: readonly string[] };
+  };
+}
+export type LoginRequest =
+  | { action: "providers" }
+  | { action: "start"; provider: string }
+  | { action: "status" | "cancel"; attempt: string }
+  | { action: "input"; attempt: string; prompt: number; value: string };
+export type RequestLogin = (
+  request: LoginRequest,
+) => Promise<{ providers?: LoginProvider[] } & Partial<LoginState>>;
+export const subscriptionLogin: RequestLogin = (request) =>
+  call("subscription_login", { request });

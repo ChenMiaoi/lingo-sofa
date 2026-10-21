@@ -1,7 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod shell;
 mod shortcuts;
-use lingo_sofa_app_services::{ModelSelection, Service, Settings, SettingsPatch};
+mod subscription;
+use lingo_sofa_app_services::{LoginRequest, ModelSelection, Service, Settings, SettingsPatch};
 use shell::{Mode, Shell};
 use std::sync::Mutex;
 use tauri::{
@@ -164,6 +165,57 @@ fn new_session(
 ) -> Result<(), String> {
     allowed(&window)?;
     shell.new_session(&app, &service).map_err(String::from)
+}
+#[tauri::command]
+async fn subscription_login(
+    window: tauri::WebviewWindow,
+    service: tauri::State<'_, Service>,
+    request: LoginRequest,
+) -> Result<serde_json::Value, String> {
+    allowed(&window)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.subscription_login(request))
+        .await
+        .map_err(|_| "service_unavailable".to_string())?
+        .map_err(String::from)
+}
+#[tauri::command]
+async fn open_login_url(
+    window: tauri::WebviewWindow,
+    service: tauri::State<'_, Service>,
+    attempt: String,
+) -> Result<(), String> {
+    allowed(&window)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = service
+            .subscription_login(LoginRequest::Status { attempt })
+            .map_err(String::from)?;
+        if state["phase"] != "waiting" && state["phase"] != "prompt" {
+            return Err("login_expired".into());
+        }
+        let url = state["url"].as_str().ok_or("login_url_missing")?;
+        let parsed = tauri::Url::parse(url).map_err(|_| "login_url_invalid")?;
+        if !subscription::login_url_allowed(&parsed) {
+            return Err("login_url_invalid".into());
+        }
+        #[cfg(not(windows))]
+        let status = std::process::Command::new("open")
+            .arg("--")
+            .arg(url)
+            .status();
+        #[cfg(windows)]
+        let status = std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .status();
+        status
+            .map_err(|_| "browser_open_failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| "browser_open_failed".into())
+    })
+    .await
+    .map_err(|_| "service_unavailable".to_string())?
 }
 #[tauri::command]
 async fn model_catalog(
@@ -355,6 +407,9 @@ fn main() {
             clear_context,
             new_session,
             model_catalog,
+            subscription_login,
+            open_login_url,
+            subscription::open_login_browser,
             save_provider,
             select_model,
             cancel_task,

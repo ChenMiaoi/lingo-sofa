@@ -17,12 +17,14 @@ export function ModelPicker({
   loadCatalog,
   perform,
   onClose,
+  onLogin,
 }: {
   model: View;
   search: string;
   loadCatalog: LoadModelCatalog;
   perform: Perform;
   onClose: (applied?: boolean) => void;
+  onLogin: (provider?: string) => void;
 }) {
   const [query, setQuery] = useState(search);
   const [providerList, setProviderList] = useState<ModelCatalog["providers"]>(
@@ -125,6 +127,9 @@ export function ModelPicker({
       `${entry.id} ${entry.name}`.toLowerCase().includes(term),
     ),
   );
+  const credentialProvider = providerList.find(
+    (entry) => entry.id === credentialFor?.provider,
+  );
   const count = browsingProviders ? providerMatches.length : matches.length;
   const index = Math.min(selected, Math.max(count - 1, 0));
   useEffect(() => {
@@ -158,6 +163,11 @@ export function ModelPicker({
       model.configuredProviders.includes(choice.provider) ||
       savedProviders.current.has(choice.provider);
     if (!configured && !credentialFor) {
+      const info = providerList.find((entry) => entry.id === choice.provider);
+      if (info?.apiKey === false && info.login) {
+        onLogin(info.login);
+        return;
+      }
       setCredentialFor(choice);
       setKey("");
       return;
@@ -324,6 +334,12 @@ export function ModelPicker({
             {credentialFor.name} · {credentialFor.provider}/{credentialFor.id}
             <br />
             Enter 保存并切换 · Esc 返回模型列表
+            {credentialProvider?.login &&
+              credentialProvider.loginMethod !== "api-key" && (
+                <button onClick={() => onLogin(credentialProvider.login)}>
+                  改用订阅账户登录
+                </button>
+              )}
           </p>
         ) : browsingProviders ? (
           providerMatches.map((entry, position) => (
@@ -344,7 +360,9 @@ export function ModelPicker({
                   {entry.id} ·{" "}
                   {model.configuredProviders.includes(entry.id)
                     ? "已配置"
-                    : "选择模型后输入 API Key"}
+                    : entry.apiKey === false
+                      ? "选择模型后订阅登录"
+                      : "选择模型后输入 API Key"}
                 </small>
               </span>
               {position === index && <span className="enter-key">↵</span>}

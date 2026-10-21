@@ -4,8 +4,16 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFrames, sendFrame, type Frame } from "./ipc";
 import { restrictedSettings, createRestrictedSession } from "./restricted-sdk";
+import {
+  SubscriptionLogin,
+  safeAuthorizationUrl,
+  subscriptionProviders,
+} from "./subscription-login";
 import { WorkerModels } from "./models";
-import type { AuthCredential } from "@oh-my-pi/pi-ai";
+import type {
+  OAuthProvider as AIProvider,
+  AuthCredential,
+} from "@oh-my-pi/pi-ai";
 
 export interface WorkerOptions {
   provider: string;
@@ -58,6 +66,10 @@ export async function runWorker(options: WorkerOptions) {
   let selection = { provider, modelId };
   let catalog: WorkerModels | undefined;
   let verifiedModel: string | undefined;
+  const authorization = new AsyncLocalStorage<{
+    provider: string;
+    signal?: AbortSignal;
+  }>();
   const allowedOrigins = new Set([options.origin]);
   const credentialEnvironmentPresent = Object.keys(process.env).some((name) =>
     /key|token|secret|password|credential/i.test(name),
@@ -74,6 +86,8 @@ export async function runWorker(options: WorkerOptions) {
       mkdir(path, { recursive: true }),
     ),
   );
+  process.env.PI_AUTH_NO_BORROW = "1";
+  process.env.PI_CODEX_WEBSOCKET = "0";
   const realFetch = globalThis.fetch;
   globalThis.fetch = Object.assign(
     async (
@@ -81,10 +95,15 @@ export async function runWorker(options: WorkerOptions) {
       init?: Parameters<typeof fetch>[1],
     ) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
+      const login = authorization.getStore();
+      if (login?.signal?.aborted) throw new Error("login_cancelled");
+      if (login && !safeAuthorizationUrl(url.href))
+        throw new Error("worker_auth_network_scope");
       if (
-        new URL(options.origin).protocol === "http:"
+        !login &&
+        (new URL(options.origin).protocol === "http:"
           ? url.hostname !== "127.0.0.1"
-          : !allowedOrigins.has(url.origin)
+          : !allowedOrigins.has(url.origin))
       )
         throw new Error("worker_network_scope");
       if (init?.redirect && init.redirect !== "error")
@@ -270,6 +289,7 @@ export async function runWorker(options: WorkerOptions) {
         const stream = ai.streamSimple(native, context, {
           ...options,
           maxHttpAttempts: 1,
+          codexSseMaxAttempts: 1,
           maxTokens: Math.min(outputCap, native.maxTokens ?? outputCap),
         });
         for await (const event of stream) {
@@ -357,6 +377,8 @@ export async function runWorker(options: WorkerOptions) {
     credential: AuthCredential | null,
     expectedRevision = snapshots.get(account)?.revision,
   ) {
+    const login = authorization.getStore();
+    if (login?.signal?.aborted) throw new Error("login_cancelled");
     const current = snapshots.get(account);
     if (!current || expectedRevision === undefined)
       throw new Error("unknown_account");
@@ -439,6 +461,19 @@ export async function runWorker(options: WorkerOptions) {
   });
   const auth = new sdk.AuthStorage(mirrored, {
     usageProviderResolver: () => undefined,
+    async refreshOAuthCredential(account, _id, current, signal) {
+      const expected = snapshots.get(account)?.revision;
+      if (expected === undefined || !ai.getProviderDefinition(account)?.login)
+        throw new Error("unknown_account");
+      const refreshed = await authorization.run(
+        { provider: account, signal },
+        () => ai.refreshOAuthToken(account as AIProvider, current, signal),
+      );
+      if (signal?.aborted) throw new Error("refresh_cancelled");
+      const credential = { ...current, ...refreshed, type: "oauth" as const };
+      await persist(account, credential, expected);
+      return credential;
+    },
     ...options.authOptions?.({ snapshots, persist }),
   });
   const registry = new sdk.ModelRegistry(auth, join(agentDir, "models.yml"), {
@@ -465,6 +500,22 @@ export async function runWorker(options: WorkerOptions) {
       (origin) => allowedOrigins.add(origin),
       outputCap,
     );
+
+  const login = new SubscriptionLogin(
+    {
+      oauth: {
+        login: (provider, controller) =>
+          authorization.run({ provider, signal: controller.signal }, () =>
+            auth.oauth.login(provider, controller),
+          ),
+      },
+    },
+    subscriptionProviders(
+      ai,
+      new Set(registry.getAll().map((model) => model.provider)),
+    ),
+    globalThis.fetch,
+  );
 
   function sessionEntry(payload: Record<string, unknown>) {
     const entry = sessions.get(String(payload.sessionId));
@@ -510,6 +561,32 @@ export async function runWorker(options: WorkerOptions) {
         await auth.credentials.reload();
         return { sdk: "18.12.3", pid: process.pid, protocol: 1 };
       }
+      case "auth.providers":
+        if (extension) return extension.handle(frame);
+        return {
+          providers: login.providers.map((entry) => ({
+            ...entry,
+            modelsSupported: catalog?.list(entry.provider).supported ?? true,
+          })),
+        };
+      case "auth.start":
+        if (extension) return extension.handle(frame);
+        return { ...login.start(String(frame.payload.provider)) };
+      case "auth.status":
+        if (extension) return extension.handle(frame);
+        return { ...login.status(String(frame.payload.attempt)) };
+      case "auth.input":
+        if (extension) return extension.handle(frame);
+        return {
+          ...login.input(
+            String(frame.payload.attempt),
+            Number(frame.payload.prompt),
+            String(frame.payload.value),
+          ),
+        };
+      case "auth.cancel":
+        if (extension) return extension.handle(frame);
+        return { ...login.cancel(String(frame.payload.attempt)) };
       case "ping":
         return { pong: true };
       case "model.catalog": {
@@ -553,20 +630,27 @@ export async function runWorker(options: WorkerOptions) {
               ? frame.payload.modelId
               : modelId,
         };
-        if (snapshots.get(next.provider)?.credential?.type !== "api_key")
+        if (!snapshots.get(next.provider)?.credential)
           throw new Error("account_missing");
         const identity = `${next.provider}/${next.modelId}`;
         if (verifiedModel && verifiedModel !== identity)
           throw new Error("model_switch_requires_restart");
         catalog!.resolve(next.provider, next.modelId);
         const credential = snapshots.get(next.provider)!.credential!;
+        if (credential.type === "oauth") {
+          for (const endpoint of [
+            credential.apiEndpoint,
+            credential.enterpriseUrl,
+          ]) {
+            if (endpoint && safeAuthorizationUrl(endpoint))
+              allowedOrigins.add(new URL(endpoint).origin);
+          }
+        }
         // Only the selected provider is available to SDK maintenance/fallback
         // paths. Other configured keys stay in the vault snapshot, not SDK auth.
         await backing.replaceAuthCredentials(next.provider, [credential]);
-        auth.keys.setRuntime(
-          next.provider,
-          (credential as { key: string }).key,
-        );
+        if (credential.type === "api_key")
+          auth.keys.setRuntime(next.provider, credential.key);
         await auth.credentials.reload();
         const result = catalog!.activate(next.provider, next.modelId);
         verifiedModel = identity;
@@ -585,7 +669,7 @@ export async function runWorker(options: WorkerOptions) {
           tasks: tasks.size,
         };
       case "session.create": {
-        if (snapshots.get(selection.provider)?.credential?.type !== "api_key")
+        if (!snapshots.get(selection.provider)?.credential)
           throw new Error("account_missing");
         if (sessions.size >= 4) throw new Error("session_limit");
         const selectedModel = registry.find(
@@ -690,6 +774,7 @@ export async function runWorker(options: WorkerOptions) {
         return { closed: true };
       }
       case "shutdown":
+        login.close();
         if (
           sessions.size ||
           tasks.size ||

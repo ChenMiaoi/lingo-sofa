@@ -20,7 +20,7 @@ LingoSofa is a floating translator for Windows. Select text, read its translatio
 
 [Preview](#preview) · [Get started](#get-started) · [Documentation](#documentation) · [Report a bug](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; screenshot OCR, additional providers and OAuth are not yet available. See the [compatibility and acceptance status](docs/acceptance.md) for tested applications and remaining work.
+> **Development preview.** The current desktop app targets Windows 11 x64, and installers are unsigned. Browser selection acceptance is still pending; screenshot OCR and some provider protocols remain unavailable; subscription login is implemented, with real-account acceptance still pending. See the [compatibility and acceptance status](docs/acceptance.md) for tested applications and remaining work.
 
 ## Preview
 
@@ -49,7 +49,7 @@ Screenshots show the native Windows desktop application using an isolated test p
 - **Ask about what you read.** Keep the selected source in context, stream a reply, and continue asking questions. You can stop generation or manually compact the conversation.
 - **Translate what you type or copy.** Open the input panel for translation or an independent question, or explicitly translate the current clipboard text.
 - **Make shortcuts your own.** Open the panel from another application, change all three global bindings, and keep them across restarts. Conflicts are reported before replacing the previous configuration.
-- **Use your own model account.** Configure multiple API Key providers from the oh-my-pi catalog and choose a default model for translation and Ask. Existing DeepSeek credentials and the `deepseek-flash` default are preserved. Credentials remain encrypted locally.
+- **Use your own model account.** Configure multiple API Key or subscription accounts from the oh-my-pi catalog and choose a default model for translation and Ask. Existing DeepSeek credentials and the `deepseek-flash` default are preserved. Credentials remain encrypted locally.
 - **See observed usage.** Track reported tokens and incomplete usage. Unknown usage stays unknown, and interrupted requests are not automatically replayed.
 
 ## Get started
@@ -70,11 +70,11 @@ On macOS, these defaults appear as **⌥⇧Space**, **⌥⇧S**, and **⌥⇧T**
 
 Settings shares the input and Ask launcher, with a category menu leading to separate Models & providers, translation preferences, and shortcut pages. The back button or Esc returns one level at a time: first to Settings, then to your previous input or Ask page with its unsent draft intact.
 
-The provider and model lists come from the bundled oh-my-pi SDK. API Key providers using supported native chat APIs are available; OAuth, special cloud credentials, local/keyless models, and custom service URLs are not yet exposed. Switching the default model ends the current session. Removing one provider’s credentials leaves the others intact.
+The provider and model lists come from the bundled oh-my-pi SDK. API Key providers using supported native chat APIs are available; The SDK login catalog is available through `/login` (alias `/subscribe`), with browser OAuth, device codes, prompts and isolated browser sessions. Agent-only protocols, special cloud credentials, local/keyless models, multiple accounts per provider, and custom service URLs remain outside the text-model workflow. See [Subscription login](docs/subscription-login.md) for behavior and acceptance limits. Switching the default model ends the current session. Removing one provider’s credentials leaves the others intact.
 
 Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
-Type `/` in input or Ask to browse local app commands; use arrow keys to choose, Tab to complete the command (for example `/mo` → Tab → `/model `), and Enter to execute. `/settings` opens settings, `/model` opens a searchable model list in the current window (arrows to choose, Enter to switch, Esc to return; `/model search terms` filters it; without credentials, choose a provider and model and enter its API Key in the same keyboard-driven overlay), `/model deepseek/deepseek-flash` changes the default, `/language en` sets the translation language, `/pin on` or `/pin off` sets window pinning, `/shortcuts` opens shortcut settings, and `/new` stops the current task and opens a blank input with a fresh session, preserving model and other settings. Commands run locally. Prefix slash text with `//` to submit it as ordinary content.
+Type `/` in input or Ask to browse local app commands; use arrow keys to choose, Tab to complete the command (for example `/mo` → Tab → `/model `), and Enter to execute. `/login` opens subscription/account login, `/settings` opens settings, `/model` opens a searchable model list in the current window (arrows to choose, Enter to switch, Esc to return; `/model search terms` filters it; without credentials, choose a provider and model and enter its API Key in the same keyboard-driven overlay), `/model deepseek/deepseek-flash` changes the default, `/language en` sets the translation language, `/pin on` or `/pin off` sets window pinning, `/shortcuts` opens shortcut settings, and `/new` stops the current task and opens a blank input with a fresh session, preserving model and other settings. Navigation and configuration run locally; login connects to the selected provider. Prefix slash text with `//` to submit it as ordinary content.
 
 Inside the input panel, **Enter** runs the selected action, **Shift+Enter** inserts a new line, **Alt+↑↓** switches actions, and **Esc** returns to reading. On macOS the hints use **↩**, **⇧↩**, and **⌥↑↓**. Reopening an already open input panel with its shortcut preserves the draft.
 

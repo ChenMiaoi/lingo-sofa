@@ -19,12 +19,18 @@ export const slashCommands = [
   },
   { command: "/pin", label: "修改窗口置顶", detail: "/pin [on|off]" },
   { command: "/shortcuts", label: "打开快捷键设置", detail: "/shortcuts" },
+  {
+    command: "/login",
+    label: "订阅账户登录",
+    detail: "/login [服务商]（也可用 /subscribe）",
+  },
   { command: "/new", label: "新建会话", detail: "/new" },
   { command: "/help", label: "查看应用命令", detail: "/help" },
 ] as const;
 export type ParsedCommand =
   | { kind: "settings"; page: SettingsPage }
   | { kind: "model_picker"; search: string }
+  | { kind: "login"; provider?: string }
   | { kind: "new" }
   | { kind: "model"; model: ModelSelection }
   | { kind: "preferences"; patch: Partial<Settings> }
@@ -128,6 +134,12 @@ export function parseCommand(text: string): ParsedCommand | null {
       return args.length
         ? invalid("/shortcuts")
         : { kind: "settings", page: "shortcuts" };
+    case "/subscribe":
+    case "/login":
+      return args.length > 1 ||
+        (args[0] && !/^[a-zA-Z0-9_-]{1,64}$/.test(args[0]))
+        ? invalid("/login [服务商]")
+        : { kind: "login", provider: args[0] };
     case "/new":
       return args.length ? invalid("/new") : { kind: "new" };
     case "/help":

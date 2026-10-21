@@ -351,3 +351,77 @@ fn reset_stops_streaming_and_the_next_question_has_no_previous_source() {
     assert!(!messages.contains("<source>"));
     service.shutdown();
 }
+
+#[test]
+fn subscription_authorization_preserves_existing_accounts_and_encrypts_completed_grants() {
+    use lingo_sofa_app_services::LoginRequest;
+    let directory = tempfile::tempdir().unwrap();
+    let service = start(directory.path());
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    let original = service.state().default_model;
+    let providers = service.subscription_login(LoginRequest::Providers).unwrap();
+    assert_eq!(providers["providers"][0]["id"], "test-subscription");
+    assert!(
+        service
+            .subscription_login(LoginRequest::Start {
+                provider: "unknown-provider".into()
+            })
+            .is_err()
+    );
+    let attempt = service
+        .subscription_login(LoginRequest::Start {
+            provider: "test-subscription".into(),
+        })
+        .unwrap();
+    let id = attempt["attempt"].as_str().unwrap().to_owned();
+    let cancelled = service
+        .subscription_login(LoginRequest::Cancel { attempt: id })
+        .unwrap();
+    assert_eq!(cancelled["phase"], "cancelled");
+    assert_eq!(service.state().configured_providers, ["deepseek"]);
+    let attempt = service
+        .subscription_login(LoginRequest::Start {
+            provider: "test-subscription".into(),
+        })
+        .unwrap();
+    let id = attempt["attempt"].as_str().unwrap().to_owned();
+    service
+        .subscription_login(LoginRequest::Input {
+            attempt: id.clone(),
+            prompt: 1,
+            value: "synthetic-authorization-code".into(),
+        })
+        .unwrap();
+    let completed = service
+        .subscription_login(LoginRequest::Status { attempt: id })
+        .unwrap();
+    assert_eq!(completed["phase"], "complete");
+    assert_eq!(service.state().configured_providers, ["deepseek", "openai"]);
+    assert_eq!(service.state().default_model, original);
+    assert!(
+        !serde_json::to_string(&completed)
+            .unwrap()
+            .contains("synthetic-subscription-access")
+    );
+    service
+        .select_model(lingo_sofa_app_services::ModelSelection {
+            provider: "openai".into(),
+            model_id: "w0-openai".into(),
+        })
+        .unwrap();
+    service.shutdown();
+    let bytes = std::fs::read(directory.path().join("credentials.sqlite")).unwrap();
+    for secret in [
+        b"synthetic-subscription-access".as_slice(),
+        b"synthetic-subscription-refresh".as_slice(),
+    ] {
+        assert!(!bytes.windows(secret.len()).any(|part| part == secret));
+    }
+    let restored = start(directory.path());
+    assert_eq!(
+        restored.state().configured_providers,
+        ["deepseek", "openai"]
+    );
+    assert_eq!(restored.state().default_model.provider, "openai");
+    restored.shutdown();
+}

@@ -8,6 +8,7 @@ import {
   parseCommand,
   unescapeCommandText,
 } from "./commands";
+import { AccountLogin } from "./account-login";
 import { ModelPicker } from "./model-picker";
 import type { LoadModelCatalog } from "./model-providers";
 import {
@@ -19,6 +20,8 @@ import {
   isImeKey,
   type DesktopState,
   type Mode,
+  subscriptionLogin,
+  type RequestLogin,
 } from "./api";
 export type Perform = (
   command: string,
@@ -94,11 +97,13 @@ export function Desktop({
   notice = "",
   perform,
   loadModelCatalog = defaultLoadModelCatalog,
+  requestLogin = subscriptionLogin,
 }: {
   state: DesktopState;
   notice?: string;
   perform: Perform;
   loadModelCatalog?: LoadModelCatalog;
+  requestLogin?: RequestLogin;
 }) {
   const { desktop: d, model } = state;
   const mode = d.mode;
@@ -108,6 +113,9 @@ export function Desktop({
   const [sourceOpen, setSourceOpen] = useState(false);
   const [input, setInput] = useState("");
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("home");
+  const [loginEntry, setLoginEntry] = useState<{ provider?: string } | null>(
+    null,
+  );
   const [modelSearch, setModelSearch] = useState<string | null>(null);
   const [commandNotice, setCommandNotice] = useState("");
   const commandInFlight = useRef(false);
@@ -165,6 +173,10 @@ export function Desktop({
     if (!parsed) return;
     if (parsed.kind === "invalid") {
       setCommandNotice(parsed.message);
+      return;
+    }
+    if (parsed.kind === "login") {
+      setLoginEntry({ provider: parsed.provider });
       return;
     }
     if (parsed.kind === "model_picker") {
@@ -334,6 +346,7 @@ export function Desktop({
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
       if (
+        loginEntry !== null ||
         modelSearch !== null ||
         mode === "settings" ||
         e.key !== "Escape" ||
@@ -358,21 +371,39 @@ export function Desktop({
     };
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
-  }, [mode, perform, commandMode, isInput, modelSearch]);
+  }, [mode, perform, commandMode, isInput, modelSearch, loginEntry]);
   useEffect(() => {
     setModelSearch(null);
+    setLoginEntry(null);
   }, [mode, d.epoch]);
   useEffect(() => {
-    if (modelSearch !== null) return;
+    if (modelSearch !== null || loginEntry !== null) return;
     if (isInput) draftInput.current?.focus();
     else if (isAsk) queryInput.current?.focus();
-  }, [modelSearch, isInput, isAsk]);
+  }, [modelSearch, isInput, isAsk, loginEntry]);
   const message =
     notice || (d.notice ? errorMessage(d.notice, state.shortcuts.macos) : "");
   const translationError = current && model.phase === "error";
   const translation =
     d.translation ||
     (current && model.phase !== "running" ? model.message : "正在翻译…");
+  if (loginEntry !== null)
+    return (
+      <AccountLogin
+        provider={loginEntry.provider}
+        request={requestLogin}
+        perform={perform}
+        onClose={() => setLoginEntry(null)}
+        onComplete={(provider) => {
+          setLoginEntry(null);
+          if (isAsk || isInput) {
+            if (isInput) setInput("");
+            else setQuery("");
+            setModelSearch(provider);
+          }
+        }}
+      />
+    );
   if (mode === "idle")
     return (
       <main className="edge">
@@ -501,6 +532,7 @@ export function Desktop({
         model={model}
         search={modelSearch}
         loadCatalog={loadModelCatalog}
+        onLogin={(provider) => setLoginEntry({ provider })}
         perform={perform}
         onClose={(applied) => {
           setModelSearch(null);
@@ -842,6 +874,7 @@ export function Desktop({
       onBack={back}
       loadCatalog={loadModelCatalog}
       initialPage={settingsPage}
+      onLogin={(provider) => setLoginEntry({ provider })}
     />
   );
 }

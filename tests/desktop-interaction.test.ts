@@ -6,6 +6,7 @@ import {
   initialState,
   type DesktopState,
   type ModelCatalog,
+  type RequestLogin,
 } from "../apps/desktop/src/api";
 
 const dom = new Window();
@@ -70,6 +71,7 @@ async function mount(
     offset?: number,
   ) => Promise<ModelCatalog> = catalog,
   onPerform?: Perform,
+  requestLogin?: RequestLogin,
 ) {
   const element = document.createElement("div");
   document.body.append(element);
@@ -86,6 +88,7 @@ async function mount(
           state: value,
           perform,
           loadModelCatalog: loadCatalog,
+          requestLogin,
         }),
       ),
     );
@@ -838,7 +841,7 @@ test("command suggestions complete prefixes and escaped slash text follows norma
     expect(ui.element.querySelector('[aria-label="应用命令"]')).not.toBeNull();
     expect(
       ui.element.querySelectorAll('[aria-label="应用命令"] .action'),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     await ui.key("ArrowDown");
     expect(ui.element.querySelector(".action.selected")!.textContent).toContain(
       "/model",
@@ -1197,6 +1200,169 @@ test("Tab leaves command arguments and escaped text alone and preserves argument
       expect(field().value).toBe(text);
     }
     expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("subscription login opens from slash commands, masks authorization prompts and returns to model selection", async () => {
+  const requests: Record<string, unknown>[] = [];
+  let complete = false;
+  const request: RequestLogin = async (entry) => {
+    requests.push(entry);
+    if (entry.action === "providers")
+      return {
+        providers: [
+          {
+            id: "openai-codex",
+            provider: "openai-codex",
+            name: "ChatGPT subscription",
+          },
+        ],
+      };
+    if (entry.action === "input") {
+      complete = true;
+      return {
+        attempt: "ui-attempt",
+        provider: "openai-codex",
+        phase: "waiting",
+      };
+    }
+    if (entry.action === "cancel")
+      return {
+        attempt: "ui-attempt",
+        provider: "openai-codex",
+        phase: "cancelled",
+      };
+    return {
+      attempt: "ui-attempt",
+      provider: "openai-codex",
+      phase: complete ? "complete" : "prompt",
+      url: "https://auth.openai.com/oauth/authorize?state=synthetic",
+      prompt: complete
+        ? undefined
+        : {
+            id: 1,
+            message: "Authorization code",
+            secret: true,
+            allowEmpty: false,
+          },
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/subscribe");
+    await ui.key("Enter");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "搜索订阅服务商",
+    );
+    await ui.key("Enter");
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.type).toBe(
+      "password",
+    );
+    expect(ui.calls).toEqual([
+      { command: "open_login_url", args: { attempt: "ui-attempt" } },
+    ]);
+    await ui.type("synthetic-callback-code");
+    await ui.key("Enter", true);
+    expect(requests.filter((entry) => entry.action === "input")).toHaveLength(
+      0,
+    );
+    await ui.key("Enter");
+    expect(requests.filter((entry) => entry.action === "input")).toHaveLength(
+      1,
+    );
+    expect(ui.element.textContent).not.toContain("synthetic-callback-code");
+    await act(async () => {
+      await Bun.sleep(160);
+    });
+    expect(ui.element.querySelector(".account-login")).toBeNull();
+    expect(ui.element.querySelector(".model-picker")).not.toBeNull();
+    expect(
+      ui.calls.some((call) =>
+        [
+          "ask_text",
+          "ask_question",
+          "translate_text",
+          "save_provider",
+        ].includes(call.command),
+      ),
+    ).toBe(false);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("Escape cancels an authorization attempt and restores the original command", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const request: RequestLogin = async (entry) => {
+    requests.push(entry);
+    if (entry.action === "providers") return { providers: [] };
+    return {
+      attempt: "cancel-attempt",
+      provider: "anthropic",
+      phase: entry.action === "cancel" ? "cancelled" : "waiting",
+    };
+  };
+  const ui = await mount(state("ask"), catalog, undefined, request);
+  try {
+    await ui.type("/login anthropic");
+    await ui.key("Enter");
+    expect(ui.element.querySelector(".account-login")).not.toBeNull();
+    await ui.key("Escape");
+    expect(
+      requests.some(
+        (entry) =>
+          entry.action === "cancel" && entry.attempt === "cancel-attempt",
+      ),
+    ).toBe(true);
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe(
+      "/login anthropic",
+    );
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("SDK browser-session prompts open a private window without exposing a cookie input", async () => {
+  const request: RequestLogin = async (entry) => {
+    if (entry.action === "providers")
+      return {
+        providers: [
+          { id: "perplexity", name: "Perplexity", provider: "perplexity" },
+        ],
+      };
+    return {
+      attempt: "browser-attempt",
+      provider: "perplexity",
+      phase: entry.action === "cancel" ? "cancelled" : "prompt",
+      prompt: {
+        id: 1,
+        message: "Complete SSO in the private window",
+        secret: true,
+        allowEmpty: false,
+        browser: {
+          url: "https://www.perplexity.ai/auth/signin",
+          cookieNames: ["__Secure-session"],
+        },
+      },
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login perplexity");
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([
+      {
+        command: "open_login_browser",
+        args: { attempt: "browser-attempt", prompt: 1 },
+      },
+    ]);
+    expect(ui.element.querySelector("input, textarea")).toBeNull();
+    expect(ui.element.textContent).not.toContain("__Secure-session");
+    await ui.key("Escape");
+    expect(ui.element.querySelector(".account-login")).toBeNull();
   } finally {
     await ui.close();
   }

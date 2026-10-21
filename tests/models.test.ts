@@ -36,7 +36,13 @@ test("SDK catalog supplies provider metadata and bounded model pages without exp
   }
   expect(
     list.providers.find((entry) => entry.id === "openai-codex")?.supported,
+  ).toBe(true);
+  expect(
+    list.providers.find((entry) => entry.id === "openai-codex")?.apiKey,
   ).toBe(false);
+  expect(
+    list.providers.find((entry) => entry.id === "openai-codex")?.login,
+  ).toBe("openai-codex");
   expect(
     models
       .list("deepseek")
@@ -68,6 +74,9 @@ test("governed models preserve SDK native protocols, endpoints and output limits
     ["openai", "openai-responses"],
     ["anthropic", "anthropic-messages"],
     ["google", "google-generative-ai"],
+    ["openai-codex", "openai-codex-responses"],
+    ["google-gemini-cli", "google-gemini-cli"],
+    ["openrouter", "openrouter"],
   ]) {
     const entry = models.list(provider!).models[0]!;
     const original = models.resolve(provider!, entry.id);
@@ -240,6 +249,24 @@ test("production worker exposes the SDK catalog and requires verified governed s
             })
           ).ok,
         ).toBe(true);
+        const logins = await request("auth.providers");
+        expect(logins.ok).toBe(true);
+        for (const provider of [
+          "openai-codex",
+          "anthropic",
+          "kimi-code",
+          "github-copilot",
+          "google-gemini-cli",
+        ]) {
+          expect(
+            (logins.payload.providers as { provider: string }[]).some(
+              (entry) => entry.provider === provider,
+            ),
+          ).toBe(true);
+        }
+        expect(
+          (await request("auth.start", { provider: "not-a-provider" })).ok,
+        ).toBe(false);
         const catalog = await request("model.catalog", {
           provider: "deepseek",
         });

@@ -285,3 +285,21 @@ test("Tab completion fills the selected command without consuming arguments or e
   expect(completeCommand("/mo\ntext", 0)).toBeNull();
   expect(completeCommand("ordinary text", 0)).toBeNull();
 });
+
+test("subscription commands remain local and support the subscribe alias", () => {
+  expect(parseCommand("/login")).toEqual({
+    kind: "login",
+    provider: undefined,
+  });
+  expect(parseCommand("/subscribe anthropic")).toEqual({
+    kind: "login",
+    provider: "anthropic",
+  });
+  expect(parseCommand("/login openai-codex-device")).toEqual({
+    kind: "login",
+    provider: "openai-codex-device",
+  });
+  expect(parseCommand("/login bad/provider")?.kind).toBe("invalid");
+  expect(parseCommand("/login one two")?.kind).toBe("invalid");
+  expect(completeCommand("/lo", 0)).toEqual({ text: "/login ", caret: 7 });
+});
