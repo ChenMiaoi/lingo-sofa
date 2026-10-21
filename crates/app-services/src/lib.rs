@@ -33,6 +33,13 @@ impl Default for Settings {
         }
     }
 }
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsPatch {
+    pub target: Option<String>,
+    pub pinned: Option<bool>,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
@@ -96,7 +103,7 @@ enum Command {
     },
     Cancel,
     Compact,
-    Settings(Settings),
+    Settings(SettingsPatch, Option<SyncSender<Result<(), &'static str>>>),
     Shutdown(SyncSender<()>),
 }
 #[derive(Clone)]
@@ -255,7 +262,29 @@ impl Service {
     }
     pub fn settings(&self, settings: Settings) -> Result<(), &'static str> {
         validate_settings(&settings)?;
-        self.send(Command::Settings(settings))
+        self.send(Command::Settings(
+            SettingsPatch {
+                target: Some(settings.target),
+                pinned: Some(settings.pinned),
+            },
+            None,
+        ))
+    }
+    pub fn patch_settings(&self, patch: SettingsPatch) -> Result<(), &'static str> {
+        if patch.target.is_none() && patch.pinned.is_none() {
+            return Err("invalid_settings");
+        }
+        if let Some(target) = &patch.target {
+            validate_settings(&Settings {
+                target: target.clone(),
+                ..Settings::default()
+            })?;
+        }
+        let (reply, result) = mpsc::sync_channel(1);
+        self.send(Command::Settings(patch, Some(reply)))?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")?
     }
     pub fn shutdown(&self) {
         let (tx, rx) = mpsc::sync_channel(1);
@@ -543,12 +572,24 @@ fn serve(
                         v.phase = "compacting".into();
                         v.message = "正在压缩会话…".into();
                     }
-                    Command::Settings(settings) => {
-                        validate_settings(&settings)?;
-                        let body =
-                            serde_json::to_string(&settings).map_err(|_| "invalid_settings")?;
-                        db.execute("INSERT INTO settings(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body",[body]).map_err(|_|"settings_write_failed")?;
-                        state.lock().unwrap().settings = settings;
+                    Command::Settings(patch, reply) => {
+                        let result = (|| -> Result<(), &'static str> {
+                            let previous = state.lock().unwrap().settings.clone();
+                            let settings = Settings {
+                                target: patch.target.unwrap_or(previous.target),
+                                pinned: patch.pinned.unwrap_or(previous.pinned),
+                            };
+                            validate_settings(&settings)?;
+                            let body =
+                                serde_json::to_string(&settings).map_err(|_| "invalid_settings")?;
+                            db.execute("INSERT INTO settings(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body",[body]).map_err(|_|"settings_write_failed")?;
+                            state.lock().unwrap().settings = settings;
+                            Ok(())
+                        })();
+                        if let Some(reply) = reply {
+                            let _ = reply.send(result);
+                        }
+                        result?;
                     }
                     Command::Shutdown(_) => unreachable!(),
                 }

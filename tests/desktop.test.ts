@@ -1,3 +1,8 @@
+import {
+  commandSuggestions,
+  parseCommand,
+  unescapeCommandText,
+} from "../apps/desktop/src/commands";
 import { expect, test } from "bun:test";
 import {
   errorMessage,
@@ -215,4 +220,51 @@ test("macOS shortcut hints use native symbols while Windows keeps existing text"
     "Command、Option 或 Control",
   );
   expect(errorMessage("shortcut_invalid_0", false)).toContain("Ctrl 或 Alt");
+});
+
+test("slash commands parse configuration locally and preserve nested model IDs", () => {
+  expect(parseCommand("/model openrouter/anthropic/claude-test")).toEqual({
+    kind: "model",
+    model: { provider: "openrouter", modelId: "anthropic/claude-test" },
+  });
+  expect(parseCommand("/settings shortcuts")).toEqual({
+    kind: "settings",
+    page: "shortcuts",
+  });
+  expect(parseCommand("/model")).toEqual({ kind: "model_picker", search: "" });
+  expect(parseCommand("/model Claude Sonnet")).toEqual({
+    kind: "model_picker",
+    search: "Claude Sonnet",
+  });
+  expect(parseCommand("/new")).toEqual({ kind: "new" });
+  expect(parseCommand("/language en")).toEqual({
+    kind: "preferences",
+    patch: { target: "English" },
+  });
+  expect(parseCommand("/pin off")).toEqual({
+    kind: "preferences",
+    patch: { pinned: false },
+  });
+  expect(parseCommand("/help")).toEqual({ kind: "help" });
+  expect(commandSuggestions("/se").map((entry) => entry.command)).toEqual([
+    "/settings",
+  ]);
+  for (const text of [
+    "/model openai/",
+    "/model /model",
+    "/model openai/model extra",
+    "/settings unknown",
+    "/pin yes",
+    "/new extra",
+    "/language constructor",
+    "/language __proto__",
+    "/language en extra",
+    "/unknown private-key",
+    "/language en\nordinary text",
+  ]) {
+    expect(parseCommand(text)?.kind).toBe("invalid");
+  }
+  expect(parseCommand("Translate /settings literally")).toBeNull();
+  expect(parseCommand("//usr/local")).toBeNull();
+  expect(unescapeCommandText(" //usr/local")).toBe(" /usr/local");
 });

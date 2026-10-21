@@ -10,8 +10,10 @@ function App() {
     setNotice("");
     try {
       await call(command, args);
+      return true;
     } catch (e) {
       setNotice(errorMessage(e, state.shortcuts.macos));
+      return false;
     }
   };
   useEffect(() => {

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { formatShortcut } from "./keyboard";
 import { isImeKey, type DesktopState } from "./api";
 import { ModelProviders, type LoadModelCatalog } from "./model-providers";
 import { ShortcutSettings } from "./shortcuts";
@@ -9,7 +10,7 @@ const categories = [
   { id: "preferences", title: "翻译偏好", detail: "默认语言与窗口置顶" },
   { id: "shortcuts", title: "快捷键", detail: "全局组合与启用状态" },
 ] as const;
-type Page = "home" | (typeof categories)[number]["id"];
+export type SettingsPage = "home" | (typeof categories)[number]["id"];
 
 export function Settings({
   state,
@@ -17,25 +18,27 @@ export function Settings({
   perform,
   onBack,
   loadCatalog,
+  initialPage = "home",
 }: {
   state: DesktopState;
   notice: string;
   perform: Perform;
   onBack: () => void;
   loadCatalog: LoadModelCatalog;
+  initialPage?: SettingsPage;
 }) {
   const { model } = state;
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<SettingsPage>(initialPage);
   const backButton = useRef<HTMLButtonElement>(null);
   const categoryButtons = useRef<(HTMLButtonElement | null)[]>([]);
-  const previousPage = useRef<Page>("home");
+  const previousPage = useRef<SettingsPage>("home");
   const back = () => (page === "home" ? onBack() : setPage("home"));
   useEffect(() => {
-    if (page === "home" && previousPage.current !== "home") {
+    if (page === "home") {
       const index = categories.findIndex(
         (category) => category.id === previousPage.current,
       );
-      categoryButtons.current[index]?.focus();
+      categoryButtons.current[Math.max(index, 0)]?.focus();
     } else {
       backButton.current?.focus();
     }
@@ -53,6 +56,11 @@ export function Settings({
   }, [page, onBack]);
   const title =
     categories.find((category) => category.id === page)?.title ?? "设置";
+  const values = {
+    models: `${model.defaultModel.provider} / ${model.defaultModel.modelId}`,
+    preferences: model.settings.target,
+    shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/3 已启用`,
+  };
   return (
     <main className="launcher settings-launcher">
       <header className="command-header settings-header" data-tauri-drag-region>
@@ -99,6 +107,9 @@ export function Settings({
             <span className="action-copy">
               <strong>{category.title}</strong>
               <small>{category.detail}</small>
+            </span>
+            <span className="setting-current-value" title={values[category.id]}>
+              {values[category.id]}
             </span>
             <span className="category-chevron" aria-hidden="true">
               ›
@@ -164,7 +175,12 @@ export function Settings({
         </div>
       </section>
       <footer className="launcher-footer" role="status">
-        <span>{notice || "设置保存在本机"}</span>
+        <span>
+          {notice ||
+            (page === "home"
+              ? `↑↓ 选择 · ${formatShortcut("Enter", state.shortcuts.macos)} 打开`
+              : "设置保存在本机")}
+        </span>
         <span>{page === "home" ? "Esc 返回导航" : "Esc 返回设置"}</span>
       </footer>
     </main>

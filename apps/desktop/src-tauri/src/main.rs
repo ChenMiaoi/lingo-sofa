@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod shell;
 mod shortcuts;
-use lingo_sofa_app_services::{ModelSelection, Service, Settings};
+use lingo_sofa_app_services::{ModelSelection, Service, Settings, SettingsPatch};
 use shell::{Mode, Shell};
 use std::sync::Mutex;
 use tauri::{
@@ -156,6 +156,16 @@ fn clear_context(
     shell.clear(&app, &service).map_err(String::from)
 }
 #[tauri::command]
+fn new_session(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<Shell>,
+    service: tauri::State<Service>,
+) -> Result<(), String> {
+    allowed(&window)?;
+    shell.new_session(&app, &service).map_err(String::from)
+}
+#[tauri::command]
 async fn model_catalog(
     window: tauri::WebviewWindow,
     service: tauri::State<'_, Service>,
@@ -219,6 +229,19 @@ fn save_settings(
 ) -> Result<(), String> {
     allowed(&window)?;
     service.settings(settings).map_err(String::from)
+}
+#[tauri::command]
+async fn patch_settings(
+    window: tauri::WebviewWindow,
+    service: tauri::State<'_, Service>,
+    patch: SettingsPatch,
+) -> Result<(), String> {
+    allowed(&window)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.patch_settings(patch))
+        .await
+        .map_err(|_| "service_unavailable".to_string())?
+        .map_err(String::from)
 }
 #[tauri::command]
 fn copy_result(
@@ -330,12 +353,14 @@ fn main() {
             ask_text,
             ask_question,
             clear_context,
+            new_session,
             model_catalog,
             save_provider,
             select_model,
             cancel_task,
             compact_session,
             save_settings,
+            patch_settings,
             save_shortcuts,
             copy_result,
             collapse

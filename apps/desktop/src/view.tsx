@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { formatShortcut } from "./keyboard";
-import { Settings } from "./settings";
+import { Settings, type SettingsPage } from "./settings";
+import {
+  commandSuggestions,
+  isCommandInput,
+  parseCommand,
+  unescapeCommandText,
+} from "./commands";
+import { ModelPicker } from "./model-picker";
 import type { LoadModelCatalog } from "./model-providers";
 import {
   loadModelCatalog as defaultLoadModelCatalog,
@@ -15,7 +22,7 @@ import {
 export type Perform = (
   command: string,
   args?: Record<string, unknown>,
-) => Promise<void>;
+) => Promise<void | boolean>;
 const paths: Record<string, React.ReactNode> = {
   sofa: (
     <>
@@ -99,6 +106,12 @@ export function Desktop({
   const [selected, setSelected] = useState(0);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>("home");
+  const [modelSearch, setModelSearch] = useState<string | null>(null);
+  const [commandNotice, setCommandNotice] = useState("");
+  const commandInFlight = useRef(false);
+  const commandNoticeVersion = useRef(0);
+  const commandList = useRef<HTMLElement>(null);
   const previousView = useRef({
     mode,
     epoch: d.epoch,
@@ -112,9 +125,14 @@ export function Desktop({
     model.phase === "running" ||
     model.phase === "compacting";
   const current = model.revision === d.modelRevision;
-  const options = matchingActions(query);
+  const options = query.trimStart().startsWith("//")
+    ? []
+    : matchingActions(query);
   const isAsk = mode === "ask" || mode === "ask-result";
   const isInput = mode === "input";
+  const commandText = isInput ? input : query;
+  const commandMode = (isInput || isAsk) && isCommandInput(commandText);
+  const commands = commandMode ? commandSuggestions(commandText) : [];
   const inputActions = [
     {
       id: "translate",
@@ -136,23 +154,110 @@ export function Desktop({
   const visibleActions = isInput ? inputActions : options;
   const go = (mode: Mode) => void perform("set_mode", { mode });
   const back = () => void perform("back_reading");
+  const openSettings = (page: SettingsPage = "home") => {
+    setSettingsPage(page);
+    go("settings");
+  };
+  const executeCommand = (text: string) => {
+    const parsed = parseCommand(text);
+    if (!parsed) return;
+    if (parsed.kind === "invalid") {
+      setCommandNotice(parsed.message);
+      return;
+    }
+    if (parsed.kind === "model_picker") {
+      setModelSearch(parsed.search);
+      return;
+    }
+    if (parsed.kind === "help") {
+      if (isInput) setInput("/");
+      else setQuery("/");
+      return;
+    }
+    if (parsed.kind === "settings") {
+      if (isInput) setInput("");
+      else setQuery("");
+      openSettings(parsed.page);
+      return;
+    }
+    if (commandInFlight.current) return;
+    commandInFlight.current = true;
+    const version = commandNoticeVersion.current;
+    setCommandNotice("正在应用设置…");
+    void perform(
+      parsed.kind === "new"
+        ? "new_session"
+        : parsed.kind === "model"
+          ? "select_model"
+          : "patch_settings",
+      parsed.kind === "model"
+        ? { model: parsed.model }
+        : parsed.kind === "preferences"
+          ? { patch: parsed.patch }
+          : undefined,
+    )
+      .then(
+        (applied) => {
+          if (version === commandNoticeVersion.current)
+            setCommandNotice(
+              applied === false
+                ? ""
+                : parsed.kind === "new"
+                  ? "已新建会话。"
+                  : "设置已保存。",
+            );
+        },
+        (error) => {
+          if (version === commandNoticeVersion.current)
+            setCommandNotice(errorMessage(error, state.shortcuts.macos));
+        },
+      )
+      .finally(() => {
+        commandInFlight.current = false;
+      });
+  };
+  const commandChoice = (index: number) => {
+    const suggestion = commands[index];
+    const name = commandText.trim().split(/\s+/, 1)[0]?.toLowerCase();
+    executeCommand(
+      suggestion &&
+        !/\s/.test(commandText.trim()) &&
+        name !== suggestion.command
+        ? suggestion.command
+        : commandText,
+    );
+  };
   const execute = () => {
+    if (commandMode) {
+      commandChoice(selected);
+      return;
+    }
     if (busy) return;
     const action = visibleActions[selected];
     if (isInput) {
       if (input.trim())
         void perform(
           action?.id === "question" ? "ask_text" : "translate_text",
-          { text: input },
+          { text: unescapeCommandText(input) },
         );
       return;
     }
-    const question = action?.question ?? query.trim();
+    const question = action?.question ?? unescapeCommandText(query.trim());
     if (question) void perform("ask_question", { question });
   };
   useEffect(() => {
     setSelected(0);
   }, [query]);
+  useEffect(() => {
+    commandNoticeVersion.current++;
+    setCommandNotice("");
+    if (isCommandInput(input)) setSelected(0);
+  }, [input, query]);
+  useEffect(() => {
+    commandList.current
+      ?.querySelector<HTMLElement>(".action.selected")
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [selected, commandMode]);
   useEffect(() => {
     const previous = previousView.current;
     const returningFromSettings =
@@ -180,6 +285,7 @@ export function Desktop({
         setSelected(0);
       }
     }
+    if (mode !== "settings") setSettingsPage("home");
     if (mode === "input") draftInput.current?.focus();
     if (mode === "ask" || mode === "ask-result") queryInput.current?.focus();
   }, [mode, d.epoch, d.modelRevision]);
@@ -194,8 +300,20 @@ export function Desktop({
   }, [input, isInput]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
-      if (mode === "settings" || e.key !== "Escape" || isImeKey(e)) return;
+      if (
+        modelSearch !== null ||
+        mode === "settings" ||
+        e.key !== "Escape" ||
+        isImeKey(e)
+      )
+        return;
       e.preventDefault();
+      if (commandMode) {
+        if (isInput) setInput("");
+        else setQuery("");
+        setCommandNotice("");
+        return;
+      }
       if (mode === "ask-result") {
         void perform("cancel_task");
         go("ask");
@@ -207,7 +325,15 @@ export function Desktop({
     };
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
-  }, [mode, perform]);
+  }, [mode, perform, commandMode, isInput, modelSearch]);
+  useEffect(() => {
+    setModelSearch(null);
+  }, [mode, d.epoch]);
+  useEffect(() => {
+    if (modelSearch !== null) return;
+    if (isInput) draftInput.current?.focus();
+    else if (isAsk) queryInput.current?.focus();
+  }, [modelSearch, isInput, isAsk]);
   const message =
     notice || (d.notice ? errorMessage(d.notice, state.shortcuts.macos) : "");
   const translationError = current && model.phase === "error";
@@ -285,7 +411,7 @@ export function Desktop({
               : "快捷键未启用"}
           </kbd>
         </button>
-        <button onClick={() => go("settings")}>
+        <button onClick={() => openSettings()}>
           <Icon name="settings" />
           设置
         </button>
@@ -322,7 +448,7 @@ export function Desktop({
             <button onClick={() => void perform("cancel_task")}>停止</button>
           )}
           {translationError && !model.keyConfigured && (
-            <button onClick={() => go("settings")}>添加账户</button>
+            <button onClick={() => openSettings()}>添加账户</button>
           )}
           <button onClick={() => void perform("collapse")}>
             <Icon name="close" />
@@ -336,6 +462,22 @@ export function Desktop({
         )}
       </main>
     );
+  if ((isAsk || isInput) && modelSearch !== null)
+    return (
+      <ModelPicker
+        model={model}
+        search={modelSearch}
+        loadCatalog={loadModelCatalog}
+        perform={perform}
+        onClose={(applied) => {
+          setModelSearch(null);
+          if (applied) {
+            if (isInput) setInput("");
+            else setQuery("");
+          }
+        }}
+      />
+    );
   if (isAsk || isInput)
     return (
       <main className={`launcher${isInput ? " input-launcher" : ""}`}>
@@ -348,7 +490,7 @@ export function Desktop({
             <textarea
               ref={draftInput}
               aria-label="需要翻译的原文或新问题"
-              placeholder="输入文字，翻译或提问…"
+              placeholder="输入文字，翻译或提问；/ 打开命令…"
               rows={1}
               maxLength={5000}
               value={input}
@@ -356,21 +498,25 @@ export function Desktop({
               onKeyDown={(e) => {
                 if (isImeKey(e.nativeEvent)) return;
                 if (
-                  e.altKey &&
+                  (e.altKey || commandMode) &&
                   (e.key === "ArrowDown" || e.key === "ArrowUp")
                 ) {
                   e.preventDefault();
+                  const count = commandMode
+                    ? Math.max(commands.length, 1)
+                    : inputActions.length;
                   setSelected(
                     (i) =>
-                      (i +
-                        (e.key === "ArrowDown" ? 1 : -1) +
-                        inputActions.length) %
-                      inputActions.length,
+                      (i + (e.key === "ArrowDown" ? 1 : -1) + count) % count,
                   );
                 }
                 if (
                   !e.shiftKey &&
-                  shouldSubmitQuestion(e.nativeEvent, busy, input)
+                  shouldSubmitQuestion(
+                    e.nativeEvent,
+                    commandMode ? false : busy,
+                    input,
+                  )
                 ) {
                   e.preventDefault();
                   execute();
@@ -382,14 +528,17 @@ export function Desktop({
               ref={queryInput}
               aria-label="Ask 问题或动作"
               placeholder={
-                mode === "ask-result" ? "继续追问这段内容" : "解释这段内容"
+                mode === "ask-result"
+                  ? "继续追问，或 / 打开命令"
+                  : "解释这段内容，或 / 打开命令"
               }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (isImeKey(e.nativeEvent)) return;
+                if (isImeKey(e.nativeEvent) || (commandMode && e.shiftKey))
+                  return;
                 if (
-                  mode === "ask" &&
+                  (mode === "ask" || commandMode) &&
                   (e.key === "ArrowDown" || e.key === "ArrowUp")
                 ) {
                   e.preventDefault();
@@ -397,21 +546,30 @@ export function Desktop({
                     (i) =>
                       (i +
                         (e.key === "ArrowDown" ? 1 : -1) +
-                        Math.max(options.length, 1)) %
-                      Math.max(options.length, 1),
+                        Math.max(
+                          commandMode ? commands.length : options.length,
+                          1,
+                        )) %
+                      Math.max(
+                        commandMode ? commands.length : options.length,
+                        1,
+                      ),
                   );
                 }
                 if (
                   shouldSubmitQuestion(
                     e.nativeEvent,
-                    busy,
+                    commandMode ? false : busy,
                     query || options[selected]?.label || "",
                   )
                 ) {
                   e.preventDefault();
-                  if (mode === "ask-result") {
+                  if (commandMode) execute();
+                  else if (mode === "ask-result") {
                     if (query.trim())
-                      void perform("ask_question", { question: query });
+                      void perform("ask_question", {
+                        question: unescapeCommandText(query),
+                      });
                   } else execute();
                 }
               }}
@@ -459,7 +617,7 @@ export function Desktop({
             className="icon-button"
             title="设置"
             aria-label="设置"
-            onClick={() => go("settings")}
+            onClick={() => openSettings()}
           >
             <Icon name="settings" />
           </button>
@@ -469,7 +627,42 @@ export function Desktop({
             {context.text}
           </section>
         )}
-        {mode === "ask" || isInput ? (
+        {commandMode ? (
+          <section
+            ref={commandList}
+            className="action-list"
+            aria-label="应用命令"
+          >
+            <div className="list-caption">
+              <span>应用命令</span>
+              <span>在本机执行</span>
+            </div>
+            {commands.map((command, index) => (
+              <button
+                key={command.command}
+                className={`action ${index === selected ? "selected" : ""}`}
+                onMouseEnter={() => setSelected(index)}
+                onClick={() => commandChoice(index)}
+              >
+                <span className="action-icon">
+                  <Icon name="settings" />
+                </span>
+                <span className="action-copy">
+                  <strong>
+                    {command.command} · {command.label}
+                  </strong>
+                  <small>{command.detail}</small>
+                </span>
+                {index === selected && <span className="enter-key">↵</span>}
+              </button>
+            ))}
+            {!commands.length && (
+              <p className="quiet-status">
+                未找到命令，输入 / 查看命令；// 提交斜杠正文。
+              </p>
+            )}
+          </section>
+        ) : mode === "ask" || isInput ? (
           <section className="action-list" aria-label="匹配动作">
             <div className="list-caption">
               <span>
@@ -495,7 +688,7 @@ export function Desktop({
                         action.id === "question"
                           ? "ask_text"
                           : "translate_text",
-                        { text: input },
+                        { text: unescapeCommandText(input) },
                       )
                     : void perform("ask_question", {
                         question: action.question,
@@ -590,14 +783,17 @@ export function Desktop({
         )}
         <footer className="launcher-footer">
           <span>
-            {message ||
-              (current && model.phase === "error"
-                ? model.message
-                : isInput
-                  ? `${formatShortcut("Enter", state.shortcuts.macos)} 执行 · ${formatShortcut("Shift+Enter", state.shortcuts.macos)} 换行 · ${formatShortcut("Alt+↑↓", state.shortcuts.macos)} 选择`
-                  : mode === "ask"
-                    ? `↑↓ 选择\u3000 ${state.shortcuts.macos ? "↩" : "↵"} 执行\u3000 Esc 返回阅读`
-                    : `输入问题后 ${formatShortcut("Enter", state.shortcuts.macos)} 继续 · Esc 返回动作`)}
+            {commandNotice ||
+              message ||
+              (commandMode
+                ? `↑↓ 选择命令 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
+                : current && model.phase === "error"
+                  ? model.message
+                  : isInput
+                    ? `${formatShortcut("Enter", state.shortcuts.macos)} 执行 · ${formatShortcut("Shift+Enter", state.shortcuts.macos)} 换行 · ${formatShortcut("Alt+↑↓", state.shortcuts.macos)} 选择`
+                    : mode === "ask"
+                      ? `↑↓ 选择\u3000 ${state.shortcuts.macos ? "↩" : "↵"} 执行\u3000 Esc 返回阅读`
+                      : `输入问题后 ${formatShortcut("Enter", state.shortcuts.macos)} 继续 · Esc 返回动作`)}
           </span>
           <span>{isInput ? "Esc 收起" : "Ask 模式 · 主动展开"}</span>
         </footer>
@@ -610,6 +806,7 @@ export function Desktop({
       perform={perform}
       onBack={back}
       loadCatalog={loadModelCatalog}
+      initialPage={settingsPage}
     />
   );
 }

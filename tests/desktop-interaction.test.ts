@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import React, { act } from "react";
-import { Desktop } from "../apps/desktop/src/view";
+import { Desktop, type Perform } from "../apps/desktop/src/view";
 import {
   initialState,
   type DesktopState,
@@ -69,6 +69,7 @@ async function mount(
     provider?: string,
     offset?: number,
   ) => Promise<ModelCatalog> = catalog,
+  onPerform?: Perform,
 ) {
   const element = document.createElement("div");
   document.body.append(element);
@@ -76,6 +77,7 @@ async function mount(
   const calls: { command: string; args?: Record<string, unknown> }[] = [];
   const perform = async (command: string, args?: Record<string, unknown>) => {
     calls.push({ command, args });
+    return onPerform?.(command, args);
   };
   const render = async (value: DesktopState) => {
     await act(async () =>
@@ -177,7 +179,7 @@ test("accepted Ask clears the sent question, preserves a streaming follow-up dra
     await ui.render(answer);
     expect(ui.element.querySelector("input")!.value).toBe("");
     expect(ui.element.querySelector("input")!.placeholder).toBe(
-      "继续追问这段内容",
+      "继续追问，或 / 打开命令",
     );
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(1);
@@ -569,6 +571,23 @@ test("settings categories navigate independently and preserve shortcut edits acr
     expect(
       ui.element.querySelector(".settings-form")!.hasAttribute("hidden"),
     ).toBe(true);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "模型与服务商",
+    );
+    expect(
+      ui.element.querySelector(
+        '[aria-label="模型与服务商"] .setting-current-value',
+      )!.textContent,
+    ).toBe("deepseek / deepseek-flash");
+    expect(
+      ui.element.querySelector(
+        '[aria-label="翻译偏好"] .setting-current-value',
+      )!.textContent,
+    ).toBe("简体中文");
+    expect(
+      ui.element.querySelector('[aria-label="快捷键"] .setting-current-value')!
+        .textContent,
+    ).toBe("0/3 已启用");
     await ui.click("快捷键");
     expect(
       ui.element.querySelector("#api-key")!.closest("[hidden]"),
@@ -707,6 +726,407 @@ test("late catalog responses never replace another provider's models", async () 
     ].map((option) => option.value);
     expect(options).toContain("test-openai");
     expect(options).not.toContain("deepseek-flash");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("slash configuration commands execute locally in input, Ask and streaming follow-ups", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const value = state(mode);
+    value.model = {
+      ...value.model,
+      phase: "running",
+      output: "A streaming answer",
+    };
+    const ui = await mount(value);
+    try {
+      await ui.type("/unknown synthetic-secret");
+      await ui.key("Enter");
+      expect(ui.calls).toHaveLength(0);
+      expect(ui.element.textContent).toContain("未找到应用命令");
+      await ui.type("/language en");
+      await ui.key("Enter", true);
+      await ui.key("Enter", false, { keyCode: 229 });
+      await ui.key("Enter", false, { shiftKey: true });
+      expect(ui.calls).toHaveLength(0);
+      await ui.key("Enter");
+      expect(ui.calls.at(-1)).toEqual({
+        command: "patch_settings",
+        args: { patch: { target: "English" } },
+      });
+      await ui.type("/model openrouter/anthropic/test-model");
+      await ui.key("Enter");
+      expect(ui.calls.at(-1)).toEqual({
+        command: "select_model",
+        args: {
+          model: { provider: "openrouter", modelId: "anthropic/test-model" },
+        },
+      });
+      await ui.type("/pin off");
+      await ui.key("Enter");
+      expect(ui.calls.at(-1)).toEqual({
+        command: "patch_settings",
+        args: { patch: { pinned: false } },
+      });
+      const calls = ui.calls.length;
+      await ui.key("Escape");
+      expect(ui.calls).toHaveLength(calls);
+      expect(
+        ui.element.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+          "input, textarea",
+        )!.value,
+      ).toBe("");
+      expect(
+        ui.calls.every(
+          (call) =>
+            ![
+              "translate_text",
+              "ask_text",
+              "ask_question",
+              "cancel_task",
+            ].includes(call.command),
+        ),
+      ).toBe(true);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("slash navigation opens the requested settings subpage and returns through the same launcher", async () => {
+  for (const [command, selector] of [
+    ["/settings shortcuts", "#shortcut-input"],
+    ["/settings models", "#provider"],
+    ["/language", "#target"],
+  ]) {
+    const value = state("input");
+    const ui = await mount(value);
+    try {
+      await ui.type(command!);
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        { command: "set_mode", args: { mode: "settings" } },
+      ]);
+      await ui.render({
+        ...value,
+        desktop: { ...value.desktop, mode: "settings" },
+      });
+      expect(
+        ui.element.querySelector(selector!)!.closest("[hidden]"),
+      ).toBeNull();
+      await ui.key("Escape");
+      expect(ui.calls).toHaveLength(1);
+      await ui.key("Escape");
+      expect(ui.calls.at(-1)?.command).toBe("back_reading");
+      await ui.render(value);
+      expect(
+        ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+      ).toBe("");
+      expect(document.activeElement).toBe(ui.element.querySelector("textarea"));
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("command suggestions complete prefixes and escaped slash text follows normal submission", async () => {
+  const value = state("input");
+  const ui = await mount(value);
+  try {
+    await ui.type("/");
+    expect(ui.element.querySelector('[aria-label="应用命令"]')).not.toBeNull();
+    expect(
+      ui.element.querySelectorAll('[aria-label="应用命令"] .action'),
+    ).toHaveLength(7);
+    await ui.key("ArrowDown");
+    expect(ui.element.querySelector(".action.selected")!.textContent).toContain(
+      "/model",
+    );
+    await ui.type("/set");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "set_mode",
+      args: { mode: "settings" },
+    });
+    await ui.type("/pin not-on-or-off");
+    const count = ui.calls.length;
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(count);
+    expect(ui.element.textContent).toContain("命令格式");
+    await ui.type("//usr/local");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "translate_text",
+      args: { text: "/usr/local" },
+    });
+  } finally {
+    await ui.close();
+  }
+});
+
+test("pending configuration commands do not apply twice or report a failed save as success", async () => {
+  const result = Promise.withResolvers<boolean>();
+  const ui = await mount(state("input"), catalog, () => result.promise);
+  try {
+    await ui.type("/pin off");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+    await act(async () => result.resolve(false));
+    expect(ui.element.textContent).not.toContain("设置已保存");
+    await ui.type("/unknown");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("未找到应用命令");
+    expect(ui.calls).toHaveLength(1);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("/model switches inline using only search, arrows and Enter in every launcher", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const value = state(mode);
+    value.model.configuredProviders = ["deepseek", "openai"];
+    const ui = await mount(value);
+    try {
+      await ui.type("/model");
+      await ui.key("Enter");
+      expect(ui.calls).toHaveLength(0);
+      expect(
+        ui.element.querySelector('[aria-label="选择模型"]'),
+      ).not.toBeNull();
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "搜索模型",
+      );
+      expect(ui.element.querySelectorAll(".action")).toHaveLength(2);
+      await ui.key("ArrowDown");
+      expect(
+        ui.element.querySelector(".action.selected")?.textContent,
+      ).toContain("openai/test-openai");
+      await ui.type("OpenAI TEST");
+      expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+      await ui.key("Enter", true);
+      await ui.key("Enter", false, { shiftKey: true });
+      expect(ui.calls).toHaveLength(0);
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        {
+          command: "select_model",
+          args: { model: { provider: "openai", modelId: "test-openai" } },
+        },
+      ]);
+      expect(ui.element.querySelector('[aria-label="选择模型"]')).toBeNull();
+      expect(
+        (ui.element.querySelector("textarea, input") as HTMLInputElement).value,
+      ).toBe("");
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("model search loads all catalog pages and Escape restores the command without cancelling the session", async () => {
+  const offsets: number[] = [];
+  const value = state("input");
+  value.model.configuredProviders = ["openai"];
+  const ui = await mount(value, async (provider, offset = 0) => {
+    offsets.push(offset);
+    return {
+      providers: [],
+      supported: true,
+      total: 2,
+      models: [
+        {
+          id: offset ? "last-page" : "first-page",
+          name: offset ? "Last model" : "First model",
+          contextWindow: 8192,
+        },
+      ],
+    };
+  });
+  try {
+    await ui.type("/model last");
+    await ui.key("Enter");
+    expect(offsets).toEqual([0, 1]);
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+    expect(ui.element.textContent).toContain("openai/last-page");
+    await ui.key("Escape", true);
+    expect(ui.element.querySelector('[aria-label="选择模型"]')).not.toBeNull();
+    await ui.key("Escape");
+    expect(ui.calls).toHaveLength(0);
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe("/model last");
+    expect(document.activeElement).toBe(ui.element.querySelector("textarea"));
+  } finally {
+    await ui.close();
+  }
+});
+
+test("model picker handles no matches, failed saves and duplicate Enter", async () => {
+  const value = state("input");
+  value.model.configuredProviders = ["openai"];
+  const result = Promise.withResolvers<boolean>();
+  const ui = await mount(value, catalog, () => result.promise);
+  try {
+    await ui.type("/model");
+    await ui.key("Enter");
+    await ui.type("absent-model");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(0);
+    expect(ui.element.textContent).toContain("没有匹配的模型");
+    await ui.type("");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+    await act(async () => result.resolve(false));
+    expect(ui.element.textContent).toContain("原默认模型已保留");
+    expect(ui.element.querySelector('[aria-label="选择模型"]')).not.toBeNull();
+  } finally {
+    await ui.close();
+  }
+});
+
+test("/new resets from input or a streaming answer and clears drafts when the new epoch arrives", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const value = state(mode);
+    value.model.phase = "running";
+    const ui = await mount(value);
+    try {
+      await ui.type("/new");
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([{ command: "new_session", args: undefined }]);
+      await ui.render({
+        ...value,
+        desktop: {
+          ...value.desktop,
+          mode: "input",
+          epoch: value.desktop.epoch + 1,
+          context: null,
+          translation: "",
+        },
+        model: {
+          ...value.model,
+          phase: "ready",
+          output: "",
+          sessionReady: false,
+        },
+      });
+      expect(
+        ui.element.querySelector<HTMLTextAreaElement>("textarea")?.value,
+      ).toBe("");
+      expect(ui.element.textContent).not.toContain(context.text);
+      expect(document.activeElement).toBe(ui.element.querySelector("textarea"));
+      await ui.type("a fresh question");
+      await ui.key("ArrowDown", false, { altKey: true });
+      await ui.key("Enter");
+      expect(ui.calls.at(-1)).toEqual({
+        command: "ask_text",
+        args: { text: "a fresh question" },
+      });
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("confirming the current model leaves the running session intact", async () => {
+  const value = state("ask-result");
+  value.model.phase = "running";
+  value.model.configuredProviders = ["deepseek"];
+  const ui = await mount(value);
+  try {
+    await ui.type("/model");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(0);
+    expect(ui.element.querySelector('[aria-label="选择模型"]')).toBeNull();
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe("");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("/model without credentials stays inline through provider, model and password entry using only the keyboard", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    const value = state(mode);
+    value.model.keyConfigured = false;
+    const ui = await mount(value);
+    try {
+      await ui.type("/model");
+      await ui.key("Enter");
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "搜索服务商",
+      );
+      expect(ui.element.textContent).not.toContain("OAuth only");
+      await ui.key("ArrowDown");
+      expect(
+        ui.element.querySelector(".action.selected")?.textContent,
+      ).toContain("OpenAI");
+      await ui.key("Enter");
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "搜索模型",
+      );
+      expect(ui.element.textContent).toContain("openai/test-openai");
+      await ui.key("Enter");
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "服务商 API Key",
+      );
+      expect(
+        ui.element.querySelector("#provider, #api-key, #default-model"),
+      ).toBeNull();
+      await ui.key("Enter");
+      expect(ui.calls).toHaveLength(0);
+      await ui.type("synthetic-picker-key");
+      expect(ui.element.querySelector<HTMLInputElement>("input")?.type).toBe(
+        "password",
+      );
+      await ui.key("Enter", true);
+      expect(ui.calls).toHaveLength(0);
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([
+        {
+          command: "save_provider",
+          args: { provider: "openai", key: "synthetic-picker-key" },
+        },
+        {
+          command: "select_model",
+          args: { model: { provider: "openai", modelId: "test-openai" } },
+        },
+      ]);
+      expect(ui.element.querySelector(".model-picker")).toBeNull();
+      expect(ui.element.textContent).not.toContain("synthetic-picker-key");
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("failed inline credential save never switches and Escape discards its password without opening settings", async () => {
+  const ui = await mount(state("input"), catalog, async () => false);
+  try {
+    await ui.type("/model");
+    await ui.key("Enter");
+    await ui.type("openai");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    await ui.type("synthetic-rejected-key");
+    await ui.key("Enter");
+    expect(ui.calls.map((call) => call.command)).toEqual(["save_provider"]);
+    expect(ui.element.textContent).toContain("凭证保存失败");
+    await ui.key("Escape");
+    expect(ui.element.querySelector('input[type="password"]')).toBeNull();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("搜索模型");
+    await ui.key("Escape");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "搜索服务商",
+    );
+    await ui.key("Escape");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe("/model");
+    expect(ui.calls.some((call) => call.command === "set_mode")).toBe(false);
   } finally {
     await ui.close();
   }

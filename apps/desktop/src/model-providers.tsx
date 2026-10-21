@@ -124,136 +124,152 @@ export function ModelProviders({
           ))}
         </div>
       )}
-      <label htmlFor="provider">服务商</label>
-      <div className="provider-row">
-        <select
-          id="provider"
-          value={provider}
-          disabled={saving}
-          onChange={(event) => chooseProvider(event.target.value)}
-        >
-          {!providers.some((entry) => entry.id === provider) && (
-            <option value={provider}>{provider}</option>
-          )}
-          {providers.map((entry) => (
-            <option
-              key={entry.id}
-              value={entry.id}
-              disabled={
-                !entry.supported &&
-                !model.configuredProviders.includes(entry.id)
-              }
+      <div className="model-setting-row">
+        <label htmlFor="provider">服务商</label>
+        <div className="setting-control">
+          <div className="provider-row">
+            <select
+              id="provider"
+              value={provider}
+              disabled={saving}
+              onChange={(event) => chooseProvider(event.target.value)}
             >
-              {entry.name}
-              {model.configuredProviders.includes(entry.id) ? " · 已配置" : ""}
-              {entry.supported ? "" : " · 暂不支持此认证方式"}
-            </option>
-          ))}
-        </select>
-        <button
-          disabled={saving || loading}
-          onClick={() => setRefresh((value) => value + 1)}
-        >
-          刷新列表
-        </button>
+              {!providers.some((entry) => entry.id === provider) && (
+                <option value={provider}>{provider}</option>
+              )}
+              {providers.map((entry) => (
+                <option
+                  key={entry.id}
+                  value={entry.id}
+                  disabled={
+                    !entry.supported &&
+                    !model.configuredProviders.includes(entry.id)
+                  }
+                >
+                  {entry.name}
+                  {model.configuredProviders.includes(entry.id)
+                    ? " · 已配置"
+                    : ""}
+                  {entry.supported ? "" : " · 暂不支持此认证方式"}
+                </option>
+              ))}
+            </select>
+            <button
+              disabled={saving || loading}
+              onClick={() => setRefresh((value) => value + 1)}
+            >
+              刷新列表
+            </button>
+          </div>
+        </div>
       </div>
-      <p>
-        服务商与模型来自 oh-my-pi 目录。目前支持 API
-        Key；OAuth、云平台特殊凭证和自定义服务地址尚未接入。
-      </p>
-      <label htmlFor="api-key">
-        API Key <span>{configured ? "已加密保存" : "尚未配置"}</span>
-      </label>
-      <div className="key-row">
-        <input
-          id="api-key"
-          type="password"
-          autoComplete="off"
-          placeholder="输入 API Key，仅加密保存在本机"
-          value={key}
-          disabled={saving || !canConfigure}
-          onChange={(event) => setKey(event.target.value)}
-        />
-        <button
-          disabled={!key.trim() || saving || !canConfigure}
-          onClick={() => void saveKey(key.trim())}
-        >
-          保存凭证
-        </button>
+      <div className="model-setting-row">
+        <label htmlFor="api-key">API Key</label>
+        <div className="setting-control">
+          <div className="key-row">
+            <input
+              id="api-key"
+              type="password"
+              autoComplete="off"
+              placeholder="输入 API Key，仅加密保存在本机"
+              value={key}
+              disabled={saving || !canConfigure}
+              onChange={(event) => setKey(event.target.value)}
+            />
+            <button
+              disabled={!key.trim() || saving || !canConfigure}
+              onClick={() => void saveKey(key.trim())}
+            >
+              保存凭证
+            </button>
+          </div>
+          <div className="credential-actions">
+            <span>{configured ? "已加密保存" : "尚未配置"}</span>
+            {configured && (
+              <button
+                className="text-button"
+                disabled={saving}
+                onClick={() => void saveKey("")}
+              >
+                移除该服务商凭证
+              </button>
+            )}
+          </div>
+        </div>
       </div>
-      {configured && (
-        <button
-          className="text-button"
-          disabled={saving}
-          onClick={() => void saveKey("")}
-        >
-          移除该服务商凭证
-        </button>
-      )}
-      <label htmlFor="default-model">默认模型</label>
-      <select
-        id="default-model"
-        value={selectedModel}
-        disabled={saving || loading || !canConfigure}
-        onChange={(event) => setSelectedModel(event.target.value)}
-      >
-        <option value="">选择模型</option>
-        {selectedModel &&
-          !models.some((entry) => entry.id === selectedModel) && (
-            <option value={selectedModel}>{selectedModel} · 当前保存</option>
+      <div className="model-setting-row">
+        <label htmlFor="default-model">默认模型</label>
+        <div className="setting-control">
+          <select
+            id="default-model"
+            value={selectedModel}
+            disabled={saving || loading || !canConfigure}
+            onChange={(event) => setSelectedModel(event.target.value)}
+          >
+            <option value="">选择模型</option>
+            {selectedModel &&
+              !models.some((entry) => entry.id === selectedModel) && (
+                <option value={selectedModel}>
+                  {selectedModel} · 当前保存
+                </option>
+              )}
+            {models.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.name} · {entry.id}
+              </option>
+            ))}
+          </select>
+          {models.length < total && (
+            <button
+              disabled={loading}
+              onClick={async () => {
+                const id = request.current;
+                setLoading(true);
+                try {
+                  const catalog = await loadCatalog(provider, models.length);
+                  if (id === request.current) {
+                    setModels((previous) => [...previous, ...catalog.models]);
+                    setTotal(catalog.total);
+                  }
+                } catch (error) {
+                  if (id === request.current) setError(errorMessage(error));
+                } finally {
+                  if (id === request.current) setLoading(false);
+                }
+              }}
+            >
+              加载更多模型（{models.length}/{total}）
+            </button>
           )}
-        {models.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.name} · {entry.id}
-          </option>
-        ))}
-      </select>
-      {models.length < total && (
-        <button
-          disabled={loading}
-          onClick={async () => {
-            const id = request.current;
-            setLoading(true);
-            try {
-              const catalog = await loadCatalog(provider, models.length);
-              if (id === request.current) {
-                setModels((previous) => [...previous, ...catalog.models]);
-                setTotal(catalog.total);
+          <div className="model-buttons">
+            <button
+              disabled={
+                !configured ||
+                !canConfigure ||
+                !selectedModel ||
+                current ||
+                saving ||
+                loading
               }
-            } catch (error) {
-              if (id === request.current) setError(errorMessage(error));
-            } finally {
-              if (id === request.current) setLoading(false);
-            }
-          }}
-        >
-          加载更多模型（{models.length}/{total}）
-        </button>
-      )}
-      <div className="model-buttons">
-        <button
-          disabled={
-            !configured ||
-            !canConfigure ||
-            !selectedModel ||
-            current ||
-            saving ||
-            loading
-          }
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await perform("select_model", {
-                model: { provider, modelId: selectedModel },
-              });
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          设为默认模型
-        </button>
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await perform("select_model", {
+                    model: { provider, modelId: selectedModel },
+                  });
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              设为默认模型
+            </button>
+          </div>
+        </div>
       </div>
+      <p className="model-scope-note">
+        支持 API Key 服务商；OAuth、云平台特殊凭证与自定义地址暂未接入。
+      </p>
       <p>
         切换默认模型会结束当前会话。后续翻译与提问将把文本发送至所选服务商。
       </p>

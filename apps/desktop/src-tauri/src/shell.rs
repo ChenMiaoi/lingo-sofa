@@ -83,6 +83,14 @@ impl DesktopView {
             }
         }
     }
+    fn reset_context(&mut self, mode: Mode) {
+        self.epoch += 1;
+        self.context = None;
+        self.translation.clear();
+        self.notice.clear();
+        self.operation = "ask".into();
+        self.navigate(mode);
+    }
     fn back_mode(&self) -> Mode {
         if self.mode == Mode::Settings {
             self.settings_return.unwrap_or(Mode::Input)
@@ -176,13 +184,18 @@ impl Shell {
     }
     pub fn clear(&self, app: &tauri::AppHandle, service: &Service) -> Result<(), &'static str> {
         service.reset()?;
-        let mut v = self.view.lock().unwrap();
-        v.epoch += 1;
-        v.context = None;
-        v.translation.clear();
-        v.notice.clear();
-        drop(v);
-        self.mode(app, Mode::Ask);
+        self.view.lock().unwrap().reset_context(Mode::Ask);
+        self.position(app);
+        Ok(())
+    }
+    pub fn new_session(
+        &self,
+        app: &tauri::AppHandle,
+        service: &Service,
+    ) -> Result<(), &'static str> {
+        service.reset()?;
+        self.view.lock().unwrap().reset_context(Mode::Input);
+        self.position(app);
         Ok(())
     }
     fn next(&self) -> u64 {
@@ -594,6 +607,33 @@ impl Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_session_discards_source_and_result_and_resets_even_an_open_input() {
+        let shell = Shell::new(PathBuf::from("unused-test-helper"));
+        let mut view = shell.view.lock().unwrap();
+        for mode in [Mode::Input, Mode::Ask, Mode::AskResult] {
+            view.navigate(mode);
+            view.context = Some(Context {
+                text: "old source".into(),
+                origin: "test".into(),
+                kind: "selection".into(),
+                anchor: None,
+                anchor_valid: true,
+            });
+            view.translation = "old translation".into();
+            view.notice = "old error".into();
+            let epoch = view.epoch;
+            view.reset_context(Mode::Input);
+            assert_eq!(view.epoch, epoch + 1);
+            assert_eq!(view.mode, Mode::Input);
+            assert!(view.context.is_none());
+            assert!(view.translation.is_empty());
+            assert!(view.notice.is_empty());
+            assert_eq!(view.operation, "ask");
+            assert_eq!(view.back_mode(), Mode::Idle);
+        }
+    }
 
     #[test]
     fn macos_selection_points_scale_for_retina_and_negative_display_origins() {

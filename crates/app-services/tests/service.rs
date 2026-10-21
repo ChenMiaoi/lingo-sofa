@@ -268,3 +268,86 @@ fn multiple_providers_preserve_legacy_credentials_and_route_the_persisted_defaul
         assert!(!public.contains(secret));
     }
 }
+
+#[test]
+fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = start(directory.path());
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            target: Some("English".into()),
+            pinned: None,
+        })
+        .unwrap();
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            target: None,
+            pinned: Some(false),
+        })
+        .unwrap();
+    let state = wait(&service, |v| {
+        v.settings.target == "English" && !v.settings.pinned
+    });
+    assert_eq!(state.default_model.provider, "deepseek");
+    assert!(
+        service
+            .patch_settings(lingo_sofa_app_services::SettingsPatch::default())
+            .is_err()
+    );
+    assert!(
+        service
+            .patch_settings(lingo_sofa_app_services::SettingsPatch {
+                target: Some("unsupported".into()),
+                pinned: None
+            })
+            .is_err()
+    );
+    service.shutdown();
+    let service = start(directory.path());
+    assert_eq!(service.state().settings.target, "English");
+    assert!(!service.state().settings.pinned);
+    let db = rusqlite::Connection::open(directory.path().join("settings.sqlite")).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+    assert_eq!(
+        service.patch_settings(lingo_sofa_app_services::SettingsPatch {
+            target: Some("日本語".into()),
+            pinned: None
+        }),
+        Err("settings_write_failed")
+    );
+    assert_eq!(service.state().settings.target, "English");
+    service.shutdown();
+}
+
+#[test]
+fn reset_stops_streaming_and_the_next_question_has_no_previous_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = start_options(directory.path(), &["--record-messages"]);
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    wait(&service, |v| v.key_configured);
+    service
+        .submit(1, "W0_SLOW OLD_READING_SENTINEL".into(), false)
+        .unwrap();
+    let running = wait(&service, |v| v.revision == 1 && !v.output.is_empty());
+    service.reset().unwrap();
+    let cleared = wait(&service, |v| {
+        !v.session_ready && v.output.is_empty() && v.task_id.is_none()
+    });
+    assert_eq!(cleared.phase, "ready");
+    assert_eq!(cleared.default_model, running.default_model);
+    assert_eq!(cleared.configured_providers, running.configured_providers);
+    assert_eq!(cleared.settings.target, running.settings.target);
+    assert_eq!(cleared.settings.pinned, running.settings.pinned);
+    service
+        .submit_new_question(2, "NEW_SESSION_SENTINEL".into())
+        .unwrap();
+    wait(&service, |v| {
+        v.revision == 2 && v.phase == "ready" && v.task_id.is_none()
+    });
+    let messages =
+        std::fs::read_to_string(directory.path().join("synthetic-messages.json")).unwrap();
+    assert!(messages.contains("NEW_SESSION_SENTINEL"));
+    assert!(!messages.contains("OLD_READING_SENTINEL"));
+    assert!(!messages.contains("<source>"));
+    service.shutdown();
+}

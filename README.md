@@ -74,6 +74,8 @@ The provider and model lists come from the bundled oh-my-pi SDK. API Key provide
 
 Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
+Type `/` in input or Ask to browse local app commands; use arrow keys and Enter to choose. `/settings` opens settings, `/model` opens a searchable model list in the current window (arrows to choose, Enter to switch, Esc to return; `/model search terms` filters it; without credentials, choose a provider and model and enter its API Key in the same keyboard-driven overlay), `/model deepseek/deepseek-flash` changes the default, `/language en` sets the translation language, `/pin on` or `/pin off` sets window pinning, `/shortcuts` opens shortcut settings, and `/new` stops the current task and opens a blank input with a fresh session, preserving model and other settings. Commands run locally. Prefix slash text with `//` to submit it as ordinary content.
+
 Inside the input panel, **Enter** runs the selected action, **Shift+Enter** inserts a new line, **Alt+↑↓** switches actions, and **Esc** returns to reading. On macOS the hints use **↩**, **⇧↩**, and **⌥↑↓**. Reopening an already open input panel with its shortcut preserves the draft.
 
 Selection support depends on the source application. Notepad, an isolated VS Code instance with accessibility enabled, and Discord message text have completed scoped checks. Browser selection remains unverified; use the [manual checklist](docs/browser-manual-acceptance.md) to test it.
