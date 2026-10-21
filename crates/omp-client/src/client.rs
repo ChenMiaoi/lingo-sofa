@@ -328,6 +328,18 @@ impl Host {
         }
         Ok(())
     }
+    pub fn allow_account(&mut self, account: &str) {
+        if !self
+            .config
+            .accounts
+            .iter()
+            .any(|allowed| allowed == account)
+        {
+            self.stop();
+            self.config.accounts.push(account.into());
+        }
+    }
+
     pub fn pid(&self) -> Option<u32> {
         self.process.as_ref().map(|process| process.child.id())
     }
@@ -341,11 +353,10 @@ impl Host {
         }
         self.events.clear();
         self.process = Some(Process::spawn(&self.config)?);
-        let id = self
-            .process
-            .as_mut()
-            .unwrap()
-            .send("hello", json!({"sdk":"18.12.3"}))?;
+        let id = self.process.as_mut().unwrap().send(
+            "hello",
+            json!({"sdk":"18.12.3", "accounts":self.config.accounts}),
+        )?;
         let hello = match self.wait(id, Duration::from_secs(15)) {
             Ok(hello) => hello,
             Err(error) => {

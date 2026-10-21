@@ -17,7 +17,7 @@ React → Tauri commands → Service actor → scheduler → Host → private pi
 
 手动输入复用 Ask 的深色 launcher，输入模式支持多行原文和明确的翻译/新问题动作，结果复用 Ask 回答区域。`submit_new_question` 将新问题与继续追问区分，在同一准入命令内强制新会话；不继承之前的原文或翻译指令。选区和剪贴板翻译仍使用轻量译文浮层。
 
-`apps/omp-worker/src/worker.ts` 是唯一生产入口，固定 DeepSeek 官方地址和 `deepseek-flash`；首次调用核对目录为 V4.1。受限 SDK 禁用工具、项目资源、扩展发现、自动压缩、重试和回退。API Key 经 Rust 私有管道注入，OMP 管理内存账户和会话。进程环境被清理，不读取开发 `.env`。模拟 HTTP、假 OAuth 和故障入口仅在 `tests/fixtures`。
+`apps/omp-worker/src/worker.ts` 是唯一生产入口，通过 SDK ModelRegistry 与认证元数据提供服务商、分页模型目录和原生协议。当前开放 API Key + 原生聊天协议的服务商；默认模型可切换，未保存选择时沿用 `deepseek/deepseek-flash`。模型目录读取随包 SDK 数据，不主动查询所有服务商接口；目录存在不代表账户已获授权，凭证与模型权限仍以实际请求结果为准。受限 SDK 禁用工具、项目资源、扩展发现、自动压缩、重试和回退。多个服务商的 API Key 在 Rust vault 中独立保存；worker 握手只请求 Host 允许的账户标识，模型启用后仅将所选服务商凭证放入 SDK 内存认证存储。SDK 原生流式调用仍经过统一的并发准入、用量终态提交与取消通道，网络目的地限定为所选 SDK 模型地址且拒绝重定向。切换默认模型或修改凭证结束旧 worker 和会话，后续请求使用持久化选择；不自动回退至其他服务商。进程环境被清理，不读取开发 `.env`。模拟 HTTP、假 OAuth 和故障入口仅在 `tests/fixtures`。
 
 Tauri 命令检查 `main` 窗口身份，不开放任意 URL、SQL、文件或进程执行；前端仅拥有拖动权限，CSP 禁止供应商网络访问。输出使用普通 React 文本渲染。剪贴板快捷键仅在按下时读取文本。桌面快捷键模块独立管理三项组合，保存于 `shortcuts.sqlite`；先验证和注册新组合，再提交 SQLite，成功后更新路由并释放旧组合。失败会撤销新注册并保留原设置；启动时逐项注册和报告，未启用项不影响其他入口。旧组合若释放失败也不再分发动作。默认 Alt+Shift+Space 唤出输入面板，重复唤出保留草稿；所有按键展示来自当前注册状态。
 
@@ -25,10 +25,10 @@ desktop v3 的边缘入口、译文浮层、Ask、输入和设置由 Rust Shell 
 
 取文会先验证焦点至来源窗口的祖先路径（最多 32 层），再沿该路径查找 TextPattern；拒绝密码或无法验证的路径，不扫描文档后代。已验证记事本、独立 VS Code 与 Discord 消息正文；浏览器未通过，混合 DPI 仍未验收。
 
-数据根为 `%LOCALAPPDATA%/LingoSofa`：`credentials.sqlite` 保存用户范围 DPAPI 密文与 CAS revision；`settings.sqlite` 保存语言和置顶；`usage.sqlite` 保存不含正文/密钥的调用账本。原文、译文和会话仅驻内存。账本发送前写入、终态幂等、崩溃恢复为未知，不推算价格；独占控制防止两个 Host 互相覆盖。
+数据根为 `%LOCALAPPDATA%/LingoSofa`：`credentials.sqlite` 保存用户范围 DPAPI 密文与 CAS revision；`settings.sqlite` 保存语言、置顶及独立的默认模型选择；`usage.sqlite` 保存不含正文/密钥的调用账本。原文、译文和会话仅驻内存。账本发送前写入、终态幂等、崩溃恢复为未知，不推算价格；独占控制防止两个 Host 互相覆盖。
 
 worker 延迟启动，退出或父进程崩溃时由 Job 回收；重建不重放。应用不暴露本地 HTTP Bridge。Bun 编译 worker 和匹配 native addon 作为资源随 NSIS 分发。native addon 较大，不能宣称已完成轻量资源指标。
 
-与规划的差距：尚无多账户/引擎切换、OAuth UI、历史清除界面、OCR、内容历史、窗口位置恢复；UIA 和多屏 DPI 仍需原生专项验收。桌面数据不导入旧助手或 W0 账户。
+与规划的差距：尚无同一服务商多账户、免 Key 引擎、OAuth UI、自定义服务地址、历史清除界面、OCR、内容历史、窗口位置恢复；UIA 和多屏 DPI 仍需原生专项验收。桌面数据不导入旧助手或 W0 账户。
 
 参考：[Tauri 配置](https://v2.tauri.app/reference/config/)、[快捷键](https://v2.tauri.app/plugin/global-shortcut/)、[剪贴板](https://v2.tauri.app/plugin/clipboard/)。

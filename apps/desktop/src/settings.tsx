@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { isImeKey, type DesktopState } from "./api";
+import { ModelProviders, type LoadModelCatalog } from "./model-providers";
 import { ShortcutSettings } from "./shortcuts";
 import type { Perform } from "./view";
 
 const categories = [
-  { id: "account", title: "账户", detail: "DeepSeek API Key 与账户管理" },
+  { id: "models", title: "模型与服务商", detail: "配置多个服务商与默认模型" },
   { id: "preferences", title: "翻译偏好", detail: "默认语言与窗口置顶" },
   { id: "shortcuts", title: "快捷键", detail: "全局组合与启用状态" },
 ] as const;
@@ -15,15 +16,16 @@ export function Settings({
   notice,
   perform,
   onBack,
+  loadCatalog,
 }: {
   state: DesktopState;
   notice: string;
   perform: Perform;
   onBack: () => void;
+  loadCatalog: LoadModelCatalog;
 }) {
   const { model } = state;
   const [page, setPage] = useState<Page>("home");
-  const [key, setKey] = useState("");
   const backButton = useRef<HTMLButtonElement>(null);
   const categoryButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const previousPage = useRef<Page>("home");
@@ -109,45 +111,14 @@ export function Settings({
         hidden={page === "home"}
         aria-label={title}
       >
-        <section
-          hidden={page !== "account"}
-          className="settings-group"
-          aria-labelledby="account-heading"
-        >
-          <h2 id="account-heading">账户</h2>
-          <label htmlFor="api-key">
-            DeepSeek API Key{" "}
-            <span>{model.keyConfigured ? "已加密保存" : "尚未配置"}</span>
-          </label>
-          <div className="key-row">
-            <input
-              id="api-key"
-              type="password"
-              autoComplete="off"
-              placeholder="输入 API Key，仅加密保存在本机"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-            />
-            <button
-              disabled={!key.trim()}
-              onClick={() => {
-                void perform("save_account", { key: key.trim() });
-                setKey("");
-              }}
-            >
-              保存
-            </button>
-          </div>
-          {model.keyConfigured && (
-            <button
-              className="text-button"
-              onClick={() => void perform("save_account", { key: "" })}
-            >
-              移除账户
-            </button>
-          )}
-          <p>DeepSeek V4.1 Flash · 翻译与提问会将文本发送至 DeepSeek。</p>
-        </section>
+        <div hidden={page !== "models"}>
+          <ModelProviders
+            model={model}
+            perform={perform}
+            loadCatalog={loadCatalog}
+            active={page === "models"}
+          />
+        </div>
         <section
           hidden={page !== "preferences"}
           className="settings-group"

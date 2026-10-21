@@ -16,6 +16,8 @@ use std::{
     time::Duration,
 };
 use zeroize::Zeroizing;
+mod models;
+pub use models::ModelSelection;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +41,8 @@ pub struct View {
     pub message: String,
     pub output: String,
     pub key_configured: bool,
+    pub default_model: ModelSelection,
+    pub configured_providers: Vec<String>,
     pub session_ready: bool,
     pub task_id: Option<u64>,
     pub queued: usize,
@@ -55,6 +59,8 @@ impl Default for View {
             message: "选择文字，复制后翻译。".into(),
             output: String::new(),
             key_configured: false,
+            default_model: ModelSelection::default(),
+            configured_providers: vec![],
             session_ready: false,
             task_id: None,
             queued: 0,
@@ -67,7 +73,20 @@ impl Default for View {
 }
 enum Command {
     Reset,
-    Key(Zeroizing<String>),
+    Key {
+        provider: String,
+        key: Zeroizing<String>,
+        reply: SyncSender<Result<(), &'static str>>,
+    },
+    Catalog {
+        provider: Option<String>,
+        offset: usize,
+        reply: SyncSender<Result<serde_json::Value, &'static str>>,
+    },
+    SelectModel {
+        model: ModelSelection,
+        reply: SyncSender<Result<(), &'static str>>,
+    },
     Run {
         revision: u64,
         text: String,
@@ -99,7 +118,7 @@ impl Service {
         let directory = config.directory.clone();
         std::fs::create_dir_all(&directory).map_err(|_| "data_directory_unavailable")?;
         let vault = Vault::open(&directory.join("credentials.sqlite"))?;
-        let configured = !vault.read("deepseek")?["credential"].is_null();
+        let configured_providers = vault.accounts()?;
         let db = rusqlite::Connection::open(directory.join("settings.sqlite"))
             .map_err(|_| "settings_open_failed")?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),body TEXT NOT NULL)").map_err(|_|"settings_open_failed")?;
@@ -114,10 +133,14 @@ impl Service {
             None => Settings::default(),
         };
         validate_settings(&settings)?;
+        let default_model = models::load(&db)?;
+        let configured = configured_providers.contains(&default_model.provider);
         let (initialized, ready) = mpsc::sync_channel(1);
         let (tx, rx) = mpsc::sync_channel(64);
         let view = Arc::new(Mutex::new(View {
             key_configured: configured,
+            default_model,
+            configured_providers,
             settings,
             ..View::default()
         }));
@@ -147,11 +170,53 @@ impl Service {
         self.view.lock().unwrap().clone()
     }
     pub fn save_key(&self, key: String) -> Result<(), &'static str> {
+        self.save_provider("deepseek".into(), key)
+    }
+    pub fn save_provider(&self, provider: String, key: String) -> Result<(), &'static str> {
+        models::validate_provider(&provider)?;
         if key.len() > 8192 {
             return Err("credential_invalid");
         }
+        let (reply, result) = mpsc::sync_channel(1);
         self.generation.fetch_add(1, Ordering::SeqCst);
-        self.send(Command::Key(Zeroizing::new(key)))
+        self.send(Command::Key {
+            provider,
+            key: Zeroizing::new(key),
+            reply,
+        })?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")?
+    }
+    pub fn model_catalog(
+        &self,
+        provider: Option<String>,
+        offset: usize,
+    ) -> Result<serde_json::Value, &'static str> {
+        if let Some(provider) = &provider {
+            models::validate_provider(provider)?;
+        }
+        if offset > 100_000 {
+            return Err("invalid_catalog_page");
+        }
+        let (reply, result) = mpsc::sync_channel(1);
+        self.send(Command::Catalog {
+            provider,
+            offset,
+            reply,
+        })?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")?
+    }
+    pub fn select_model(&self, model: ModelSelection) -> Result<(), &'static str> {
+        models::validate_selection(&model)?;
+        let (reply, result) = mpsc::sync_channel(1);
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.send(Command::SelectModel { model, reply })?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")?
     }
     pub fn submit(&self, revision: u64, text: String, ask: bool) -> Result<(), &'static str> {
         self.submit_run(revision, text, ask, !ask)
@@ -216,7 +281,9 @@ fn validate_settings(settings: &Settings) -> Result<(), &'static str> {
 }
 fn message(code: &str) -> &'static str {
     match code {
-        "account_required" => "请先设置 DeepSeek API Key。",
+        "account_required" => "请先在模型与服务商中配置所选服务商的 API Key。",
+        "provider_unsupported" => "该服务商暂不支持 API Key 配置。",
+        "model_not_verified" => "所选模型不可用，请刷新模型列表后重试。",
         "invalid_text" => "请输入文本，文本过长，请分段翻译。",
         "task_running" => "请先等待或取消当前任务。",
         _ => "操作失败，请检查账户、网络和本地存储后重试。",
@@ -242,6 +309,9 @@ fn serve(
             return;
         }
     };
+    for account in state.lock().unwrap().configured_providers.clone() {
+        host.allow_account(&account);
+    }
     let mut session: Option<String> = None;
     let mut current: Option<u64> = None;
     let mut verified = false;
@@ -279,32 +349,95 @@ fn serve(
                         v.phase = "ready".into();
                         v.message = "选择一段文字，继续阅读。".into();
                     }
-                    Command::Key(key) => {
-                        host.stop();
-                        current = None;
-                        session = None;
-                        verified = false;
-                        let previous = host.vault.read("deepseek")?["revision"]
-                            .as_u64()
-                            .ok_or("credential_invalid")?;
-                        let value = if key.is_empty() {
-                            serde_json::Value::Null
-                        } else {
-                            json!({"type":"api_key","key":key.as_str()})
-                        };
-                        host.vault.commit("deepseek", previous, &value)?;
-                        let mut v = state.lock().unwrap();
-                        v.key_configured = !key.is_empty();
-                        v.session_ready = false;
-                        v.task_id = None;
-                        v.phase = "ready".into();
-                        v.message = if key.is_empty() {
-                            "账户已移除。"
-                        } else {
-                            "账户已加密保存。"
-                        }
-                        .into();
-                        v.output.clear();
+                    Command::Catalog {
+                        provider,
+                        offset,
+                        reply,
+                    } => {
+                        let response = host.request(
+                            "model.catalog",
+                            json!({"provider":provider,"offset":offset}),
+                        );
+                        let _ = reply.send(response);
+                    }
+                    Command::Key {
+                        provider,
+                        key,
+                        reply,
+                    } => {
+                        let result = (|| -> Result<(), &'static str> {
+                            // Existing DeepSeek credentials retain their original vault identity.
+                            if provider != "deepseek" && !key.is_empty() {
+                                let catalog =
+                                    host.request("model.catalog", json!({"provider":provider}))?;
+                                if catalog["supported"] != true {
+                                    return Err("provider_unsupported");
+                                }
+                            }
+                            let previous = host.vault.read(&provider)?["revision"]
+                                .as_u64()
+                                .ok_or("credential_invalid")?;
+                            let value = if key.is_empty() {
+                                serde_json::Value::Null
+                            } else {
+                                json!({"type":"api_key","key":key.as_str()})
+                            };
+                            host.vault.commit(&provider, previous, &value)?;
+                            host.stop();
+                            host.allow_account(&provider);
+                            current = None;
+                            session = None;
+                            verified = false;
+                            let mut v = state.lock().unwrap();
+                            v.configured_providers = host.vault.accounts()?;
+                            v.key_configured =
+                                v.configured_providers.contains(&v.default_model.provider);
+                            v.session_ready = false;
+                            v.task_id = None;
+                            v.phase = "ready".into();
+                            v.message = if key.is_empty() {
+                                "服务商凭证已移除。"
+                            } else {
+                                "服务商凭证已加密保存。"
+                            }
+                            .into();
+                            v.output.clear();
+                            Ok(())
+                        })();
+                        let _ = reply.send(result);
+                        result?;
+                    }
+                    Command::SelectModel { model, reply } => {
+                        let result = (|| -> Result<(), &'static str> {
+                            if !state
+                                .lock()
+                                .unwrap()
+                                .configured_providers
+                                .contains(&model.provider)
+                            {
+                                return Err("account_required");
+                            }
+                            host.request(
+                                "model.resolve",
+                                serde_json::to_value(&model).map_err(|_| "invalid_model")?,
+                            )?;
+                            models::save(&db, &model)?;
+                            host.stop();
+                            current = None;
+                            session = None;
+                            verified = false;
+                            let mut v = state.lock().unwrap();
+                            v.default_model = model;
+                            v.key_configured = true;
+                            v.session_ready = false;
+                            v.task_id = None;
+                            v.output.clear();
+                            v.phase = "ready".into();
+                            v.message = "默认模型已保存；后续翻译与提问将使用新模型。".into();
+                            Ok(())
+                        })();
+                        let _ = reply.send(result);
+                        result?;
                     }
                     Command::Run {
                         revision,
@@ -334,7 +467,11 @@ fn serve(
                             host.cancel_task(id)?;
                         }
                         if !verified {
-                            host.request("model.verify", json!({}))?;
+                            let selection = state.lock().unwrap().default_model.clone();
+                            host.request(
+                                "model.verify",
+                                serde_json::to_value(selection).map_err(|_| "invalid_model")?,
+                            )?;
                             verified = true;
                         }
                         if fresh && let Some(old) = session.take() {

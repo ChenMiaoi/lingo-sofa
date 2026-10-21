@@ -14,6 +14,7 @@ await runWorker({
     : ["deepseek", "test-oauth"],
   origin: "http://127.0.0.1",
   outputCap: 512,
+  nativeApi: "openai-completions",
   compaction: desktopBudget
     ? { keepRecentTokens: 4096, reserveTokens: 2048 }
     : { keepRecentTokens: 128, reserveTokens: 512 },
@@ -38,7 +39,13 @@ await runWorker({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
-        const credential = snapshots.get("deepseek")?.credential;
+        const body = (await request.json()) as {
+          messages: unknown[];
+          model: string;
+        };
+        const selectedProvider =
+          body.model === "w0-openai" ? "openai" : "deepseek";
+        const credential = snapshots.get(selectedProvider)?.credential;
         if (
           credential?.type !== "api_key" ||
           request.headers.get("authorization") !== `Bearer ${credential.key}`
@@ -49,14 +56,14 @@ await runWorker({
           );
         }
         await writeFile(join(cwd, "synthetic-http-count"), String(++httpCalls));
-        const body = (await request.json()) as {
-          messages: unknown[];
-          model: string;
-        };
         if (process.argv.includes("--record-messages")) {
           await writeFile(
             join(cwd, "synthetic-messages.json"),
-            JSON.stringify(body.messages),
+            JSON.stringify({
+              provider: selectedProvider,
+              model: body.model,
+              messages: body.messages,
+            }),
           );
         }
         const scenario = JSON.stringify(body.messages.at(-1));
@@ -137,6 +144,24 @@ await runWorker({
         },
       ],
     });
+    registry.registerProvider("openai", {
+      api: "lingo-worker",
+      apiKey: "LINGO_RUNTIME_ACCOUNT",
+      baseUrl: `http://127.0.0.1:${server.port}/v1`,
+      streamSimple: transport,
+      models: [
+        {
+          id: "w0-openai",
+          name: "Synthetic OpenAI",
+          input: ["text"],
+          reasoning: false,
+          supportsTools: false,
+          contextWindow: 8192,
+          maxTokens: 512,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+      ],
+    });
     registry.registerProvider("test-oauth", {
       oauth: {
         name: "W0 synthetic OAuth",
@@ -156,9 +181,54 @@ await runWorker({
       stats: () => ({ httpCalls, refreshes }),
       handle: async (frame) => {
         switch (frame.method) {
+          case "model.catalog": {
+            const provider = frame.payload.provider;
+            const entries = [
+              {
+                id: "deepseek",
+                name: "DeepSeek",
+                supported: true,
+                modelCount: 1,
+              },
+              { id: "openai", name: "OpenAI", supported: true, modelCount: 1 },
+            ];
+            const supported = entries.some((entry) => entry.id === provider);
+            return {
+              providers: provider ? [] : entries,
+              supported,
+              total: supported ? 1 : 0,
+              models: supported
+                ? [
+                    {
+                      id:
+                        provider === "openai" ? "w0-openai" : "deepseek-flash",
+                      name: "Synthetic model",
+                      contextWindow: 8192,
+                    },
+                  ]
+                : [],
+            };
+          }
+          case "model.resolve":
+            if (!(
+              (frame.payload.provider === "openai" &&
+                frame.payload.modelId === "w0-openai") ||
+              (frame.payload.provider === "deepseek" &&
+                frame.payload.modelId === "deepseek-flash")
+            ))
+              throw new Error("model_not_verified");
+            return {
+              provider: frame.payload.provider,
+              modelId: frame.payload.modelId,
+            };
           case "model.verify":
             if (process.argv.includes("--slow-catalog")) await Bun.sleep(600);
-            return { model: "w0-model" };
+            return {
+              provider:
+                frame.payload.provider === "openai" ? "openai" : "deepseek",
+              modelId:
+                frame.payload.provider === "openai" ? "w0-openai" : "w0-model",
+            };
           case "auth.set": {
             const credential = frame.payload.credential as AuthCredential;
             if (

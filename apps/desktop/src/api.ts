@@ -9,6 +9,8 @@ export interface View {
   message: string;
   output: string;
   keyConfigured: boolean;
+  defaultModel: ModelSelection;
+  configuredProviders: string[];
   sessionReady: boolean;
   taskId: number | null;
   queued: number;
@@ -23,6 +25,8 @@ export const initialView: View = {
   message: "复制一段文字，开始翻译。",
   output: "",
   keyConfigured: false,
+  defaultModel: { provider: "deepseek", modelId: "deepseek-flash" },
+  configuredProviders: [],
   sessionReady: false,
   taskId: null,
   queued: 0,
@@ -48,7 +52,12 @@ export function errorMessage(error: unknown, macos = false): string {
     selection_timeout: "取文超时，已停止辅助进程，可复制后翻译。",
     selection_helper_unavailable: "取文服务不可用，请重新启动应用。",
     ask_context_too_long: "原文较长，请先分段翻译，再围绕它提问。",
-    account_required: "请先设置 DeepSeek API Key。",
+    account_required: "请先在模型与服务商中配置所选服务商的 API Key。",
+    provider_unsupported: "该服务商暂不支持 API Key 配置。",
+    model_not_verified: "所选模型不可用，请刷新模型列表后重试。",
+    invalid_model: "请选择有效模型。",
+    settings_write_failed: "设置保存失败，原配置继续生效。",
+    service_timeout: "模型服务响应超时，请重试。",
     service_busy: "操作较多，请稍后再试。",
     text_too_long: "文本过长，请分段翻译。",
     invalid_text: "请输入需要翻译的文本。",
@@ -182,4 +191,33 @@ export function contextLabel(context: ReadingContext | null) {
     : context.kind === "clipboard"
       ? "剪贴板"
       : "输入文本";
+}
+
+export interface ModelSelection {
+  provider: string;
+  modelId: string;
+}
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  supported: boolean;
+  modelCount: number;
+}
+export interface ModelInfo {
+  id: string;
+  name: string;
+  contextWindow: number;
+}
+export interface ModelCatalog {
+  providers: ProviderInfo[];
+  supported?: boolean;
+  models: ModelInfo[];
+  total: number;
+}
+
+export function loadModelCatalog(
+  provider?: string,
+  offset = 0,
+): Promise<ModelCatalog> {
+  return call("model_catalog", { provider: provider ?? null, offset });
 }

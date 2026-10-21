@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod shell;
 mod shortcuts;
-use lingo_sofa_app_services::{Service, Settings};
+use lingo_sofa_app_services::{ModelSelection, Service, Settings};
 use shell::{Mode, Shell};
 use std::sync::Mutex;
 use tauri::{
@@ -156,13 +156,47 @@ fn clear_context(
     shell.clear(&app, &service).map_err(String::from)
 }
 #[tauri::command]
-fn save_account(
+async fn model_catalog(
     window: tauri::WebviewWindow,
-    service: tauri::State<Service>,
+    service: tauri::State<'_, Service>,
+    provider: Option<String>,
+    offset: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    allowed(&window)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        service.model_catalog(provider, offset.unwrap_or(0))
+    })
+    .await
+    .map_err(|_| "service_unavailable".to_string())?
+    .map_err(String::from)
+}
+#[tauri::command]
+async fn save_provider(
+    window: tauri::WebviewWindow,
+    service: tauri::State<'_, Service>,
+    provider: String,
     key: String,
 ) -> Result<(), String> {
     allowed(&window)?;
-    service.save_key(key).map_err(String::from)
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.save_provider(provider, key))
+        .await
+        .map_err(|_| "service_unavailable".to_string())?
+        .map_err(String::from)
+}
+#[tauri::command]
+async fn select_model(
+    window: tauri::WebviewWindow,
+    service: tauri::State<'_, Service>,
+    model: ModelSelection,
+) -> Result<(), String> {
+    allowed(&window)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.select_model(model))
+        .await
+        .map_err(|_| "service_unavailable".to_string())?
+        .map_err(String::from)
 }
 #[tauri::command]
 fn cancel_task(window: tauri::WebviewWindow, service: tauri::State<Service>) -> Result<(), String> {
@@ -296,7 +330,9 @@ fn main() {
             ask_text,
             ask_question,
             clear_context,
-            save_account,
+            model_catalog,
+            save_provider,
+            select_model,
             cancel_task,
             compact_session,
             save_settings,

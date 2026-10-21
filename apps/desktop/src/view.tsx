@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { formatShortcut } from "./keyboard";
 import { Settings } from "./settings";
+import type { LoadModelCatalog } from "./model-providers";
 import {
+  loadModelCatalog as defaultLoadModelCatalog,
   matchingActions,
   contextLabel,
   errorMessage,
@@ -83,10 +85,12 @@ export function Desktop({
   state,
   notice = "",
   perform,
+  loadModelCatalog = defaultLoadModelCatalog,
 }: {
   state: DesktopState;
   notice?: string;
   perform: Perform;
+  loadModelCatalog?: LoadModelCatalog;
 }) {
   const { desktop: d, model } = state;
   const mode = d.mode;
@@ -600,6 +604,12 @@ export function Desktop({
       </main>
     );
   return (
-    <Settings state={state} notice={message} perform={perform} onBack={back} />
+    <Settings
+      state={state}
+      notice={message}
+      perform={perform}
+      onBack={back}
+      loadCatalog={loadModelCatalog}
+    />
   );
 }

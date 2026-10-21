@@ -173,3 +173,98 @@ fn errors_belong_to_the_new_reading_and_cancelling_catalog_preflight_never_calls
     assert_eq!(service.state().active_calls, 0);
     service.shutdown();
 }
+
+#[test]
+fn multiple_providers_preserve_legacy_credentials_and_route_the_persisted_default_model() {
+    let directory = tempfile::tempdir().unwrap();
+    let vault_path = directory.path().join("credentials.sqlite");
+    let mut vault = lingo_sofa_omp_client::vault::Vault::open(&vault_path).unwrap();
+    vault
+        .commit(
+            "deepseek",
+            0,
+            &serde_json::json!({"type":"api_key","key":"legacy-deepseek-key"}),
+        )
+        .unwrap();
+    drop(vault);
+    let service = start_options(directory.path(), &["--record-messages"]);
+    let legacy = service.state();
+    assert_eq!(legacy.default_model.provider, "deepseek");
+    assert_eq!(legacy.default_model.model_id, "deepseek-flash");
+    assert!(legacy.key_configured);
+    assert_eq!(legacy.configured_providers, ["deepseek"]);
+    let catalog = service.model_catalog(None, 0).unwrap();
+    assert!(
+        catalog["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == "openai")
+    );
+    service
+        .save_provider("openai".into(), "new-openai-key".into())
+        .unwrap();
+    assert_eq!(service.state().configured_providers, ["deepseek", "openai"]);
+    assert_eq!(service.state().default_model.provider, "deepseek");
+    service.submit(1, "W0_SLOW".into(), false).unwrap();
+    wait(&service, |v| v.revision == 1 && !v.output.is_empty());
+    let selection = lingo_sofa_app_services::ModelSelection {
+        provider: "openai".into(),
+        model_id: "w0-openai".into(),
+    };
+    service.select_model(selection.clone()).unwrap();
+    assert!(!service.state().session_ready);
+    assert!(service.state().output.is_empty());
+    service
+        .submit(2, "A new translation".into(), false)
+        .unwrap();
+    let done = wait(&service, |v| v.revision == 2 && v.phase == "ready");
+    assert!(done.output.contains("沙发译文"));
+    let request: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(directory.path().join("synthetic-messages.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(request["provider"], "openai");
+    assert_eq!(request["model"], "w0-openai");
+    assert!(
+        service
+            .save_provider("unknown-provider".into(), "unused-key".into())
+            .is_err()
+    );
+    assert!(
+        service
+            .select_model(lingo_sofa_app_services::ModelSelection {
+                model_id: "missing-model".into(),
+                ..selection.clone()
+            })
+            .is_err()
+    );
+    assert_eq!(service.state().default_model, selection);
+    service.shutdown();
+    let service = start(directory.path());
+    assert_eq!(service.state().default_model, selection);
+    assert_eq!(service.state().configured_providers, ["deepseek", "openai"]);
+    service
+        .save_provider("deepseek".into(), String::new())
+        .unwrap();
+    assert!(service.state().key_configured);
+    assert_eq!(service.state().configured_providers, ["openai"]);
+    service
+        .submit(3, "Still using OpenAI".into(), true)
+        .unwrap();
+    wait(&service, |v| v.revision == 3 && v.phase == "ready");
+    service
+        .save_provider("openai".into(), String::new())
+        .unwrap();
+    assert!(!service.state().key_configured);
+    service.submit(4, "No credentials".into(), false).unwrap();
+    wait(&service, |v| v.revision == 4 && v.phase == "error");
+    assert_eq!(service.state().default_model, selection);
+    service.shutdown();
+    let vault = lingo_sofa_omp_client::vault::Vault::open(&vault_path).unwrap();
+    assert!(vault.accounts().unwrap().is_empty());
+    let public = serde_json::to_string(&service.state()).unwrap();
+    for secret in ["legacy-deepseek-key", "new-openai-key", "unused-key"] {
+        assert!(!public.contains(secret));
+    }
+}

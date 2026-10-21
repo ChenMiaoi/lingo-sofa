@@ -642,6 +642,45 @@ kbd {
   color: var(--text-muted);
   font-size: 10px;
 }
+.default-model-summary {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.default-model-summary strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.configured-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.configured-providers [aria-pressed="true"] {
+  background: #ffffff12;
+}
+.model-providers label:not(:first-child) {
+  margin-top: 16px;
+}
+.provider-row {
+  display: flex;
+  gap: 8px;
+}
+.provider-row select {
+  flex: 1;
+  min-width: 0;
+}
+.model-providers > select {
+  width: 100%;
+}
+.model-buttons {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
 .key-row {
   display: flex;
   gap: 8px;

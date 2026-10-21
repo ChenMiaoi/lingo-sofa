@@ -19,6 +19,19 @@ impl Vault {
         format!("LingoSofa/credentials/v1/{account}").into_bytes()
     }
 
+    /// Public account identifiers only; credential bytes never leave the vault.
+    pub fn accounts(&self) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT account FROM credentials WHERE blob IS NOT NULL ORDER BY account")
+            .map_err(|_| "vault_read_failed")?;
+        statement
+            .query_map([], |row| row.get(0))
+            .map_err(|_| "vault_read_failed")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|_| "vault_read_failed")
+    }
+
     pub fn read(&self, account: &str) -> Result<Value> {
         let row: Option<(u64, Option<Vec<u8>>)> = self
             .connection

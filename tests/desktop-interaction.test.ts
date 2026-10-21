@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import React, { act } from "react";
 import { Desktop } from "../apps/desktop/src/view";
-import { initialState, type DesktopState } from "../apps/desktop/src/api";
+import {
+  initialState,
+  type DesktopState,
+  type ModelCatalog,
+} from "../apps/desktop/src/api";
 
 const dom = new Window();
 Object.assign(globalThis, {
@@ -34,7 +38,38 @@ function state(
     model: { ...initialState.model, revision, keyConfigured: true },
   };
 }
-async function mount(initial: DesktopState) {
+const catalog = async (provider?: string): Promise<ModelCatalog> => ({
+  providers: provider
+    ? []
+    : [
+        { id: "deepseek", name: "DeepSeek", supported: true, modelCount: 1 },
+        { id: "openai", name: "OpenAI", supported: true, modelCount: 1 },
+        {
+          id: "oauth-only",
+          name: "OAuth only",
+          supported: false,
+          modelCount: 0,
+        },
+      ],
+  supported: true,
+  total: provider ? 1 : 0,
+  models: provider
+    ? [
+        {
+          id: provider === "openai" ? "test-openai" : "deepseek-flash",
+          name: "Test model",
+          contextWindow: 8192,
+        },
+      ]
+    : [],
+});
+async function mount(
+  initial: DesktopState,
+  loadCatalog: (
+    provider?: string,
+    offset?: number,
+  ) => Promise<ModelCatalog> = catalog,
+) {
   const element = document.createElement("div");
   document.body.append(element);
   const root = createRoot(element);
@@ -44,7 +79,13 @@ async function mount(initial: DesktopState) {
   };
   const render = async (value: DesktopState) => {
     await act(async () =>
-      root.render(React.createElement(Desktop, { state: value, perform })),
+      root.render(
+        React.createElement(Desktop, {
+          state: value,
+          perform,
+          loadModelCatalog: loadCatalog,
+        }),
+      ),
     );
   };
   await render(initial);
@@ -55,6 +96,16 @@ async function mount(initial: DesktopState) {
     async close() {
       await act(async () => root.unmount());
       element.remove();
+    },
+    async select(value: string, selector: string) {
+      const select = element.querySelector<HTMLSelectElement>(selector)!;
+      expect(select.closest("[hidden]")).toBeNull();
+      await act(async () => {
+        select.value = value;
+        select.dispatchEvent(
+          new dom.Event("change", { bubbles: true }) as unknown as Event,
+        );
+      });
     },
     async click(label: string) {
       const button = [
@@ -428,7 +479,7 @@ test("settings returns to input, Ask and follow-up drafts without submitting or 
       expect(
         ui.element.querySelector("#api-key")!.closest("[hidden]"),
       ).not.toBeNull();
-      await ui.click("账户");
+      await ui.click("模型与服务商");
       expect(
         ui.element.querySelector("#api-key")!.closest("[hidden]"),
       ).toBeNull();
@@ -475,7 +526,7 @@ test("settings returns to input, Ask and follow-up drafts without submitting or 
         expect(ui.calls).toHaveLength(2);
       }
       await ui.render(settings);
-      await ui.click("账户");
+      await ui.click("模型与服务商");
       expect(
         ui.element.querySelector<HTMLInputElement>("#api-key")!.value,
       ).toBe("");
@@ -561,6 +612,101 @@ test("settings categories navigate independently and preserve shortcut edits acr
         },
       },
     ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("models settings manage separate provider credentials and apply a default without exposing stored keys", async () => {
+  const value = state("settings");
+  value.model = { ...value.model, configuredProviders: ["deepseek"] };
+  const ui = await mount(value);
+  try {
+    await ui.click("模型与服务商");
+    expect(
+      ui.element.querySelector(".default-model-summary")!.textContent,
+    ).toContain("deepseek-flash");
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#provider")!.value,
+    ).toBe("deepseek");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")!.value).toBe(
+      "",
+    );
+    expect(
+      ui.element.querySelector<HTMLOptionElement>('option[value="oauth-only"]')!
+        .disabled,
+    ).toBe(true);
+    await ui.select("openai", "#provider");
+    await ui.type("synthetic-openai-key", "#api-key");
+    await ui.click("保存凭证");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "save_provider",
+      args: { provider: "openai", key: "synthetic-openai-key" },
+    });
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")!.value).toBe(
+      "",
+    );
+    const configured = {
+      ...value,
+      model: { ...value.model, configuredProviders: ["deepseek", "openai"] },
+    };
+    await ui.render(configured);
+    await ui.select("test-openai", "#default-model");
+    await ui.click("设为默认模型");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "select_model",
+      args: { model: { provider: "openai", modelId: "test-openai" } },
+    });
+    expect(
+      ui.element.querySelector(".default-model-summary")!.textContent,
+    ).toContain("deepseek-flash");
+    await ui.render({
+      ...configured,
+      model: {
+        ...configured.model,
+        defaultModel: { provider: "openai", modelId: "test-openai" },
+      },
+    });
+    expect(
+      ui.element.querySelector(".default-model-summary")!.textContent,
+    ).toContain("openai / test-openai");
+    await ui.type("do-not-reuse-this-key", "#api-key");
+    await ui.select("deepseek", "#provider");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")!.value).toBe(
+      "",
+    );
+    await ui.click("移除该服务商凭证");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "save_provider",
+      args: { provider: "deepseek", key: "" },
+    });
+  } finally {
+    await ui.close();
+  }
+});
+
+test("late catalog responses never replace another provider's models", async () => {
+  const deepseek = Promise.withResolvers<ModelCatalog>();
+  const openai = Promise.withResolvers<ModelCatalog>();
+  const ui = await mount(state("settings"), async (provider) =>
+    provider === "deepseek"
+      ? deepseek.promise
+      : provider === "openai"
+        ? openai.promise
+        : catalog(),
+  );
+  try {
+    await ui.click("模型与服务商");
+    await ui.select("openai", "#provider");
+    await act(async () => openai.resolve(await catalog("openai")));
+    await act(async () => deepseek.resolve(await catalog("deepseek")));
+    const options = [
+      ...ui.element.querySelectorAll<HTMLOptionElement>(
+        "#default-model option",
+      ),
+    ].map((option) => option.value);
+    expect(options).toContain("test-openai");
+    expect(options).not.toContain("deepseek-flash");
   } finally {
     await ui.close();
   }

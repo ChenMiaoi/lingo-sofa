@@ -49,7 +49,7 @@ Screenshots show the native Windows desktop application using an isolated test p
 - **Ask about what you read.** Keep the selected source in context, stream a reply, and continue asking questions. You can stop generation or manually compact the conversation.
 - **Translate what you type or copy.** Open the input panel for translation or an independent question, or explicitly translate the current clipboard text.
 - **Make shortcuts your own.** Open the panel from another application, change all three global bindings, and keep them across restarts. Conflicts are reported before replacing the previous configuration.
-- **Use your own model account.** Connect a DeepSeek API Key for DeepSeek V4.1 Flash. Credentials are encrypted for your Windows user account.
+- **Use your own model account.** Configure multiple API Key providers from the oh-my-pi catalog and choose a default model for translation and Ask. Existing DeepSeek credentials and the `deepseek-flash` default are preserved. Credentials remain encrypted locally.
 - **See observed usage.** Track reported tokens and incomplete usage. Unknown usage stays unknown, and interrupted requests are not automatically replayed.
 
 ## Get started
@@ -57,7 +57,7 @@ Screenshots show the native Windows desktop application using an isolated test p
 There is no published desktop release yet. [Build from source](#development) to generate a Windows installer; installed users do not need Bun or Rust. Setup and usage details are in the [installation guide](docs/installation.md).
 
 1. Start LingoSofa and open **Settings** from the edge entry or system tray.
-2. Add your DeepSeek API Key and choose a target language.
+2. Open **Settings → Models & providers**, select a provider, save its API Key, and choose a default model. Set your target language under Translation preferences.
 3. Select text and translate it, or open the input panel to translate or ask a new question. Open **Ask** from a translation to continue with its source context.
 
 | Default shortcut    | Action                                             |
@@ -68,7 +68,9 @@ There is no published desktop release yet. [Build from source](#development) to 
 
 On macOS, these defaults appear as **⌥⇧Space**, **⌥⇧S**, and **⌥⇧T**. Custom combinations accept **Command/Cmd/Meta/Super**, **Option/Alt** (also **Opt**), **Control/Ctrl**, and **Shift**, or symbols such as `⌘⌥Q` and `⌘+⌥+Q`. Include Command, Option, or Control with a letter, digit, Space, or F1–F24. Windows keeps its existing Ctrl/Alt combinations.
 
-Settings shares the input and Ask launcher, with a category menu leading to separate account, translation preferences, and shortcut pages. The back button or Esc returns one level at a time: first to Settings, then to your previous input or Ask page with its unsent draft intact.
+Settings shares the input and Ask launcher, with a category menu leading to separate Models & providers, translation preferences, and shortcut pages. The back button or Esc returns one level at a time: first to Settings, then to your previous input or Ask page with its unsent draft intact.
+
+The provider and model lists come from the bundled oh-my-pi SDK. API Key providers using supported native chat APIs are available; OAuth, special cloud credentials, local/keyless models, and custom service URLs are not yet exposed. Switching the default model ends the current session. Removing one provider’s credentials leaves the others intact.
 
 Change these combinations under **Settings → Global shortcuts**. Save to apply them immediately; if registration fails, the previous configuration remains in effect. The edge entry and tray remain available.
 
@@ -78,7 +80,7 @@ Selection support depends on the source application. Notepad, an isolated VS Cod
 
 ## Privacy and data
 
-LingoSofa runs locally and does not require a hosted LingoSofa backend. Text you submit for translation or questions, along with the conversation context needed for replies and compaction, goes to DeepSeek using your account.
+LingoSofa runs locally and does not require a hosted LingoSofa backend. Text you submit for translation or questions, along with the conversation context needed for replies and compaction, goes to the provider of your selected default model using your account.
 
 Clipboard text is read only when you explicitly request a translation. Source text, translations and conversations stay in memory; credentials are encrypted locally, and the usage ledger stores call metadata without message bodies or keys. There is no telemetry or automatic replay of failed requests.
 

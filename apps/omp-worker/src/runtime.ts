@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFrames, sendFrame, type Frame } from "./ipc";
 import { restrictedSettings, createRestrictedSession } from "./restricted-sdk";
+import { WorkerModels } from "./models";
 import type { AuthCredential } from "@oh-my-pi/pi-ai";
 
 export interface WorkerOptions {
@@ -12,6 +13,7 @@ export interface WorkerOptions {
   accounts: string[];
   origin: string;
   outputCap: number;
+  nativeApi?: import("@oh-my-pi/pi-ai").Api;
   compaction?: { keepRecentTokens: number; reserveTokens: number };
   authOptions?: (context: {
     snapshots: Map<
@@ -52,7 +54,11 @@ export interface WorkerOptions {
   }>;
 }
 export async function runWorker(options: WorkerOptions) {
-  const { provider, modelId, outputCap } = options;
+  const { provider, modelId, outputCap, nativeApi } = options;
+  let selection = { provider, modelId };
+  let catalog: WorkerModels | undefined;
+  let verifiedModel: string | undefined;
+  const allowedOrigins = new Set([options.origin]);
   const credentialEnvironmentPresent = Object.keys(process.env).some((name) =>
     /key|token|secret|password|credential/i.test(name),
   );
@@ -78,7 +84,7 @@ export async function runWorker(options: WorkerOptions) {
       if (
         new URL(options.origin).protocol === "http:"
           ? url.hostname !== "127.0.0.1"
-          : url.origin !== options.origin
+          : !allowedOrigins.has(url.origin)
       )
         throw new Error("worker_network_scope");
       if (init?.redirect && init.redirect !== "error")
@@ -258,14 +264,14 @@ export async function runWorker(options: WorkerOptions) {
       let observedUsage:
         import("@oh-my-pi/pi-ai").AssistantMessage["usage"] | undefined;
       try {
-        const stream = ai.streamSimple(
-          {
-            ...model,
-            api: "openai-completions",
-          } as import("@oh-my-pi/pi-ai").Model<"openai-completions">,
-          context,
-          { ...options, maxHttpAttempts: 1, maxTokens: outputCap },
-        );
+        const native = catalog
+          ? catalog.native(model)
+          : { ...model, api: nativeApi ?? model.api };
+        const stream = ai.streamSimple(native, context, {
+          ...options,
+          maxHttpAttempts: 1,
+          maxTokens: Math.min(outputCap, native.maxTokens ?? outputCap),
+        });
         for await (const event of stream) {
           if ("partial" in event && event.partial.usage.totalTokens > 0)
             observedUsage = structuredClone(event.partial.usage);
@@ -451,6 +457,15 @@ export async function runWorker(options: WorkerOptions) {
     cwd,
   });
 
+  if (!extension)
+    catalog = new WorkerModels(
+      registry,
+      ai,
+      transport,
+      (origin) => allowedOrigins.add(origin),
+      outputCap,
+    );
+
   function sessionEntry(payload: Record<string, unknown>) {
     const entry = sessions.get(String(payload.sessionId));
     if (!entry) throw new Error("session_lost");
@@ -461,22 +476,33 @@ export async function runWorker(options: WorkerOptions) {
     switch (frame.method) {
       case "hello": {
         if (frame.payload.sdk !== "18.12.3") throw new Error("sdk_mismatch");
-        for (const account of options.accounts) {
+        const accounts = frame.payload.accounts ?? options.accounts;
+        if (
+          !Array.isArray(accounts) ||
+          accounts.length > 128 ||
+          accounts.some(
+            (account) =>
+              typeof account !== "string" ||
+              !/^[a-zA-Z0-9_-]{1,64}$/.test(account),
+          )
+        )
+          throw new Error("invalid_accounts");
+        for (const account of accounts as string[]) {
           const snapshot = await credentialRequest("read", { account });
           snapshots.set(
             account,
             snapshot as { revision: number; credential: AuthCredential | null },
           );
-          if (snapshot.credential)
+          if (snapshot.credential && options.setup)
             await backing.replaceAuthCredentials(account, [
               snapshot.credential as AuthCredential,
             ]);
           if (
-            account === "deepseek" &&
+            options.setup &&
             (snapshot.credential as AuthCredential | null)?.type === "api_key"
           ) {
             auth.keys.setRuntime(
-              provider,
+              account,
               (snapshot.credential as { key: string }).key,
             );
           }
@@ -486,60 +512,66 @@ export async function runWorker(options: WorkerOptions) {
       }
       case "ping":
         return { pong: true };
-      case "model.verify": {
+      case "model.catalog": {
         if (extension) return extension.handle(frame);
-        const credential = snapshots.get("deepseek")?.credential;
-        if (credential?.type !== "api_key") throw new Error("account_missing");
-        const response = await fetch("https://api.deepseek.com/models", {
-          headers: { authorization: `Bearer ${credential.key}` },
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!response.ok) throw new Error("catalog_failed");
-        const catalog = (await response.json()) as {
-          data: {
-            id: string;
-            name: string;
-            context_window: number;
-            max_output_tokens: number;
-          }[];
-        };
-        const selected = catalog.data.find(
-          (entry) => entry.id === "deepseek-flash",
+        return catalog!.list(
+          typeof frame.payload.provider === "string"
+            ? frame.payload.provider
+            : undefined,
+          typeof frame.payload.offset === "number" ? frame.payload.offset : 0,
         );
-        if (
-          !selected ||
-          !selected.name.includes("V4.1") ||
-          !Number.isSafeInteger(selected.context_window) ||
-          !Number.isSafeInteger(selected.max_output_tokens) ||
-          selected.context_window < 8192 ||
-          selected.max_output_tokens < options.outputCap
-        )
-          throw new Error("model_not_verified");
-        registry.registerProvider("deepseek", {
-          api: "lingo-worker",
-          apiKey: "LINGO_RUNTIME_ACCOUNT",
-          baseUrl: "https://api.deepseek.com",
-          streamSimple: transport,
-          models: [
-            {
-              id: selected.id,
-              name: selected.name,
-              input: ["text"],
-              reasoning: false,
-              supportsTools: false,
-              contextWindow: selected.context_window,
-              maxTokens: outputCap,
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            },
-          ],
-        });
-        return {
-          id: selected.id,
-          name: selected.name,
-          contextWindow: selected.context_window,
-          requestOutputCap: options.outputCap,
-          credentialSource: "rust-vault",
+      }
+      case "model.resolve": {
+        if (extension) return extension.handle(frame);
+        const selected = catalog!.resolve(
+          String(frame.payload.provider),
+          String(frame.payload.modelId),
+        );
+        return { provider: selected.provider, modelId: selected.id };
+      }
+      case "model.verify": {
+        if (extension) {
+          const response = await extension.handle(frame);
+          if (
+            typeof response.provider === "string" &&
+            typeof response.modelId === "string"
+          ) {
+            selection = {
+              provider: response.provider,
+              modelId: response.modelId,
+            };
+          }
+          return response;
+        }
+        const next = {
+          provider:
+            typeof frame.payload.provider === "string"
+              ? frame.payload.provider
+              : provider,
+          modelId:
+            typeof frame.payload.modelId === "string"
+              ? frame.payload.modelId
+              : modelId,
         };
+        if (snapshots.get(next.provider)?.credential?.type !== "api_key")
+          throw new Error("account_missing");
+        const identity = `${next.provider}/${next.modelId}`;
+        if (verifiedModel && verifiedModel !== identity)
+          throw new Error("model_switch_requires_restart");
+        catalog!.resolve(next.provider, next.modelId);
+        const credential = snapshots.get(next.provider)!.credential!;
+        // Only the selected provider is available to SDK maintenance/fallback
+        // paths. Other configured keys stay in the vault snapshot, not SDK auth.
+        await backing.replaceAuthCredentials(next.provider, [credential]);
+        auth.keys.setRuntime(
+          next.provider,
+          (credential as { key: string }).key,
+        );
+        await auth.credentials.reload();
+        const result = catalog!.activate(next.provider, next.modelId);
+        verifiedModel = identity;
+        selection = next;
+        return result;
       }
       case "stats":
         return {
@@ -553,9 +585,15 @@ export async function runWorker(options: WorkerOptions) {
           tasks: tasks.size,
         };
       case "session.create": {
-        if (snapshots.get("deepseek")?.credential?.type !== "api_key")
+        if (snapshots.get(selection.provider)?.credential?.type !== "api_key")
           throw new Error("account_missing");
         if (sessions.size >= 4) throw new Error("session_limit");
+        const selectedModel = registry.find(
+          selection.provider,
+          selection.modelId,
+        );
+        if (!selectedModel) throw new Error("model_not_verified");
+        if (catalog) catalog.native(selectedModel);
         const { session } = await createRestrictedSession(
           sdk,
           {
@@ -563,11 +601,7 @@ export async function runWorker(options: WorkerOptions) {
             agentDir,
             authStorage: auth,
             modelRegistry: registry,
-            model:
-              registry.find(provider, modelId) ??
-              (() => {
-                throw new Error("model_not_verified");
-              })(),
+            model: selectedModel,
           },
           options.compaction,
         );
