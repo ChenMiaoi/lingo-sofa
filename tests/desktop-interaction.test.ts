@@ -3263,6 +3263,36 @@ test("history browsing cannot replace the current answer code position", async (
     await ui.close();
   }
 });
+test("active task identity keeps cancellation available and blocks followups after a phase change", async () => {
+  for (const phase of ["ready", "error"] as const) {
+    const value = state("ask-result");
+    value.model.phase = phase;
+    value.model.taskId = 17;
+    const ui = await mount(value);
+    try {
+      await ui.type("Retained followup");
+      await ui.key("Enter");
+      expect(ui.calls).toEqual([]);
+      expect(
+        ui.element.querySelector('[aria-label="停止生成"]'),
+      ).not.toBeNull();
+      await ui.click("停止生成");
+      expect(ui.calls).toEqual([{ command: "cancel_task", args: undefined }]);
+      await ui.render({
+        ...value,
+        model: { ...value.model, taskId: null, phase: "ready" },
+      });
+      await ui.key("Enter");
+      expect(ui.calls.at(-1)).toEqual({
+        command: "ask_question",
+        args: { question: "Retained followup" },
+      });
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
 test("provider settings retain a failed key for retry and clear it only after success", async () => {
   let saved = false;
   const ui = await mount(state("settings"), catalog, async () => saved);

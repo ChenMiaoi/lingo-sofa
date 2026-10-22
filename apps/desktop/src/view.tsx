@@ -149,6 +149,7 @@ export function Desktop({
   const queryInput = useRef<HTMLTextAreaElement>(null);
   const draftInput = useRef<HTMLTextAreaElement>(null);
   const busy =
+    model.taskId != null ||
     model.phase === "preparing" ||
     model.phase === "running" ||
     model.phase === "compacting";
