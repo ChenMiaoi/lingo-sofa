@@ -76,3 +76,15 @@ test("CI runs the native OCR helper on Windows and macOS and keeps Swift selecti
   );
   expect(manifest.scripts.check).toContain("-p lingo-sofa-ocr-helper");
 });
+
+test("Windows desktop uses the GUI subsystem in debug and release without hiding the invoking terminal", async () => {
+  const source = await Bun.file(
+    new URL("../apps/desktop/src-tauri/src/main.rs", import.meta.url),
+  ).text();
+  expect(source).toContain(
+    '#![cfg_attr(windows, windows_subsystem = "windows")]',
+  );
+  expect(source).not.toContain(
+    "cfg_attr(not(debug_assertions), windows_subsystem",
+  );
+});
