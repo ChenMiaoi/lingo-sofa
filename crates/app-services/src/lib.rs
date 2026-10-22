@@ -1127,45 +1127,21 @@ fn serve(
                 .into();
             }
         }
-        let records = host.usage.records();
+        let totals = host.usage.summary();
         let mut v = state.lock().unwrap();
+        let session_totals = v
+            .session_id
+            .as_deref()
+            .map(|id| host.usage.session_summary(id))
+            .unwrap_or_default();
         v.queued = host.queued_tasks();
-        v.active_calls = host.usage.active();
-        v.reported_tokens = records
-            .iter()
-            .filter_map(|r| r["usage"]["totalTokens"].as_u64())
-            .sum();
-        v.session_estimated_cost = records
-            .iter()
-            .filter(|r| {
-                r["sessionId"].as_str() == v.session_id.as_deref() && v.session_id.is_some()
-            })
-            .filter_map(|r| r["estimatedCost"].as_f64())
-            .sum();
-        v.session_unpriced_calls = records
-            .iter()
-            .filter(|r| {
-                r["sessionId"].as_str() == v.session_id.as_deref()
-                    && v.session_id.is_some()
-                    && r["usageState"] != "not_dispatched"
-                    && r["estimatedCost"].as_f64().is_none()
-            })
-            .count();
-        v.estimated_cost = records
-            .iter()
-            .filter_map(|record| record["estimatedCost"].as_f64())
-            .sum();
-        v.unpriced_calls = records
-            .iter()
-            .filter(|record| {
-                record["usageState"] != "not_dispatched"
-                    && record["estimatedCost"].as_f64().is_none()
-            })
-            .count();
-        v.unknown_calls = records
-            .iter()
-            .filter(|r| r["usageState"] == "unknown" || r["usageState"] == "partial")
-            .count();
+        v.active_calls = totals.active;
+        v.reported_tokens = totals.tokens;
+        v.session_estimated_cost = session_totals.estimated_cost;
+        v.session_unpriced_calls = session_totals.unpriced;
+        v.estimated_cost = totals.estimated_cost;
+        v.unpriced_calls = totals.unpriced;
+        v.unknown_calls = totals.unknown;
     }
     if let Some(id) = current {
         let _ = host.cancel_task(id);

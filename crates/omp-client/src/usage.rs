@@ -5,10 +5,46 @@ use std::{collections::BTreeMap, path::Path};
 
 pub const MAX_ACTIVE: usize = 2;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct UsageSummary {
+    pub active: usize,
+    pub tokens: u64,
+    pub estimated_cost: f64,
+    pub unpriced: usize,
+    pub unknown: usize,
+}
+impl UsageSummary {
+    fn update(&mut self, record: &Value, add: bool) {
+        let active = usize::from(record["usageState"] == "pending");
+        let tokens = record["usage"]["totalTokens"].as_u64().unwrap_or(0);
+        let cost = record["estimatedCost"].as_f64().unwrap_or(0.0);
+        let unpriced = usize::from(
+            record["usageState"] != "not_dispatched" && record["estimatedCost"].as_f64().is_none(),
+        );
+        let unknown =
+            usize::from(record["usageState"] == "unknown" || record["usageState"] == "partial");
+        if add {
+            self.active += active;
+            self.tokens += tokens;
+            self.estimated_cost += cost;
+            self.unpriced += unpriced;
+            self.unknown += unknown;
+        } else {
+            self.active -= active;
+            self.tokens -= tokens;
+            self.estimated_cost -= cost;
+            self.unpriced -= unpriced;
+            self.unknown -= unknown;
+        }
+    }
+}
+
 // SQLite's exclusive connection also locks ownership until process exit.
 pub struct UsageLedger {
     db: Connection,
     records: BTreeMap<String, Value>,
+    summary: UsageSummary,
+    sessions: BTreeMap<String, UsageSummary>,
 }
 
 impl UsageLedger {
@@ -42,7 +78,20 @@ impl UsageLedger {
             }
             records
         };
-        let mut ledger = Self { db, records };
+        let mut ledger = Self {
+            db,
+            records,
+            summary: UsageSummary::default(),
+            sessions: BTreeMap::new(),
+        };
+        for record in ledger.records.values() {
+            ledger.summary.update(record, true);
+            ledger
+                .sessions
+                .entry(record["sessionId"].as_str().ok_or("ledger_corrupt")?.into())
+                .or_default()
+                .update(record, true);
+        }
         ledger.mark_lost()?;
         Ok(ledger)
     }
@@ -51,15 +100,31 @@ impl UsageLedger {
         let text = serde_json::to_string(&record).map_err(|_| "ledger_encode_failed")?;
         // Autocommit + FULL synchronization: no acknowledgement before commit.
         self.db.execute("INSERT INTO calls(call_id, record) VALUES (?1, ?2) ON CONFLICT(call_id) DO UPDATE SET record=excluded.record", params![call_id, text]).map_err(|_| "ledger_write_failed")?;
+        if let Some(previous) = self.records.get(call_id) {
+            self.summary.update(previous, false);
+            self.sessions
+                .get_mut(previous["sessionId"].as_str().unwrap())
+                .unwrap()
+                .update(previous, false);
+        }
+        self.summary.update(&record, true);
+        self.sessions
+            .entry(record["sessionId"].as_str().unwrap().into())
+            .or_default()
+            .update(&record, true);
         self.records.insert(call_id.into(), record);
         Ok(())
     }
 
     pub fn active(&self) -> usize {
-        self.records
-            .values()
-            .filter(|record| record["usageState"] == "pending")
-            .count()
+        self.summary.active
+    }
+
+    pub fn summary(&self) -> UsageSummary {
+        self.summary
+    }
+    pub fn session_summary(&self, id: &str) -> UsageSummary {
+        self.sessions.get(id).copied().unwrap_or_default()
     }
 
     pub fn acquire(&mut self, instance: &str, request_id: u64, event: &Value) -> Result<bool> {
@@ -204,6 +269,50 @@ mod tests {
         event["usage"] =
             json!({"input":10,"output":2,"cacheRead":4,"cacheWrite":0,"totalTokens":16});
         event
+    }
+    #[test]
+    fn aggregates_follow_replacements_sessions_failed_writes_and_cold_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.sqlite");
+        let mut ledger = UsageLedger::open(&path).unwrap();
+        ledger.acquire("worker", 2, &call("priced")).unwrap();
+        assert_eq!(ledger.summary().unpriced, 1);
+        let mut priced = terminal("priced");
+        priced["pricingKnown"] = json!(true);
+        priced["estimatedCost"] = json!(0.125);
+        ledger.complete("worker", 2, &priced).unwrap();
+        ledger.complete("worker", 2, &priced).unwrap();
+        let mut other = call("pending");
+        other["sessionId"] = json!("other");
+        ledger.acquire("worker", 2, &other).unwrap();
+        assert_eq!(ledger.summary().tokens, 16);
+        assert_eq!(ledger.summary().active, 1);
+        assert_eq!(ledger.session_summary("session").estimated_cost, 0.125);
+        assert_eq!(ledger.session_summary("other").unpriced, 1);
+        let before = ledger.summary();
+        let before_session = ledger.session_summary("other");
+        let before_records = ledger.records();
+        ledger.db.execute_batch("CREATE TRIGGER reject_usage BEFORE UPDATE ON calls BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+        let mut completed = terminal("pending");
+        completed["sessionId"] = json!("other");
+        assert_eq!(
+            ledger.complete("worker", 2, &completed),
+            Err("ledger_write_failed")
+        );
+        assert_eq!(ledger.summary(), before);
+        assert_eq!(ledger.session_summary("other"), before_session);
+        assert_eq!(ledger.records(), before_records);
+        ledger
+            .db
+            .execute_batch("DROP TRIGGER reject_usage")
+            .unwrap();
+        drop(ledger);
+        let ledger = UsageLedger::open(&path).unwrap();
+        assert_eq!(ledger.summary().tokens, 16);
+        assert_eq!(ledger.summary().active, 0);
+        assert_eq!(ledger.summary().unknown, 1);
+        assert_eq!(ledger.summary().estimated_cost, 0.125);
+        assert_eq!(ledger.session_summary("missing").tokens, 0);
     }
     #[test]
     fn durable_terminal_is_idempotent_and_does_not_release_another_permit() {
