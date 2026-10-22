@@ -21,7 +21,11 @@ const ACTIONS: [Action; 6] = [
     Action::OcrAlternate,
 ];
 fn active_count() -> usize {
-    if cfg!(target_os = "macos") { 6 } else { 4 }
+    if cfg!(any(target_os = "macos", windows)) {
+        6
+    } else {
+        4
+    }
 }
 fn selection_alternate() -> String {
     "Ctrl+Alt+Shift+S".into()
@@ -67,7 +71,10 @@ impl Bindings {
         // Keep every existing combination. A new default must not collide with
         // an older custom binding and prevent the application from starting.
         for (index, name) in [(3, "selectionAlternate"), (4, "ocr"), (5, "ocrAlternate")] {
-            if index >= active_count() || stored.get(name).is_some() {
+            // Older Windows versions persisted the two inactive OCR defaults too.
+            // Their presence does not mean a user had configured those actions.
+            let existing = stored.get(name).is_some() && !(cfg!(windows) && index >= 4);
+            if index >= active_count() || existing {
                 continue;
             }
             let values = bindings.values();
@@ -182,9 +189,7 @@ impl Bindings {
             }
             normalized.push_str(&key.ok_or_else(invalid)?);
             let parsed = normalized.parse::<Shortcut>().map_err(|_| invalid())?;
-            if index < (if macos { 6 } else { 4 })
-                && keys.iter().any(|k: &Shortcut| k.id() == parsed.id())
-            {
+            if index < active_count() && keys.iter().any(|k: &Shortcut| k.id() == parsed.id()) {
                 return Err("shortcut_duplicate".into());
             }
             values.push(normalized);
@@ -222,6 +227,7 @@ impl Registry for AppRegistry<'_> {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub macos: bool,
+    pub ocr: bool,
     pub bindings: Bindings,
     pub registered: Vec<bool>,
     pub revision: u64,
@@ -270,6 +276,7 @@ impl Manager {
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             macos: cfg!(target_os = "macos"),
+            ocr: cfg!(any(target_os = "macos", windows)),
             bindings: self.bindings.clone(),
             registered: self
                 .keys
@@ -571,10 +578,46 @@ mod tests {
         assert_eq!(bindings.input, "Ctrl+Alt+Shift+S");
         assert_eq!(bindings.selection, "Alt+Shift+O");
         assert_ne!(bindings.selection_alternate, bindings.input);
-        if cfg!(target_os = "macos") {
+        if cfg!(any(target_os = "macos", windows)) {
             assert_ne!(bindings.ocr, bindings.selection);
         }
         assert!(bindings.validate().is_ok());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn previously_inactive_stored_ocr_defaults_cannot_block_windows_startup() {
+        let old = Bindings {
+            selection: "Alt+Shift+O".into(),
+            clipboard: "Ctrl+Alt+Shift+O".into(),
+            ..Bindings::default()
+        };
+        let stored = serde_json::to_string(&old).unwrap();
+        let migrated = Bindings::from_stored(&stored).unwrap();
+        assert_eq!(migrated.input, old.input);
+        assert_eq!(migrated.selection, old.selection);
+        assert_eq!(migrated.clipboard, old.clipboard);
+        assert_eq!(migrated.selection_alternate, old.selection_alternate);
+        assert_ne!(migrated.ocr, old.selection);
+        assert_ne!(migrated.ocr_alternate, old.clipboard);
+        assert!(migrated.validate().is_ok());
+        assert_eq!(
+            Bindings::from_stored(&serde_json::to_string(&migrated).unwrap()).unwrap(),
+            migrated
+        );
+        let custom = Bindings {
+            ocr: "Ctrl+Alt+Q".into(),
+            ..migrated.clone()
+        };
+        assert_eq!(
+            Bindings::from_stored(&serde_json::to_string(&custom).unwrap()).unwrap(),
+            custom
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shortcuts.sqlite");
+        let mut manager = Manager::open(&path).unwrap();
+        manager.save(migrated.clone(), &Fake::default()).unwrap();
+        drop(manager);
+        assert_eq!(Manager::open(&path).unwrap().bindings, migrated);
     }
     #[test]
     fn alternate_and_ocr_shortcuts_route_separately_without_changing_old_actions() {
@@ -590,7 +633,7 @@ mod tests {
         );
         assert_eq!(
             manager.action(&"Alt+Shift+O".parse().unwrap()),
-            if cfg!(target_os = "macos") {
+            if cfg!(any(target_os = "macos", windows)) {
                 Some(Action::Ocr)
             } else {
                 None
@@ -598,7 +641,7 @@ mod tests {
         );
         assert_eq!(
             manager.action(&"Ctrl+Alt+Shift+O".parse().unwrap()),
-            if cfg!(target_os = "macos") {
+            if cfg!(any(target_os = "macos", windows)) {
                 Some(Action::OcrAlternate)
             } else {
                 None

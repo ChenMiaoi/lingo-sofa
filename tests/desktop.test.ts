@@ -31,6 +31,15 @@ test("public UI state contains no credentials", () => {
   expect(Object.keys(initialView)).not.toContain("key");
   expect(Object.keys(initialView)).not.toContain("credential");
 });
+
+test("OCR errors identify platform limits and actionable local resource failures", () => {
+  expect(errorMessage("ocr_image_too_large", false)).toContain("400 万");
+  expect(errorMessage("ocr_image_too_large", false)).toContain("4096");
+  expect(errorMessage("ocr_image_too_large", true)).toContain("1600 万");
+  expect(errorMessage("ocr_runtime_unavailable")).toContain("Visual C++");
+  expect(errorMessage("ocr_resource_invalid")).toContain("重新安装");
+  expect(errorMessage("ocr_model_invalid")).toContain("重新安装");
+});
 test("IME confirmation, empty questions and busy requests do not submit", () => {
   expect(
     shouldSubmitQuestion(
@@ -203,6 +212,7 @@ test("macOS shortcut hints use native symbols while Windows keeps existing text"
     shortcuts: {
       ...initialState.shortcuts,
       macos: true,
+      ocr: true,
       bindings: {
         ...initialState.shortcuts.bindings,
         input: "Ctrl+Alt+Shift+Super+I",

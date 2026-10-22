@@ -3,8 +3,31 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { bundleInputs, requireBundleInputs } from "../scripts/bundle-inputs";
+import { ocrManifest, ocrNoticeFiles } from "../scripts/ocr-assets";
 
-test("macOS bundles its native OCR helper and Windows keeps the existing runtime inputs", () => {
+test("Windows bundles require models, dictionary, runtime and licenses; macOS keeps Apple Vision", () => {
+  const windows = bundleInputs(
+    "/fixture",
+    true,
+    ".exe",
+    "pi_natives.win32-x64-baseline.node",
+  );
+  for (const name of [
+    ...ocrManifest.assets.map((asset) => asset.name),
+    ...ocrNoticeFiles,
+  ])
+    expect(windows.some((file) => file.endsWith(join("ocr", name)))).toBe(true);
+  const mac = bundleInputs(
+    "/fixture",
+    true,
+    "",
+    "pi_natives.darwin-arm64.node",
+  );
+  expect(mac.some((file) => file.endsWith("det.onnx"))).toBe(false);
+  expect(mac.some((file) => file.endsWith("region-selector"))).toBe(true);
+});
+
+test("Windows and macOS bundles include their native OCR helper", () => {
   expect(
     bundleInputs("/fixture", true, "", "pi_natives.darwin-arm64.node").some(
       (file) => basename(file) === "ocr-helper",
@@ -17,7 +40,7 @@ test("macOS bundles its native OCR helper and Windows keeps the existing runtime
       ".exe",
       "pi_natives.win32-x64-baseline.node",
     ).some((file) => file.includes("ocr-helper")),
-  ).toBe(false);
+  ).toBe(true);
 });
 
 test("bundling requires the selected profile, frontend, both helpers and native addon", async () => {

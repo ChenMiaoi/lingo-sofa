@@ -400,7 +400,7 @@ impl Shell {
             "input"
         }
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     pub fn ocr_translate(
         &self,
         app: &tauri::AppHandle,

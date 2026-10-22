@@ -473,6 +473,7 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
   value.shortcuts = {
     ...value.shortcuts,
     macos: true,
+    ocr: true,
     registered: [true, true, true],
     bindings: { ...value.shortcuts.bindings, input: "Alt+Super+I" },
   };
@@ -1969,7 +1970,7 @@ test("Ask merges each tool lifecycle, previews results and keeps usage in an Esc
 
 test("macOS OCR is local, preserves a cancelled command draft and prefills an editable review without submitting", async () => {
   const value = state("input");
-  value.shortcuts = { ...value.shortcuts, macos: true };
+  value.shortcuts = { ...value.shortcuts, macos: true, ocr: true };
   const ui = await mount(value);
   try {
     await ui.type("/ocr");
@@ -2011,9 +2012,9 @@ test("macOS OCR is local, preserves a cancelled command draft and prefills an ed
   }
 });
 
-test("OCR content that looks like a command remains ordinary text, and Windows keeps OCR unavailable", async () => {
+test("OCR content that looks like a command remains ordinary text, and unsupported hosts keep OCR unavailable", async () => {
   const value = state("input");
-  value.shortcuts = { ...value.shortcuts, macos: true };
+  value.shortcuts = { ...value.shortcuts, macos: true, ocr: true };
   value.desktop.context = {
     ...context,
     kind: "ocr",
@@ -2032,18 +2033,18 @@ test("OCR content that looks like a command remains ordinary text, and Windows k
     ]);
     await ui.render({
       ...value,
-      shortcuts: { ...value.shortcuts, macos: false },
+      shortcuts: { ...value.shortcuts, macos: false, ocr: false },
     });
     await ui.type("/ocr");
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(1);
-    expect(ui.element.textContent).toContain("截图识别暂仅支持 macOS");
+    expect(ui.element.textContent).toContain("截图识别需要 Windows 或 macOS");
   } finally {
     await ui.close();
   }
 });
 
-test("Windows Tab completion follows the visible commands after filtering macOS OCR", async () => {
+test("Command completion follows the visible commands when OCR is unavailable", async () => {
   const value = state("input");
   value.shortcuts = { ...value.shortcuts, macos: false };
   const ui = await mount(value);
@@ -2073,6 +2074,7 @@ test("translation placement saves independently and shortcuts label both styles"
   value.shortcuts = {
     ...value.shortcuts,
     macos: true,
+    ocr: true,
     registered: Array(6).fill(true),
   };
   const ui = await mount(value);
@@ -2235,7 +2237,7 @@ test("Chinese followups use the input byte budget and oversized questions stay e
 
 test("OCR commands can override placement once without saving a preference", async () => {
   const value = state("input");
-  value.shortcuts = { ...value.shortcuts, macos: true };
+  value.shortcuts = { ...value.shortcuts, macos: true, ocr: true };
   const ui = await mount(value);
   try {
     await ui.type("/ocr panel");
@@ -3396,6 +3398,62 @@ test("an empty incomplete translation stops loading and preserves the safe failu
   try {
     expect(ui.element.querySelector(".loading")).toBeNull();
     expect(ui.element.textContent).toContain("模型未正常结束，请重试。");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("Windows OCR runtime failure offers the official repair link without submitting text", async () => {
+  const value = state("input");
+  value.shortcuts = { ...value.shortcuts, macos: false, ocr: true };
+  const ui = await mount(value, catalog, async (command) => {
+    if (command === "capture_ocr") throw "ocr_runtime_unavailable";
+  });
+  try {
+    await ui.type("/ocr");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("Visual C++");
+    await ui.click("下载官方 x64 运行库");
+    expect(ui.calls).toEqual([
+      { command: "capture_ocr", args: undefined },
+      {
+        command: "open_external_url",
+        args: { url: "https://aka.ms/vs/17/release/vc_redist.x64.exe" },
+      },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("Windows OCR exposes the command, floating menu and six shortcut fields independently of macOS notation", async () => {
+  const value = state("input");
+  value.shortcuts = {
+    ...value.shortcuts,
+    macos: false,
+    ocr: true,
+    registered: [true, true, true, true, true, true],
+  };
+  const ui = await mount(value);
+  try {
+    await ui.type("/ocr");
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([{ command: "capture_ocr", args: undefined }]);
+    await ui.render({ ...value, desktop: { ...value.desktop, mode: "menu" } });
+    expect(ui.element.textContent).toContain("截图翻译");
+    expect(ui.element.textContent).toContain("Alt+Shift+O");
+    expect(ui.element.textContent).not.toContain("⌥");
+    await ui.click("截图翻译Alt+Shift+O");
+    expect(ui.calls.at(-1)?.command).toBe("capture_ocr");
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, mode: "settings" },
+    });
+    await ui.click("快捷键");
+    expect(ui.element.querySelectorAll(".shortcut-row")).toHaveLength(6);
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-ocr")?.value,
+    ).toBe("Alt+Shift+O");
   } finally {
     await ui.close();
   }

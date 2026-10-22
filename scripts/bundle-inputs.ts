@@ -1,3 +1,4 @@
+import { ocrManifest, ocrNoticeFiles } from "./ocr-assets";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -16,8 +17,13 @@ export function bundleInputs(
     ...[
       `omp-worker${suffix}`,
       `selection-helper${suffix}`,
-      ...(nativeName.includes("darwin")
-        ? ["ocr-helper", "region-selector"]
+      `ocr-helper${suffix}`,
+      ...(nativeName.includes("darwin") ? ["region-selector"] : []),
+      ...(nativeName.includes("win32")
+        ? [
+            ...ocrManifest.assets.map((asset) => asset.name),
+            ...ocrNoticeFiles,
+          ].map((name) => `ocr/${name}`)
         : []),
       nativeName,
     ].map((name) => join(root, "apps/desktop/src-tauri/resources", name)),

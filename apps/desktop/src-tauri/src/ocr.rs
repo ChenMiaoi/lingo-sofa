@@ -1,13 +1,13 @@
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-pub use macos::CaptureState;
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "macos", windows))]
+mod native;
+#[cfg(any(target_os = "macos", windows))]
+pub use native::CaptureState;
+#[cfg(not(any(target_os = "macos", windows)))]
 #[derive(Clone, Default)]
 pub struct CaptureState {
     _unsupported: (),
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 impl CaptureState {
     pub fn active(&self) -> bool {
         false
@@ -22,11 +22,11 @@ pub async fn capture(
     state: CaptureState,
     display: Option<lingo_sofa_app_services::TranslationDisplay>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
-        macos::capture(app, shell, service, state, display).await
+        native::capture(app, shell, service, state, display).await
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (app, shell, service, state, display);
         Err("ocr_unsupported".into())

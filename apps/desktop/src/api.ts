@@ -186,16 +186,24 @@ export function errorMessage(error: unknown, macos = false): string {
       "当前无法打开钥匙串，请解锁系统登录钥匙串后重新打开应用。",
     keychain_write_failed: "无法保存钥匙串凭证，请确认系统授权后重新打开应用。",
     ocr_review_ready: "已在本机识别，请校对后翻译或提问。",
-    ocr_unsupported: "截图识别暂仅支持 macOS。",
+    ocr_unsupported: "截图识别需要 Windows 或 macOS。",
     ocr_os_unsupported: "本机截图识别需要 macOS 11 或更新版本。",
     ocr_screen_permission_required:
       "请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制中允许 LingoSofa，按系统提示重新打开应用后重试。",
     ocr_busy: "截图识别正在进行，请完成框选或按 Esc 取消。",
     ocr_capture_failed: "截图失败，请重新框选；受保护的画面可能无法截取。",
     ocr_failed: "本机文字识别失败，请重新框选清晰的文字。",
+    ocr_resource_invalid:
+      "本地 OCR 资源缺失或校验失败，请重新安装完整应用；不会改用其他引擎或联网下载。",
+    ocr_runtime_unavailable:
+      "本地 OCR 运行库无法载入。请安装 Microsoft Visual C++ 2015–2022 x64 运行库后重试。",
+    ocr_model_invalid: "本地 OCR 模型与识别程序不匹配，请重新安装完整应用。",
+    ocr_cross_screen: "请在同一屏幕内完成框选；跨屏区域不支持。",
     ocr_empty: "没有识别到文字，请重新框选更清晰的区域。",
     ocr_timeout: "截图或文字识别已超时，请重试或缩小区域。",
-    ocr_image_too_large: "截图区域过大，请缩小到 1600 万像素以内。",
+    ocr_image_too_large: macos
+      ? "截图区域过大，请缩小到 1600 万像素以内。"
+      : "OCR 区域或文字行过大。请缩小范围：最多 400 万像素、最长边 4096 像素；过长单行请分段识别。",
     ocr_text_too_long: "识别文字过长，请缩小区域后分段识别。",
     shortcut_duplicate: "快捷键不能重复；请为每个操作选择不同组合。",
     shortcuts_storage_failed:
@@ -301,6 +309,7 @@ export interface ShortcutBindings {
 }
 export interface ShortcutSnapshot {
   macos: boolean;
+  ocr: boolean;
   bindings: ShortcutBindings;
   registered: boolean[];
   revision: number;
@@ -328,6 +337,7 @@ export const initialState: DesktopState = {
   },
   shortcuts: {
     macos: false,
+    ocr: false,
     bindings: defaultShortcuts,
     registered: [false, false, false, false],
     revision: 0,

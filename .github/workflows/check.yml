@@ -47,6 +47,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: npm run test:runtime
       - run: npm run build:worker
+      - name: Test macOS region selector
+        if: runner.os == 'macOS'
+        run: bun scripts/test-region-selector.ts
+      - name: Test native OCR helper
+        run: cargo test --locked -p lingo-sofa-ocr-helper
       - run: npm run build:web
       - run: cargo test --locked -p lingo-sofa-desktop --timings
       - run: cargo clippy --workspace --all-targets --timings -- -D warnings

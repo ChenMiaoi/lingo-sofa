@@ -1,0 +1,36 @@
+{
+  "engine": "PP-OCRv5_mobile",
+  "runtime": "ONNX Runtime 1.31.0 CPU win-x64",
+  "detSource": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/resolve/e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx",
+  "recSource": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec_onnx/resolve/ed152b8b495f84de93cda5709d768548a9127622/inference.onnx",
+  "dictionarySource": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec_onnx/resolve/ed152b8b495f84de93cda5709d768548a9127622/inference.yml",
+  "runtimeSource": "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip",
+  "runtimeArchiveSha256": "3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195",
+  "assets": [
+    {
+      "name": "det.onnx",
+      "bytes": 4826518,
+      "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d"
+    },
+    {
+      "name": "rec.onnx",
+      "bytes": 16534782,
+      "sha256": "da72dc72ca4dc220df0dfde68c1dedc31c58d3e76a25871122e5056227d50092"
+    },
+    {
+      "name": "characters.txt",
+      "bytes": 92395,
+      "sha256": "1ea29636956177e400af712d9782e7693f3fb25f98617bed10479d2965a836fd"
+    },
+    {
+      "name": "onnxruntime.dll",
+      "bytes": 17253176,
+      "sha256": "0c42dc4e278f0968fdf9ebf1b1e54a74c657a9942e70803e453c91993451cf4c"
+    },
+    {
+      "name": "onnxruntime_providers_shared.dll",
+      "bytes": 21816,
+      "sha256": "e45d471ea2a842b268c51291b96d53568b0dae10807f43d1fb7dc0eb84e83723"
+    }
+  ]
+}

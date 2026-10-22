@@ -56,7 +56,7 @@ export function ShortcutSettings({
         支持字母、数字、Space 和 F1–F24。
       </p>
       {fields
-        .filter((_, index) => snapshot.macos || index < 4)
+        .filter((_, index) => snapshot.ocr || index < 4)
         .map(([name, label], index) => (
           <div className="shortcut-row" key={name}>
             <label htmlFor={`shortcut-${name}`}>

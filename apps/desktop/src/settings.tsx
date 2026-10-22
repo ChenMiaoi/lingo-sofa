@@ -79,7 +79,7 @@ export function Settings({
     updates: updateSummary(state.updates),
     models: `${model.defaultModel.provider} / ${model.defaultModel.modelId}`,
     preferences: model.settings.target,
-    shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/${state.shortcuts.macos ? 6 : 4} 已启用`,
+    shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/${state.shortcuts.ocr ? 6 : 4} 已启用`,
   };
   return (
     <main className="launcher settings-launcher selection-page">

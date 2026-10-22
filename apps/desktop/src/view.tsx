@@ -163,7 +163,7 @@ export function Desktop({
   const commandMode = (isInput || isAsk) && isCommandInput(commandText);
   const commands = commandMode
     ? commandSuggestions(commandText).filter(
-        (entry) => state.shortcuts.macos || entry.command !== "/ocr",
+        (entry) => state.shortcuts.ocr || entry.command !== "/ocr",
       )
     : [];
   const inputActions = [
@@ -199,7 +199,7 @@ export function Desktop({
       return;
     }
     if (parsed.kind === "ocr") {
-      if (!state.shortcuts.macos) {
+      if (!state.shortcuts.ocr) {
         setCommandNotice(errorMessage("ocr_unsupported"));
         return;
       }
@@ -213,7 +213,9 @@ export function Desktop({
         "capture_ocr",
         parsed.display ? { display: parsed.display } : undefined,
       )
-        .catch((error) => setCommandNotice(errorMessage(error)))
+        .catch((error) =>
+          setCommandNotice(errorMessage(error, state.shortcuts.macos)),
+        )
         .finally(() => {
           commandInFlight.current = false;
         });
@@ -500,6 +502,18 @@ export function Desktop({
   }, [modelSearch, isInput, isAsk, loginEntry, sessionSearch]);
   const message =
     notice || (d.notice ? errorMessage(d.notice, state.shortcuts.macos) : "");
+  const runtimeHelp = (text: string) =>
+    text === errorMessage("ocr_runtime_unavailable") ? (
+      <button
+        onClick={() =>
+          void perform("open_external_url", {
+            url: "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+          })
+        }
+      >
+        下载官方 x64 运行库
+      </button>
+    ) : null;
   const translationError = current && model.phase === "error";
   const translation =
     d.translation ||
@@ -570,6 +584,7 @@ export function Desktop({
         {message && (
           <p className="menu-notice" role="status">
             {message}
+            {runtimeHelp(message)}
           </p>
         )}
         <button onClick={() => void perform("capture_selection")}>
@@ -596,13 +611,16 @@ export function Desktop({
               : "快捷键未启用"}
           </kbd>
         </button>
-        {state.shortcuts.macos && (
+        {state.shortcuts.ocr && (
           <button disabled={busy} onClick={() => void perform("capture_ocr")}>
             <Icon name="selection" />
             截图翻译
             <kbd>
               {state.shortcuts.registered[4]
-                ? formatShortcut(state.shortcuts.bindings.ocr, true)
+                ? formatShortcut(
+                    state.shortcuts.bindings.ocr,
+                    state.shortcuts.macos,
+                  )
                 : "/ocr"}
             </kbd>
           </button>
@@ -1061,6 +1079,7 @@ export function Desktop({
                       : mode === "ask"
                         ? `↑↓ 选择\u3000 ${state.shortcuts.macos ? "↩" : "↵"} 执行\u3000 Esc 返回阅读`
                         : "")}
+              {runtimeHelp(commandNotice || message)}
             </span>
             <span>{isInput ? "Esc 收起" : "Ask 模式 · 主动展开"}</span>
           </footer>

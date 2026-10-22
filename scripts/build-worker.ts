@@ -1,3 +1,4 @@
+import { prepareWindowsOcr } from "./ocr-assets";
 import { runtime } from "./platform";
 import { copyFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -44,6 +45,9 @@ if (process.platform === "darwin") {
     "-o",
     selector,
   ]);
+}
+if (process.platform === "darwin" || process.platform === "win32") {
+  await prepareWindowsOcr();
   await run([
     "cargo",
     "build",
@@ -53,7 +57,13 @@ if (process.platform === "darwin") {
     "lingo-sofa-ocr-helper",
   ]);
   await copyFile(
-    resolve(root, "target/release/lingo-sofa-ocr-helper"),
-    resolve(root, "apps/desktop/src-tauri/resources/ocr-helper"),
+    resolve(
+      root,
+      `target/release/lingo-sofa-ocr-helper${runtime.executableSuffix}`,
+    ),
+    resolve(
+      root,
+      `apps/desktop/src-tauri/resources/ocr-helper${runtime.executableSuffix}`,
+    ),
   );
 }

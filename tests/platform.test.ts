@@ -57,3 +57,22 @@ test("Tauri Cargo features match Windows and macOS application configs", async (
     ).toBe(Boolean(app.macOSPrivateApi));
   }
 });
+
+test("CI runs the native OCR helper on Windows and macOS and keeps Swift selection macOS-only", async () => {
+  const workflow = await Bun.file(
+    new URL("../.github/workflows/check.yml", import.meta.url),
+  ).text();
+  const manifest = await Bun.file(
+    new URL("../package.json", import.meta.url),
+  ).json();
+  expect(workflow).toContain(
+    "if: runner.os == 'macOS'\n        run: bun scripts/test-region-selector.ts",
+  );
+  expect(workflow).toContain(
+    "- name: Test native OCR helper\n        run: cargo test --locked -p lingo-sofa-ocr-helper",
+  );
+  expect(manifest.scripts.check).toContain(
+    "bun scripts/test-region-selector.ts",
+  );
+  expect(manifest.scripts.check).toContain("-p lingo-sofa-ocr-helper");
+});
