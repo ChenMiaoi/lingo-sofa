@@ -44,6 +44,10 @@ export function ModelPicker({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [catalogError, setCatalogError] = useState("");
+  const [reloadAttempt, setReloadAttempt] = useState(0);
+  const [reloading, setReloading] = useState(false);
+  const reloadPending = useRef(false);
   const keyInput = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLElement>(null);
@@ -59,9 +63,12 @@ export function ModelPicker({
   useEffect(() => {
     let disposed = false;
     setLoading(true);
+    reloadPending.current = true;
     setChoices([]);
     setError("");
+    setCatalogError("");
     if (browsingProviders) {
+      setProviderList([]);
       void loadCatalog()
         .then((catalog) => {
           if (!disposed)
@@ -70,10 +77,14 @@ export function ModelPicker({
             );
         })
         .catch((reason) => {
-          if (!disposed) setError(errorMessage(reason));
+          if (!disposed) setCatalogError(errorMessage(reason));
         })
         .finally(() => {
-          if (!disposed) setLoading(false);
+          if (!disposed) {
+            reloadPending.current = false;
+            setLoading(false);
+            setReloading(false);
+          }
         });
       return () => {
         disposed = true;
@@ -98,16 +109,20 @@ export function ModelPicker({
               throw new Error("模型目录加载不完整，请重试。");
           }
         } catch (reason) {
-          if (!disposed) setError(errorMessage(reason));
+          if (!disposed) setCatalogError(errorMessage(reason));
         }
       }),
     ).finally(() => {
-      if (!disposed) setLoading(false);
+      if (!disposed) {
+        reloadPending.current = false;
+        setLoading(false);
+        setReloading(false);
+      }
     });
     return () => {
       disposed = true;
     };
-  }, [providers, loadCatalog, provider, browsingProviders]);
+  }, [providers, loadCatalog, provider, browsingProviders, reloadAttempt]);
   const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const matches = choices
     .filter((choice) => {
@@ -133,6 +148,7 @@ export function ModelPicker({
     (entry) => entry.id === credentialFor?.provider,
   );
   const count = browsingProviders ? providerMatches.length : matches.length;
+  const loadedCount = browsingProviders ? providerList.length : choices.length;
   const index = Math.min(selected, Math.max(count - 1, 0));
   useEffect(() => {
     if (credentialFor) keyInput.current?.focus();
@@ -325,9 +341,37 @@ export function ModelPicker({
                 : (provider ?? "已配置服务商的模型")}
           </span>
           <span>
-            {!credentialFor && `${count} 项${loading ? " · 加载中…" : ""}`}
+            {!credentialFor &&
+              (catalogError
+                ? `${loadedCount ? `已加载 ${loadedCount} 项 · ` : ""}目录未完整`
+                : `${count} 项${loading ? " · 加载中…" : ""}`)}
           </span>
         </div>
+        {!credentialFor && (catalogError || reloading) && (
+          <div className="quiet-status">
+            <p role="status">
+              {loading
+                ? reloading
+                  ? "正在重新加载目录…"
+                  : "目录未完整，正在加载其余条目…"
+                : `${loadedCount ? "目录未完整，已加载的条目仍可使用。" : "目录加载失败。"} ${catalogError}`}
+            </p>
+            <button
+              className="text-button"
+              disabled={loading || saving}
+              onClick={() => {
+                if (reloadPending.current || inFlight.current) return;
+                reloadPending.current = true;
+                setReloading(true);
+                setLoading(true);
+                setReloadAttempt((value) => value + 1);
+                input.current?.focus();
+              }}
+            >
+              重试加载
+            </button>
+          </div>
+        )}
         {credentialFor ? (
           <p className="quiet-status">
             {credentialFor.name} · {credentialFor.provider}/{credentialFor.id}
@@ -402,7 +446,7 @@ export function ModelPicker({
             </button>
           ))
         )}
-        {!credentialFor && !count && (
+        {!credentialFor && !count && !catalogError && !reloading && (
           <p className="quiet-status">
             {loading
               ? "正在加载模型目录…"

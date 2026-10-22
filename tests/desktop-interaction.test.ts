@@ -1264,6 +1264,217 @@ test("model search loads all catalog pages and Escape restores the command witho
   }
 });
 
+test("provider catalog failure offers a scoped retry without reporting false empty results", async () => {
+  let attempts = 0;
+  const retry = Promise.withResolvers<ModelCatalog>();
+  const ui = await mount(state("input"), async () => {
+    if (++attempts === 1) throw new Error("provider catalog offline");
+    return retry.promise;
+  });
+  try {
+    await ui.type("/model open");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("目录加载失败");
+    expect(ui.element.textContent).not.toContain("没有匹配的服务商");
+    expect(
+      ui.element.querySelector(".list-caption")?.textContent,
+    ).not.toContain("0 项");
+    await ui.click("重试加载");
+    expect(attempts).toBe(2);
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe(
+      "open",
+    );
+    const button = [...ui.element.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("重试加载"),
+    )!;
+    expect(button.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(attempts).toBe(2);
+    await act(async () => retry.resolve(await catalog()));
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+    expect(ui.element.textContent).toContain("OpenAI");
+    expect(ui.element.textContent).not.toContain("provider catalog offline");
+    expect(ui.element.textContent).not.toContain("目录加载失败");
+    await ui.type("no-such-provider");
+    expect(ui.element.textContent).toContain("没有匹配的服务商");
+    expect(ui.element.textContent).not.toContain("重试加载");
+  } finally {
+    retry.resolve(await catalog());
+    await ui.close();
+  }
+});
+
+test("model page retry rebuilds the same provider without duplicates and preserves the search", async () => {
+  const value = state("input");
+  value.model.configuredProviders = ["openai"];
+  const requests: [string | undefined, number][] = [];
+  let failed = false;
+  const ui = await mount(value, async (provider, offset = 0) => {
+    requests.push([provider, offset]);
+    if (offset === 1 && !failed) {
+      failed = true;
+      throw new Error("page unavailable");
+    }
+    return {
+      providers: [],
+      supported: true,
+      total: 2,
+      models: [
+        {
+          id: offset ? "keep-last" : "keep-first",
+          name: offset ? "Keep last" : "Keep first",
+          contextWindow: 8192,
+        },
+      ],
+    };
+  });
+  try {
+    await ui.type("/model keep");
+    await ui.key("Enter");
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+    expect(ui.element.textContent).toContain("目录未完整");
+    expect(ui.element.textContent).toContain("暂时无法完成操作，请稍后重试。");
+    expect(
+      ui.element.querySelector<HTMLButtonElement>(".action")?.disabled,
+    ).toBe(false);
+    await ui.type("not-yet-found");
+    expect(ui.element.textContent).not.toContain("没有匹配的模型");
+    await ui.type("keep");
+    await ui.click("重试加载");
+    expect(requests).toEqual([
+      ["openai", 0],
+      ["openai", 1],
+      ["openai", 0],
+      ["openai", 1],
+    ]);
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe(
+      "keep",
+    );
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(2);
+    expect(ui.element.textContent).not.toContain("目录未完整");
+    expect(ui.element.textContent).not.toContain(
+      "暂时无法完成操作，请稍后重试。",
+    );
+    await ui.type("unmatched");
+    expect(ui.element.textContent).toContain("没有匹配的模型");
+    expect(ui.element.textContent).not.toContain("重试加载");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("a failed provider leaves models from successful providers usable but explicitly incomplete", async () => {
+  const value = state("input");
+  value.model.configuredProviders = ["deepseek", "openai"];
+  const ui = await mount(value, async (provider) => {
+    if (provider === "deepseek") throw new Error("catalog offline");
+    return catalog(provider);
+  });
+  try {
+    await ui.type("/model");
+    await ui.key("Enter");
+    expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+      "已加载 1 项 · 目录未完整",
+    );
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([
+      {
+        command: "select_model",
+        args: { model: { provider: "openai", modelId: "test-openai" } },
+      },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("retrying a provider model scope preserves its credential and subscription metadata", async () => {
+  const requests: (string | undefined)[] = [];
+  let failed = false;
+  const ui = await mount(
+    state("input"),
+    async (provider) => {
+      requests.push(provider);
+      if (!provider) {
+        const result = await catalog();
+        result.providers = result.providers.map((entry) => ({
+          ...entry,
+          apiKey: true,
+          login: "openai-subscription",
+          loginMethod: "oauth",
+        }));
+        return result;
+      }
+      if (!failed) {
+        failed = true;
+        throw new Error("model catalog offline");
+      }
+      return catalog(provider);
+    },
+    async () => false,
+  );
+  try {
+    await ui.type("/model openai");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("目录加载失败");
+    await ui.type("test");
+    await ui.click("重试加载");
+    expect(requests).toEqual([undefined, "openai", "openai"]);
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe(
+      "test",
+    );
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("改用订阅账户登录");
+    await ui.type("synthetic-rejected-key");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("凭证保存失败");
+    expect(ui.element.textContent).not.toContain("重试加载");
+    expect(requests).toEqual([undefined, "openai", "openai"]);
+    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe(
+      "synthetic-rejected-key",
+    );
+    expect(ui.calls.map((call) => call.command)).toEqual(["save_provider"]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("catalog scope changes ignore late model pages and their errors", async () => {
+  for (const reject of [false, true]) {
+    const value = state("input");
+    value.model.configuredProviders = ["deepseek"];
+    const old = Promise.withResolvers<ModelCatalog>();
+    const ui = await mount(value, async (provider) =>
+      provider === "deepseek" ? old.promise : catalog(provider),
+    );
+    try {
+      await ui.type("/model");
+      await ui.key("Enter");
+      await ui.click("服务商");
+      await ui.type("openai");
+      await ui.key("Enter");
+      expect(ui.element.textContent).toContain("openai/test-openai");
+      await act(async () => {
+        if (reject) old.reject(new Error("outdated catalog failure"));
+        else old.resolve(await catalog("deepseek"));
+      });
+      expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+      expect(
+        ui.element.querySelector(".action-list")?.textContent,
+      ).not.toContain("deepseek/deepseek-flash");
+      expect(ui.element.textContent).not.toContain(
+        "暂时无法完成操作，请稍后重试。",
+      );
+      expect(ui.element.textContent).not.toContain("重试加载");
+    } finally {
+      old.resolve(await catalog("deepseek"));
+      await ui.close();
+    }
+  }
+});
+
 test("model picker handles no matches, failed saves and duplicate Enter", async () => {
   const value = state("input");
   value.model.configuredProviders = ["openai"];
@@ -1276,12 +1487,14 @@ test("model picker handles no matches, failed saves and duplicate Enter", async 
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(0);
     expect(ui.element.textContent).toContain("没有匹配的模型");
+    expect(ui.element.textContent).not.toContain("重试加载");
     await ui.type("");
     await ui.key("Enter");
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(1);
     await act(async () => result.resolve(false));
     expect(ui.element.textContent).toContain("原默认模型已保留");
+    expect(ui.element.textContent).not.toContain("重试加载");
     expect(ui.element.querySelector('[aria-label="选择模型"]')).not.toBeNull();
   } finally {
     await ui.close();
