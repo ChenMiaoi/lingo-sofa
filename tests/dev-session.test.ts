@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   runDevelopment,
   requireDesktopDependencies,
@@ -25,6 +34,63 @@ async function temporaryDirectory() {
   await mkdir(join(root, ".cache"), { recursive: true });
   return mkdtemp(join(root, ".cache/dev session 中文-"));
 }
+
+// Bun's Windows rm currently ignores maxRetries/retryDelay. A terminated
+// process can release its cwd handle after the exit signal has been observed.
+async function removeTemporaryDirectory(directory: string) {
+  const target = resolve(directory);
+  if (
+    dirname(target) !== join(root, ".cache") ||
+    !basename(target).startsWith("dev session 中文-")
+  )
+    throw new Error(
+      "Refusing to remove a directory outside the test fixture scope.",
+    );
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (
+        attempt >= 80 ||
+        !["EBUSY", "EPERM", "ENOTEMPTY"].includes(
+          (error as NodeJS.ErrnoException).code || "",
+        )
+      )
+        throw error;
+      await Bun.sleep(25);
+    }
+  }
+}
+
+test.skipIf(process.platform !== "win32")(
+  "Windows temporary cleanup waits for a released process directory handle",
+  async () => {
+    const directory = await temporaryDirectory();
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.stdout.write('ready'); setTimeout(() => {}, 200)"],
+      {
+        cwd: directory,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "inherit"],
+      },
+    );
+    const stopped = once(child, "close");
+    try {
+      await once(child.stdout!, "data");
+      expect((await stat(directory)).isDirectory()).toBe(true);
+      await removeTemporaryDirectory(directory);
+      expect((await stopped)[0]).toBe(0);
+      await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      child.kill();
+      await stopped;
+      await removeTemporaryDirectory(directory);
+    }
+  },
+  5000,
+);
 
 test("missing desktop dependencies fail before launch with an actionable install command", async () => {
   const directory = await temporaryDirectory();
@@ -157,12 +223,7 @@ test.skipIf(process.platform !== "win32")(
     } finally {
       child?.kill();
       if (child) await child.exited;
-      await rm(directory, {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 50,
-      });
+      await removeTemporaryDirectory(directory);
     }
   },
   180_000,
