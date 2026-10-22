@@ -9,7 +9,24 @@ import {
   errorMessage,
   initialView,
   shouldSubmitQuestion,
+  textInputError,
 } from "../apps/desktop/src/api";
+
+test("input and followup validation shares UTF-8 boundaries and distinguishes empty from oversized text", () => {
+  for (const empty of ["", " \n\t", "\u3000"])
+    expect(textInputError(empty)).toBe("invalid_text");
+  for (const [character, count] of [
+    ["a", 15000],
+    ["问", 5000],
+    ["🛋", 3750],
+  ] as const) {
+    expect(textInputError(character.repeat(count))).toBeNull();
+    expect(textInputError(character.repeat(count + 1))).toBe("text_too_long");
+  }
+  expect(textInputError("问".repeat(1500))).toBeNull();
+  expect(errorMessage("text_too_long")).toContain("文本或问题过长");
+  expect(errorMessage("invalid_text")).toContain("请输入文本或问题");
+});
 test("public UI state contains no credentials", () => {
   expect(Object.keys(initialView)).not.toContain("key");
   expect(Object.keys(initialView)).not.toContain("credential");

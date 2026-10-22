@@ -324,6 +324,7 @@ fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings(
     );
     let db = rusqlite::Connection::open(directory.path().join("settings.sqlite")).unwrap();
     db.execute_batch("CREATE TRIGGER reject_settings BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+    let phase = service.state().phase;
     assert_eq!(
         service.patch_settings(lingo_sofa_app_services::SettingsPatch {
             target: Some("日本語".into()),
@@ -333,6 +334,55 @@ fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings(
         Err("settings_write_failed")
     );
     assert_eq!(service.state().settings.target, "English");
+    assert_eq!(service.state().phase, phase);
+    assert_eq!(
+        service.settings(Settings {
+            target: "한국어".into(),
+            pinned: true,
+            ..Settings::default()
+        }),
+        Err("settings_write_failed")
+    );
+    assert_eq!(service.state().settings.target, "English");
+    assert!(!service.state().settings.pinned);
+    assert_eq!(service.state().phase, phase);
+    db.execute_batch("DROP TRIGGER reject_settings").unwrap();
+    service
+        .settings(Settings {
+            target: "日本語".into(),
+            pinned: true,
+            ..Settings::default()
+        })
+        .unwrap();
+    // Success acknowledges the committed value without another polling cycle.
+    assert_eq!(service.state().settings.target, "日本語");
+    service.shutdown();
+}
+
+#[test]
+fn chinese_questions_accept_the_shared_budget_and_oversized_input_preserves_the_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = start(directory.path());
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    let question = "问".repeat(1500);
+    service.submit_new_question(1, question.clone()).unwrap();
+    let done = wait(&service, |v| {
+        v.revision == 1 && v.phase == "ready" && v.task_id.is_none()
+    });
+    assert_eq!(done.question, question);
+    let session = done.session_id;
+    for (text, error) in [
+        ("问".repeat(5001), "text_too_long"),
+        (" \n".into(), "invalid_text"),
+    ] {
+        assert_eq!(service.submit(2, text, true), Err(error));
+        assert_eq!(service.state().revision, 1);
+        assert_eq!(service.state().session_id, session);
+    }
+    service.submit(2, "继".repeat(1500), true).unwrap();
+    wait(&service, |v| {
+        v.revision == 2 && v.phase == "ready" && v.task_id.is_none()
+    });
     service.shutdown();
 }
 

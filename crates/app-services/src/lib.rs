@@ -1,3 +1,4 @@
+use lingo_sofa_core::validate_text;
 use lingo_sofa_omp_client::{
     client::{Config, Host},
     scheduler::{Priority, Status, Task, Work},
@@ -204,7 +205,7 @@ enum Command {
     },
     Cancel,
     Compact,
-    Settings(SettingsPatch, Option<SyncSender<Result<(), &'static str>>>),
+    Settings(SettingsPatch, SyncSender<Result<(), &'static str>>),
     Shutdown(SyncSender<()>),
 }
 #[derive(Clone)]
@@ -385,9 +386,7 @@ impl Service {
         fresh: bool,
         metadata: serde_json::Value,
     ) -> Result<(), &'static str> {
-        if text.is_empty() || text.len() > 15000 {
-            return Err("invalid_text");
-        }
+        validate_text(&text)?;
         self.send(Command::Run {
             revision,
             text,
@@ -438,15 +437,11 @@ impl Service {
         self.send(Command::Reset)
     }
     pub fn settings(&self, settings: Settings) -> Result<(), &'static str> {
-        validate_settings(&settings)?;
-        self.send(Command::Settings(
-            SettingsPatch {
-                target: Some(settings.target),
-                pinned: Some(settings.pinned),
-                translation_display: Some(settings.translation_display),
-            },
-            None,
-        ))
+        self.patch_settings(SettingsPatch {
+            target: Some(settings.target),
+            pinned: Some(settings.pinned),
+            translation_display: Some(settings.translation_display),
+        })
     }
     pub fn patch_settings(&self, patch: SettingsPatch) -> Result<(), &'static str> {
         if patch.target.is_none() && patch.pinned.is_none() && patch.translation_display.is_none() {
@@ -459,7 +454,7 @@ impl Service {
             })?;
         }
         let (reply, result) = mpsc::sync_channel(1);
-        self.send(Command::Settings(patch, Some(reply)))?;
+        self.send(Command::Settings(patch, reply))?;
         result
             .recv_timeout(Duration::from_secs(30))
             .map_err(|_| "service_timeout")?
@@ -495,7 +490,8 @@ fn message(code: &str) -> &'static str {
         "account_required" => "请先在模型与服务商中配置所选服务商的 API Key。",
         "provider_unsupported" => "该服务商暂不支持 API Key 配置。",
         "model_not_verified" => "所选模型不可用，请刷新模型列表后重试。",
-        "invalid_text" => "请输入文本，文本过长，请分段翻译。",
+        "invalid_text" => "请输入文本或问题。",
+        "text_too_long" => "文本或问题过长，请缩短或分段提交。",
         "task_running" => "请先等待或取消当前任务。",
         _ => "操作失败，请检查账户、网络和本地存储后重试。",
     }
@@ -846,9 +842,7 @@ fn serve(
                         generation: accepted_generation,
                         metadata,
                     } => {
-                        if text.is_empty() || text.len() > 15000 {
-                            return Err("invalid_text");
-                        }
+                        validate_text(&text)?;
                         if revision <= state.lock().unwrap().revision {
                             return Err("stale_revision");
                         }
@@ -983,10 +977,9 @@ fn serve(
                             state.lock().unwrap().settings = settings;
                             Ok(())
                         })();
-                        if let Some(reply) = reply {
-                            let _ = reply.send(result);
-                        }
-                        result?;
+                        // Persistence failures belong to this settings request,
+                        // not to the current translation or Ask generation.
+                        let _ = reply.send(result);
                     }
                     Command::Shutdown(_) => unreachable!(),
                 }

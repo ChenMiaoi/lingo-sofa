@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { call, errorMessage, initialState, type DesktopState } from "./api";
+import {
+  call,
+  errorMessage,
+  initialState,
+  textInputError,
+  type DesktopState,
+} from "./api";
 import { Desktop } from "./view";
 
 interface Notice {
@@ -22,6 +28,16 @@ export function App({ invoke = call }: { invoke?: typeof call }) {
     setNotice(null);
     const origin = state;
     try {
+      const text =
+        command === "ask_question"
+          ? args?.question
+          : command === "translate_text" || command === "ask_text"
+            ? args?.text
+            : undefined;
+      if (typeof text === "string") {
+        const error = textInputError(text);
+        if (error) throw error;
+      }
       await invoke(command, args);
       return true;
     } catch (error) {

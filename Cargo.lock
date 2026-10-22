@@ -2212,6 +2212,7 @@ dependencies = [
 name = "lingo-sofa-app-services"
 version = "0.1.1"
 dependencies = [
+ "lingo-sofa-core",
  "lingo-sofa-omp-client",
  "rusqlite",
  "serde",

@@ -177,8 +177,8 @@ export function Settings({
               id="target"
               value={model.settings.target}
               onChange={(e) =>
-                void perform("save_settings", {
-                  settings: { ...model.settings, target: e.target.value },
+                void perform("patch_settings", {
+                  patch: { target: e.target.value },
                 })
               }
             >
@@ -192,8 +192,8 @@ export function Settings({
               type="checkbox"
               checked={model.settings.pinned}
               onChange={(e) =>
-                void perform("save_settings", {
-                  settings: { ...model.settings, pinned: e.target.checked },
+                void perform("patch_settings", {
+                  patch: { pinned: e.target.checked },
                 })
               }
             />

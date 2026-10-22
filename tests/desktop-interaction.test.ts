@@ -2030,6 +2030,123 @@ test("translation placement saves independently and shortcuts label both styles"
   }
 });
 
+test("preference controls patch independent fields before polling catches up", async () => {
+  const ui = await mount(state("settings"));
+  try {
+    await ui.click("翻译偏好");
+    await ui.select("English", "#target");
+    await act(async () =>
+      ui.element
+        .querySelector<HTMLInputElement>('input[type="checkbox"]')!
+        .click(),
+    );
+    await ui.select("panel", "#translation-display");
+    expect(ui.calls).toEqual([
+      { command: "patch_settings", args: { patch: { target: "English" } } },
+      { command: "patch_settings", args: { patch: { pinned: false } } },
+      {
+        command: "patch_settings",
+        args: { patch: { translationDisplay: "panel" } },
+      },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("failed preference persistence is shown in settings and keeps the previous value", async () => {
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const snapshot = state("settings");
+  let rejectSave!: (error: unknown) => void;
+  const save = new Promise((_, reject) => {
+    rejectSave = reject;
+  });
+  const invoke = <T>(command: string): Promise<T> => {
+    if (command === "patch_settings") return save as Promise<T>;
+    return Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
+  };
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    const preferences = [
+      ...element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.getAttribute("aria-label") === "翻译偏好")!;
+    await act(async () => preferences.click());
+    const select = element.querySelector<HTMLSelectElement>("#target")!;
+    await act(async () => {
+      select.value = "English";
+      select.dispatchEvent(
+        new dom.Event("change", { bubbles: true }) as unknown as Event,
+      );
+    });
+    expect(element.textContent).not.toContain("设置已保存");
+    await act(async () => {
+      rejectSave("settings_write_failed");
+      await Promise.resolve();
+    });
+    expect(element.textContent).toContain("设置保存失败，原配置继续生效。");
+    expect(select.value).toBe("简体中文");
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("Chinese followups use the input byte budget and oversized questions stay editable without a native call", async () => {
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const snapshot = state("ask-result");
+  const questions: string[] = [];
+  const invoke = <T>(
+    command: string,
+    args?: Record<string, unknown>,
+  ): Promise<T> => {
+    if (command === "ask_question") questions.push(String(args?.question));
+    return Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
+  };
+  const typeAndSubmit = async (text: string) => {
+    const input = element.querySelector<HTMLInputElement>(
+      '[aria-label="Ask 问题或动作"]',
+    )!;
+    const setter = Object.getOwnPropertyDescriptor(
+      dom.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setter.call(input, text);
+      input.dispatchEvent(
+        new dom.Event("input", { bubbles: true }) as unknown as Event,
+      );
+    });
+    await act(async () =>
+      input.dispatchEvent(
+        new dom.KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+        }) as unknown as Event,
+      ),
+    );
+    return input;
+  };
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    const valid = "问".repeat(1500);
+    await typeAndSubmit(valid);
+    expect(questions).toEqual([valid]);
+    const tooLong = "问".repeat(5001);
+    const input = await typeAndSubmit(tooLong);
+    expect(questions).toEqual([valid]);
+    expect(input.value).toBe(tooLong);
+    expect(element.textContent).toContain("文本或问题过长");
+    expect(element.textContent).not.toContain("请输入需要翻译的文本");
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
 test("OCR commands can override placement once without saving a preference", async () => {
   const value = state("input");
   value.shortcuts = { ...value.shortcuts, macos: true };

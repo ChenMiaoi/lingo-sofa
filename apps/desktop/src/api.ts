@@ -117,8 +117,9 @@ export function errorMessage(error: unknown, macos = false): string {
     settings_write_failed: "设置保存失败，原配置继续生效。",
     service_timeout: "模型服务响应超时，请重试。",
     service_busy: "操作较多，请稍后再试。",
-    text_too_long: "文本过长，请分段翻译。",
-    invalid_text: "请输入需要翻译的文本。",
+    text_too_long:
+      "文本或问题过长，请缩短或分段提交（最多 15000 UTF-8 字节，约 5000 个汉字）。",
+    invalid_text: "请输入文本或问题。",
     clipboard_unavailable: "没有读到剪贴板文本，请先复制。",
     keychain_read_failed:
       "当前无法访问钥匙串凭证；本次启动不再重复请求，重新打开应用后可再次授权。",
@@ -170,6 +171,15 @@ export function shouldSubmitQuestion(
   return (
     event.key === "Enter" && !isImeKey(event) && !busy && text.trim().length > 0
   );
+}
+
+// Input, translation and followups share the native UTF-8 budget.
+export const MAX_TEXT_BYTES = 15_000;
+export function textInputError(text: string): string | null {
+  if (!text.trim()) return "invalid_text";
+  return new TextEncoder().encode(text).length > MAX_TEXT_BYTES
+    ? "text_too_long"
+    : null;
 }
 
 export type Mode =

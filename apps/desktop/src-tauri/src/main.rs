@@ -122,9 +122,7 @@ fn clipboard(app: &tauri::AppHandle) -> Result<String, String> {
         .clipboard()
         .read_text()
         .map_err(|_| "clipboard_unavailable")?;
-    if text.trim().is_empty() || text.len() > 15000 {
-        return Err("invalid_text".into());
-    }
+    lingo_sofa_core::validate_text(&text).map_err(String::from)?;
     Ok(text)
 }
 #[tauri::command]
@@ -333,13 +331,17 @@ fn compact_session(
     service.compact().map_err(String::from)
 }
 #[tauri::command]
-fn save_settings(
+async fn save_settings(
     window: tauri::WebviewWindow,
-    service: tauri::State<Service>,
+    service: tauri::State<'_, Service>,
     settings: Settings,
 ) -> Result<(), String> {
     allowed(&window)?;
-    service.settings(settings).map_err(String::from)
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.settings(settings))
+        .await
+        .map_err(|_| "service_unavailable".to_string())?
+        .map_err(String::from)
 }
 #[tauri::command]
 async fn patch_settings(
