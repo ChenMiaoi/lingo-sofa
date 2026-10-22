@@ -5174,6 +5174,199 @@ test("answer search matches phrases across syntax spans and ignores code control
   }
 });
 
+test("unchanged search matches do not pull manual reading back during streaming", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "stream-reading-no-pull";
+  value.model.phase = "running";
+  value.model.output = "First needle.\n\nSecond needle.\n\nRead further below.";
+  const ui = await mount(value);
+  try {
+    await ui.click("搜索回答");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    await ui.click("下一个匹配");
+    const answer = ui.element.querySelector<HTMLElement>(".answer")!;
+    const selected = ui.element.querySelector<HTMLElement>(
+      ".search-current-block",
+    )!;
+    Object.defineProperties(answer, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 400 },
+    });
+    let scrolls = 0;
+    let navigations = 0;
+    selected.scrollIntoView = () => {
+      scrolls++;
+      answer.scrollTop = 120;
+    };
+    answer.addEventListener("reading-navigation", () => navigations++);
+    await act(async () => {
+      answer.scrollTop = 600;
+      answer.dispatchEvent(new dom.Event("scroll") as unknown as Event);
+    });
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        output:
+          value.model.output +
+          "\n\nMore streamed reading without the search word.",
+      },
+    });
+    expect(answer.scrollTop).toBe(600);
+    expect(scrolls).toBe(0);
+    expect(navigations).toBe(0);
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("2 / 2");
+    expect(ui.element.querySelector(".search-current-block")).toBe(selected);
+    await ui.click("上一个匹配");
+    await ui.click("下一个匹配");
+    expect(scrolls).toBe(1);
+    expect(navigations).toBe(2);
+  } finally {
+    await ui.close();
+  }
+});
+
+for (const streamed of [
+  "Prefix needle tail. More streamed text.",
+  "Prefix nee**dle** tail. More streamed text.",
+]) {
+  test(`streaming into the selected paragraph preserves reading despite ${streamed.includes("**") ? "inline node replacement" : "text growth"}`, async () => {
+    const value = state("ask-result");
+    value.model.phase = "running";
+    value.model.output = "Prefix needle tail.";
+    const ui = await mount(value);
+    try {
+      await ui.click("搜索回答");
+      await ui.type("needle", '[aria-label="搜索回答内容"]');
+      const answer = ui.element.querySelector<HTMLElement>(".answer")!;
+      Object.defineProperties(answer, {
+        scrollHeight: { configurable: true, value: 2000 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      const before = findAnswerMatches(answer, "needle")[0]!;
+      let navigations = 0;
+      answer.addEventListener("reading-navigation", () => navigations++);
+      await act(async () => {
+        answer.scrollTop = 600;
+        answer.dispatchEvent(new dom.Event("scroll") as unknown as Event);
+      });
+      await ui.render({
+        ...value,
+        model: { ...value.model, output: streamed },
+      });
+      expect(navigations).toBe(0);
+      expect(answer.scrollTop).toBe(600);
+      expect(
+        ui.element.querySelector(".search-current-block")?.textContent,
+      ).toBe("Prefix needle tail. More streamed text.");
+      const after = findAnswerMatches(answer, "needle")[0]!;
+      expect(after.range.toString()).toBe("needle");
+      if (streamed.includes("**"))
+        expect(after.range.startContainer).not.toBe(
+          before.range.startContainer,
+        );
+    } finally {
+      await ui.close();
+    }
+  });
+}
+
+test("a new unmatched query never navigates to stale search results", async () => {
+  const value = state("ask-result");
+  value.model.output = "First needle.\n\nSecond needle.";
+  const ui = await mount(value);
+  try {
+    await ui.click("搜索回答");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    await ui.click("下一个匹配");
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("2 / 2");
+    const answer = ui.element.querySelector<HTMLElement>(".answer")!;
+    let navigations = 0;
+    answer.addEventListener("reading-navigation", () => navigations++);
+    answer.scrollTop = 600;
+    await ui.type("missing", '[aria-label="搜索回答内容"]');
+    expect(navigations).toBe(0);
+    expect(answer.scrollTop).toBe(600);
+    expect(ui.element.querySelector(".search-current-block")).toBeNull();
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("无匹配");
+    await ui.type("First", '[aria-label="搜索回答内容"]');
+    expect(navigations).toBe(1);
+    expect(ui.element.querySelector(".search-current-block")?.textContent).toBe(
+      "First needle.",
+    );
+  } finally {
+    await ui.close();
+  }
+});
+
+test("search locates the first newly streamed match and a changed semantic target", async () => {
+  const value = state("ask-result");
+  value.model.phase = "running";
+  value.model.output = "No matching text yet.";
+  const ui = await mount(value);
+  try {
+    await ui.click("搜索回答");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    const answer = ui.element.querySelector<HTMLElement>(".answer")!;
+    let navigations = 0;
+    answer.addEventListener("reading-navigation", () => navigations++);
+    await ui.render({
+      ...value,
+      model: { ...value.model, output: "Now a needle appears." },
+    });
+    expect(navigations).toBe(1);
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        output: "A longer prefix before needle appears.",
+      },
+    });
+    expect(navigations).toBe(2);
+    await ui.click("关闭回答搜索");
+    expect(ui.element.querySelector(".search-current-block")).toBeNull();
+    await ui.click("搜索回答");
+    expect(navigations).toBe(3);
+  } finally {
+    await ui.close();
+  }
+});
+
+for (const action of ["next", "previous", "Enter", "F3"] as const) {
+  test(`explicit ${action} revisits the only search match after manual reading`, async () => {
+    const value = state("ask-result");
+    value.model.output = "Only needle.\n\nRead further below.";
+    const ui = await mount(value);
+    try {
+      await ui.click("搜索回答");
+      await ui.type("needle", '[aria-label="搜索回答内容"]');
+      const answer = ui.element.querySelector<HTMLElement>(".answer")!;
+      const selected = ui.element.querySelector<HTMLElement>(
+        ".search-current-block",
+      )!;
+      let scrolls = 0;
+      selected.scrollIntoView = () => {
+        scrolls++;
+        answer.scrollTop = 120;
+      };
+      answer.scrollTop = 600;
+      if (action === "next" || action === "previous")
+        await ui.click(action === "next" ? "下一个匹配" : "上一个匹配");
+      else await ui.key(action);
+      expect(scrolls).toBe(1);
+      expect(answer.scrollTop).toBe(120);
+    } finally {
+      await ui.close();
+    }
+  });
+}
+
 test("answer search preserves the selected match through streaming updates and clamps removed matches", async () => {
   const value = state("ask-result");
   value.model.sessionId = "stream-search";

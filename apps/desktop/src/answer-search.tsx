@@ -1,13 +1,21 @@
 import React, { useEffect, useRef, useState, type RefObject } from "react";
 import { isImeKey } from "./api";
 
-type Match = { range: Range; element: HTMLElement };
+type Match = {
+  range: Range;
+  element: HTMLElement;
+  block: number;
+  start: number;
+  end: number;
+};
 const BLOCKS =
   ".answer-prose p,.answer-prose h1,.answer-prose h2,.answer-prose h3,.answer-prose h4,.answer-prose li,.answer-prose pre,.answer-prose td,.answer-prose th,.tool-body pre";
 export function findAnswerMatches(root: HTMLElement, query: string): Match[] {
   if (!query) return [];
   const matches: Match[] = [];
-  for (const element of root.querySelectorAll<HTMLElement>(BLOCKS)) {
+  for (const [block, element] of root
+    .querySelectorAll<HTMLElement>(BLOCKS)
+    .entries()) {
     if (element.parentElement?.closest(BLOCKS)) continue;
     const nodes: Text[] = [];
     const walker = document.createTreeWalker(element, 4);
@@ -45,7 +53,7 @@ export function findAnswerMatches(root: HTMLElement, query: string): Match[] {
         offset += nodes[cursor++]!.length;
       }
       range.setEnd(nodes[cursor]!, end - offset);
-      matches.push({ range, element });
+      matches.push({ range, element, block, start: match.index, end });
       if (matches.length === 1000) return matches;
     }
   }
@@ -62,8 +70,15 @@ export function AnswerSearch({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<Match[]>([]);
+  const [result, setResult] = useState<{
+    query: string;
+    open: boolean;
+    matches: Match[];
+  }>({ query: "", open: false, matches: [] });
+  const matches = result.matches;
   const [index, setIndex] = useState(0);
+  const [navigation, setNavigation] = useState(0);
+  const previousNavigation = useRef<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const previous = useRef<HTMLElement | null>(null);
   const inspect = useRef(onInspect);
@@ -72,6 +87,12 @@ export function AnswerSearch({
     if (!open) previous.current = document.activeElement as HTMLElement;
     inspect.current();
     setOpen(true);
+  };
+  const move = (step: number) => {
+    setIndex((value) =>
+      matches.length ? (value + step + matches.length) % matches.length : 0,
+    );
+    setNavigation((value) => value + 1);
   };
   const close = () => {
     setOpen(false);
@@ -90,12 +111,7 @@ export function AnswerSearch({
       }
       if (open && event.key === "F3") {
         event.preventDefault();
-        setIndex((value) =>
-          matches.length
-            ? (value + (event.shiftKey ? -1 : 1) + matches.length) %
-              matches.length
-            : 0,
-        );
+        move(event.shiftKey ? -1 : 1);
       }
     };
     document.addEventListener("keydown", key);
@@ -110,7 +126,7 @@ export function AnswerSearch({
   useEffect(() => {
     const next =
       open && root.current ? findAnswerMatches(root.current, query) : [];
-    setMatches(next);
+    setResult({ query, open, matches: next });
     setIndex((value) => Math.min(value, Math.max(next.length - 1, 0)));
   }, [query, open, content, root]);
   useEffect(() => {
@@ -119,32 +135,56 @@ export function AnswerSearch({
       Highlight?: new (...ranges: Range[]) => unknown;
     };
     const registry = api.CSS?.highlights;
+    const activeMatches =
+      open && result.open && result.query === query ? matches : [];
     if (registry && api.Highlight) {
       registry.set(
         "answer-matches",
-        new api.Highlight(...matches.map((match) => match.range)),
+        new api.Highlight(...activeMatches.map((match) => match.range)),
       );
       registry.set(
         "answer-current",
-        new api.Highlight(...(matches[index] ? [matches[index]!.range] : [])),
+        new api.Highlight(
+          ...(activeMatches[index] ? [activeMatches[index]!.range] : []),
+        ),
       );
     }
-    const match = matches[index];
+    const clear = () => {
+      registry?.delete("answer-matches");
+      registry?.delete("answer-current");
+      root.current
+        ?.querySelectorAll(".search-current-block")
+        .forEach((element) => element.classList.remove("search-current-block"));
+    };
+    const match = activeMatches[index];
+    if (!match) previousNavigation.current = null;
     if (match) {
+      const target =
+        match.range.startContainer.parentElement?.closest<HTMLElement>(
+          ".code-line",
+        ) || match.element;
+      target.classList.add("search-current-block");
+      // Semantic block/text offsets survive markdown node and range replacement.
+      // Only explicit navigation or a changed match should move manual reading.
+      const key = JSON.stringify([
+        query,
+        index,
+        match.block,
+        match.start,
+        match.end,
+        navigation,
+      ]);
+      if (previousNavigation.current === key) return clear;
+      previousNavigation.current = key;
       let parent: HTMLElement | null = match.element;
       while (parent && parent !== root.current) {
         if (parent.tagName === "DETAILS")
           (parent as HTMLDetailsElement).open = true;
         parent = parent.parentElement;
       }
-      const target =
-        match.range.startContainer.parentElement?.closest<HTMLElement>(
-          ".code-line",
-        ) || match.element;
       target.dispatchEvent(
         new window.Event("reading-navigation", { bubbles: true }),
       );
-      target.classList.add("search-current-block");
       target.scrollIntoView({ block: "center", inline: "nearest" });
       const scroller = target.closest<HTMLElement>("pre,.answer-table");
       if (scroller && typeof match.range.getBoundingClientRect === "function") {
@@ -156,14 +196,17 @@ export function AnswerSearch({
           scroller.scrollTop += hit.top - bounds.top - 20;
       }
     }
-    return () => {
-      registry?.delete("answer-matches");
-      registry?.delete("answer-current");
-      root.current
-        ?.querySelectorAll(".search-current-block")
-        .forEach((element) => element.classList.remove("search-current-block"));
-    };
-  }, [matches, index, root]);
+    return clear;
+  }, [
+    matches,
+    index,
+    root,
+    query,
+    open,
+    result.open,
+    result.query,
+    navigation,
+  ]);
   return (
     <div className="answer-locator">
       <button
@@ -186,12 +229,7 @@ export function AnswerSearch({
             }
             if (event.key === "Enter" && event.target === input.current) {
               event.preventDefault();
-              setIndex((value) =>
-                matches.length
-                  ? (value + (event.shiftKey ? -1 : 1) + matches.length) %
-                    matches.length
-                  : 0,
-              );
+              move(event.shiftKey ? -1 : 1);
             }
           }}
         >
@@ -212,16 +250,14 @@ export function AnswerSearch({
           <button
             disabled={!matches.length}
             aria-label="上一个匹配"
-            onClick={() =>
-              setIndex((index - 1 + matches.length) % matches.length)
-            }
+            onClick={() => move(-1)}
           >
             ↑
           </button>
           <button
             disabled={!matches.length}
             aria-label="下一个匹配"
-            onClick={() => setIndex((index + 1) % matches.length)}
+            onClick={() => move(1)}
           >
             ↓
           </button>
