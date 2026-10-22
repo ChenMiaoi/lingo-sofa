@@ -408,7 +408,7 @@ export function AskAnswer({
         </div>
       </div>
       <AnswerSearch
-        key={`${model.sessionId}:${history}`}
+        key={`${model.sessionId}:${model.revision}:${history}`}
         root={scroll}
         content={history ? turns || model.messages : answerText}
         onInspect={inspectActivity}

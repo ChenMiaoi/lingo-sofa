@@ -3559,6 +3559,115 @@ test("answer search matches phrases across syntax spans and ignores code control
   }
 });
 
+test("answer search preserves the selected match through streaming updates and clamps removed matches", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "stream-search";
+  value.model.phase = "running";
+  value.model.output = "First needle.\n\nSecond needle.\n\nThird needle.";
+  const ui = await mount(value);
+  const status = () =>
+    ui.element.querySelector('.answer-search [role="status"]')?.textContent;
+  try {
+    await ui.click("搜索回答");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    await ui.click("下一个匹配");
+    expect(status()).toBe("2 / 3");
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        output: value.model.output + "\n\nFourth needle.",
+      },
+    });
+    expect(status()).toBe("2 / 4");
+    expect(ui.element.querySelector(".search-current-block")?.textContent).toBe(
+      "Second needle.",
+    );
+    await ui.click("下一个匹配");
+    await ui.click("下一个匹配");
+    expect(status()).toBe("4 / 4");
+    await ui.render({
+      ...value,
+      model: { ...value.model, output: "First needle.\n\nSecond needle." },
+    });
+    expect(status()).toBe("2 / 2");
+    await ui.type("First", '[aria-label="搜索回答内容"]');
+    expect(status()).toBe("1 / 1");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    await ui.click("下一个匹配");
+    await ui.click("关闭回答搜索");
+    expect(ui.element.querySelector(".search-current-block") === null).toBe(
+      true,
+    );
+    await ui.click("搜索回答");
+    expect(status()).toBe("1 / 2");
+    await ui.render({
+      ...value,
+      model: { ...value.model, output: "No matching content remains." },
+    });
+    expect(status()).toBe("无匹配");
+    expect(ui.element.querySelector(".search-current-block") === null).toBe(
+      true,
+    );
+  } finally {
+    await ui.close();
+  }
+});
+
+test("answer search resets for a new answer revision and when switching history surfaces", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "same-session";
+  value.model.output = "First needle.\n\nSecond needle.";
+  value.model.messages = [
+    { role: "assistant", content: "Historical needle.", truncated: false },
+  ];
+  value.model.messageCount = 1;
+  const ui = await mount(value);
+  try {
+    await ui.click("搜索回答");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    await ui.click("下一个匹配");
+    const next = {
+      ...value,
+      desktop: { ...value.desktop, modelRevision: value.model.revision + 1 },
+      model: {
+        ...value.model,
+        revision: value.model.revision + 1,
+        output: "New answer needle.",
+      },
+    };
+    await ui.render(next);
+    expect(ui.element.querySelector(".answer-search") === null).toBe(true);
+    expect(ui.element.querySelector(".search-current-block") === null).toBe(
+      true,
+    );
+    await ui.click("搜索回答");
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索回答内容"]')
+        ?.value,
+    ).toBe("");
+    await ui.type("needle", '[aria-label="搜索回答内容"]');
+    await ui.click("会话记录 · 1");
+    expect(ui.element.querySelector(".answer-search") === null).toBe(true);
+    expect(ui.element.querySelector(".search-current-block") === null).toBe(
+      true,
+    );
+    await ui.click("搜索回答");
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索回答内容"]')
+        ?.value,
+    ).toBe("");
+    await ui.type("Historical", '[aria-label="搜索回答内容"]');
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("1 / 1");
+    await ui.click("当前回答");
+    expect(ui.element.querySelector(".answer-search") === null).toBe(true);
+  } finally {
+    await ui.close();
+  }
+});
+
 test("code jump validates source lines, marks target and closes locally", async () => {
   const value = state("ask-result");
   value.model.output = "```text\n" + "line\n".repeat(50) + "```";

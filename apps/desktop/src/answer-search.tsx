@@ -105,10 +105,13 @@ export function AnswerSearch({
     if (open) input.current?.focus();
   }, [open]);
   useEffect(() => {
-    setMatches(
-      open && root.current ? findAnswerMatches(root.current, query) : [],
-    );
     setIndex(0);
+  }, [query, open]);
+  useEffect(() => {
+    const next =
+      open && root.current ? findAnswerMatches(root.current, query) : [];
+    setMatches(next);
+    setIndex((value) => Math.min(value, Math.max(next.length - 1, 0)));
   }, [query, open, content, root]);
   useEffect(() => {
     const api = globalThis as unknown as {
