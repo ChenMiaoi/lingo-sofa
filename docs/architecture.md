@@ -23,9 +23,9 @@ Tauri 命令检查 `main` 窗口身份，不开放任意 URL、SQL、文件或�
 
 desktop v3 的边缘入口、译文浮层、Ask、输入和设置由 Rust Shell 控制窗口尺寸、位置和焦点。Alt+Shift+S 启动独立 `selection-helper.exe`，通过 UIA 只读取前台应用的非密码选区及矩形。首帧限时 1800ms，后续心跳限时 900ms；助手挂起时由 Job 回收。原窗口移动、选区变化或失效时收起译文并取消任务；已经主动打开的 Ask 保留原文，停止依赖旧锚点。几何计算有纯函数回归；应用兼容性按验收记录逐项说明，混合 DPI 尚未完成。macOS OCR 使用独立原生 `region-selector` 框选层和系统截图，临时 PNG 仅放在权限为 0700 的任务目录，再交给独立 `ocr-helper` 使用 Apple Vision 本机识别；20 秒识别截止、取消与退出会回收进程和临时文件。区域坐标回传主进程，识别后按主动请求直接翻译；默认在区域下方显示，可设置集中面板或用另一种样式的快捷键单次覆盖；图片不进入前端或 OMP。Windows 的单个原生 `ocr-helper.exe` 使用 Win32 框选、BitBlt 内存像素捕获、随包 PP-OCRv5 mobile 模型和 ONNX Runtime CPU，图片不落盘；两平台共享取消、超时和迟到结果隔离的生命周期。Windows helper 使用 kill-on-job-close Job Object，复用既有进程边界。能力字段独立于 macOS 快捷键符号，见 [Windows OCR](windows-ocr.md) 与 [macOS OCR](macos-ocr.md)。
 
-取文会先验证焦点至来源窗口的祖先路径（最多 32 层），再沿该路径查找 TextPattern；拒绝密码或无法验证的路径，不扫描文档后代。已验证记事本、独立 VS Code 与 Discord 消息正文；浏览器未通过，混合 DPI 仍未验收。
+取文会先验证焦点至来源窗口的祖先路径（最多 32 层），再沿该路径查找 TextPattern；拒绝密码或无法验证的路径，不扫描文档后代。已验证记事本、独立 VS Code 与 Discord 消息正文；Chrome 普通正文与内层选区已有用户限定场景确认，范围见[兼容与验收状态](acceptance.md)，不代表所有浏览器通过。混合 DPI 仍未验收。
 
-数据根为 `%LOCALAPPDATA%/LingoSofa`：`credentials.sqlite` 保存用户范围 DPAPI 密文与 CAS revision；`settings.sqlite` 保存语言、置顶及独立的默认模型选择；`usage.sqlite` 保存不含正文/密钥的调用账本。OMP SessionManager.create/open 在同目录 `sessions/` 保存 JSONL；原文与来源是 OMP 自定义元数据，完整上下文、思考与工具结果由 OMP 持有。`sessions/current.json` 是当前会话指针，前端启动请求恢复，Rust 服务通过 OMP 重建上下文，Shell 恢复显示并移除旧锚点。`/new` 清除当前指针和显示，保留旧文件；新提交创建新会话。macOS 数据根为 `~/Library/Application Support/LingoSofa/`。账本发送前写入、终态幂等、崩溃恢复为未知，API Key 已知价格按 SDK 用量保存费用估算，订阅和无价格记录保持未知；独占控制防止两个 Host 互相覆盖。
+数据根为 `%LOCALAPPDATA%/LingoSofa`：`credentials.sqlite` 保存用户范围 DPAPI 密文与 CAS revision；`settings.sqlite` 保存语言、置顶及独立的默认模型选择；`usage.sqlite` 保存不含正文/密钥的调用账本。OMP SessionManager.create/open 在同目录 `sessions/` 保存 JSONL；原文与来源是 OMP 自定义元数据，完整上下文、思考与工具结果由 OMP 持有。`sessions/current.json` 是当前会话指针；冷启动仅显示空闲边缘入口，服务独立加载账户、默认模型和偏好，不自动打开该指针或载入旧上下文。用户通过 `/resume` 选择历史后，Rust 服务经 OMP 重建上下文，Shell 恢复显示并移除旧锚点。`/new` 清除当前指针和显示，保留旧文件；新提交创建新会话。macOS 数据根为 `~/Library/Application Support/LingoSofa/`。账本发送前写入、终态幂等、崩溃恢复为未知，API Key 已知价格按 SDK 用量保存费用估算，订阅和无价格记录保持未知；独占控制防止两个 Host 互相覆盖。
 
 worker 延迟启动，退出或父进程崩溃时由 Job 回收；重建不重放。应用不暴露本地 HTTP Bridge。Bun 编译 worker 和匹配 native addon 作为资源随 NSIS 分发。native addon 较大，不能宣称已完成轻量资源指标。
 
