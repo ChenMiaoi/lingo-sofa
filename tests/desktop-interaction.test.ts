@@ -245,6 +245,335 @@ async function mount(
   };
 }
 
+for (const scenario of [
+  "translation Enter",
+  "new question click",
+  "Ask action click",
+  "follow-up Enter and click",
+] as const) {
+  test(`ordinary submission guards duplicate ${scenario} before its response`, async () => {
+    const mode =
+      scenario === "follow-up Enter and click"
+        ? "ask-result"
+        : scenario === "Ask action click"
+          ? "ask"
+          : "input";
+    const result = Promise.withResolvers<boolean>();
+    const ui = await mount(state(mode), catalog, () => result.promise);
+    try {
+      if (mode !== "ask") await ui.type("SYNTHETIC_DUPLICATE_SUBMISSION");
+      const input = ui.element.querySelector<HTMLTextAreaElement>("textarea")!;
+      const button =
+        scenario === "follow-up Enter and click"
+          ? ui.element.querySelector<HTMLButtonElement>(
+              '[aria-label="发送追问"]',
+            )!
+          : [
+              ...ui.element.querySelectorAll<HTMLButtonElement>(
+                ".action-list .action",
+              ),
+            ][scenario === "new question click" ? 1 : 0]!;
+      await act(async () => {
+        if (
+          scenario === "translation Enter" ||
+          scenario === "follow-up Enter and click"
+        )
+          input.dispatchEvent(
+            new dom.KeyboardEvent("keydown", {
+              key: "Enter",
+              bubbles: true,
+            }) as unknown as Event,
+          );
+        else button.click();
+        if (scenario === "translation Enter")
+          input.dispatchEvent(
+            new dom.KeyboardEvent("keydown", {
+              key: "Enter",
+              bubbles: true,
+            }) as unknown as Event,
+          );
+        else button.click();
+      });
+      expect(ui.calls).toHaveLength(1);
+      expect(ui.calls[0]?.command).toBe(
+        scenario === "translation Enter"
+          ? "translate_text"
+          : scenario === "new question click"
+            ? "ask_text"
+            : "ask_question",
+      );
+    } finally {
+      await act(async () => result.resolve(false));
+      await ui.close();
+    }
+  });
+}
+
+test("ordinary submission stays guarded after acknowledgement and before the service snapshot catches up", async () => {
+  const value = state("ask-result");
+  const ui = await mount(value, catalog, async () => true);
+  try {
+    await ui.type("SYNTHETIC_ACK_GAP_QUESTION");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, modelRevision: value.model.revision + 1 },
+    });
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(true);
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("a rejected ordinary submission keeps its draft available for an explicit retry", async () => {
+  const ui = await mount(state("input"), catalog, async () => false);
+  try {
+    await ui.type("SYNTHETIC_RETRY_DRAFT");
+    await ui.key("Enter");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe("SYNTHETIC_RETRY_DRAFT");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(2);
+    expect(ui.calls[1]).toEqual(ui.calls[0]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("submission waits for both acknowledgement and snapshot, then permits fast terminal followups", async () => {
+  const value = state("ask-result");
+  const result = Promise.withResolvers<boolean>();
+  const ui = await mount(value, catalog, () => result.promise);
+  try {
+    await ui.type("SYNTHETIC_FIRST");
+    await ui.key("Enter");
+    const accepted = state("ask-result", 2);
+    await ui.render({
+      ...accepted,
+      model: { ...accepted.model, phase: "running" },
+    });
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(true);
+    expect(
+      ui.element.querySelector<HTMLButtonElement>('[aria-label="正在提交"]')!
+        .disabled,
+    ).toBe(true);
+    await ui.click("正在提交");
+    expect(ui.calls).toHaveLength(1);
+    await act(async () => result.resolve(true));
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(false);
+    await ui.type("SYNTHETIC_EDIT_WHILE_GENERATING");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("SYNTHETIC_EDIT_WHILE_GENERATING");
+    await ui.render({
+      ...accepted,
+      model: { ...accepted.model, phase: "ready" },
+    });
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(2);
+    await ui.render(state("ask-result", 3));
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(false);
+  } finally {
+    await act(async () => result.resolve(false));
+    await ui.close();
+  }
+});
+
+test("input submission retains the guard through its own accepted epoch and settings navigation", async () => {
+  const value = state("input");
+  const ui = await mount(value, catalog, async () => true);
+  try {
+    await ui.type("SYNTHETIC_OWN_INPUT");
+    await act(async () =>
+      ui.element
+        .querySelectorAll<HTMLButtonElement>(".action-list .action")[1]!
+        .click(),
+    );
+    const accepted: DesktopState = {
+      ...value,
+      desktop: {
+        ...value.desktop,
+        mode: "ask-result" as const,
+        epoch: value.desktop.epoch + 1,
+        modelRevision: value.model.revision + 1,
+        operation: "ask",
+        context: { ...context, kind: "input", text: "SYNTHETIC_OWN_INPUT" },
+      },
+    };
+    await ui.render(accepted);
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(true);
+    await ui.render({
+      ...accepted,
+      desktop: { ...accepted.desktop, mode: "settings" },
+    });
+    await ui.render(accepted);
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(true);
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+    await ui.render({
+      ...accepted,
+      model: { ...accepted.model, revision: accepted.desktop.modelRevision },
+    });
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+    ).toBe(false);
+  } finally {
+    await ui.close();
+  }
+});
+
+for (const failure of ["false", "throw"] as const) {
+  for (const timing of ["before", "after"] as const) {
+    test(`input context advancing ${timing} ${failure} acknowledgement preserves the draft for retry`, async () => {
+      const value = state("input");
+      const result = Promise.withResolvers<boolean>();
+      const ui = await mount(value, catalog, () => result.promise);
+      try {
+        await ui.type("SYNTHETIC_FAILED_INPUT");
+        await ui.key("Enter");
+        if (timing === "after")
+          await act(async () =>
+            failure === "false"
+              ? result.resolve(false)
+              : result.reject("service_busy"),
+          );
+        await ui.render({
+          ...value,
+          desktop: {
+            ...value.desktop,
+            epoch: value.desktop.epoch + 1,
+            context: {
+              ...context,
+              kind: "input",
+              text: "SYNTHETIC_FAILED_INPUT",
+            },
+          },
+        });
+        expect(
+          ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+        ).toBe("SYNTHETIC_FAILED_INPUT");
+        if (timing === "before")
+          await act(async () =>
+            failure === "false"
+              ? result.resolve(false)
+              : result.reject("service_busy"),
+          );
+        expect(
+          ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+        ).toBe(false);
+        expect(ui.element.textContent).toContain("草稿已保留");
+        await ui.key("Enter");
+        expect(ui.calls).toHaveLength(2);
+        expect(ui.calls[1]).toEqual(ui.calls[0]);
+      } finally {
+        await ui.close();
+      }
+    });
+  }
+}
+
+for (const accepted of [true, false]) {
+  test(`late ${accepted ? "success" : "failure"} cannot unlock or report into a new source submission`, async () => {
+    const first = Promise.withResolvers<boolean>();
+    const second = Promise.withResolvers<boolean>();
+    let count = 0;
+    const value = state("ask-result");
+    const ui = await mount(value, catalog, () =>
+      ++count === 1 ? first.promise : second.promise,
+    );
+    try {
+      await ui.type("SYNTHETIC_OLD_SCOPE");
+      await ui.key("Enter");
+      await ui.render({
+        ...value,
+        desktop: {
+          ...value.desktop,
+          epoch: value.desktop.epoch + 1,
+          context: { ...context, text: "SYNTHETIC_NEW_SOURCE" },
+        },
+      });
+      await ui.type("SYNTHETIC_NEW_SCOPE");
+      await ui.key("Enter");
+      await act(async () => first.resolve(accepted));
+      expect(
+        ui.element.querySelector<HTMLTextAreaElement>("textarea")!.readOnly,
+      ).toBe(true);
+      expect(ui.element.textContent).not.toContain("提交失败");
+      await ui.key("Enter");
+      expect(ui.calls).toHaveLength(2);
+    } finally {
+      await act(async () => {
+        first.resolve(false);
+        second.resolve(false);
+      });
+      await ui.close();
+    }
+  });
+}
+
+test("completed submission failure notices do not survive an unrelated source", async () => {
+  const value = state("ask-result");
+  const ui = await mount(value, catalog, async () => false);
+  try {
+    await ui.type("SYNTHETIC_FAILED_QUESTION");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("提交失败");
+    await ui.render({
+      ...value,
+      desktop: {
+        ...value.desktop,
+        epoch: value.desktop.epoch + 1,
+        context: { ...context, text: "SYNTHETIC_DIFFERENT_SOURCE" },
+      },
+    });
+    expect(ui.element.textContent).not.toContain("提交失败");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("explicit ask and ordinary submissions share the pending guard", async () => {
+  for (const first of ["/ask SYNTHETIC_COMMAND", "SYNTHETIC_ORDINARY"]) {
+    const result = Promise.withResolvers<boolean>();
+    const ui = await mount(state("input"), catalog, () => result.promise);
+    try {
+      await ui.type(first);
+      await ui.key("Enter");
+      const field = ui.element.querySelector<HTMLTextAreaElement>("textarea")!;
+      expect(field.readOnly).toBe(true);
+      expect(field.disabled).toBe(false);
+      // Programmatic events additionally verify admission itself, beyond the read-only editor.
+      await ui.type(
+        first.startsWith("/ask")
+          ? "SYNTHETIC_ORDINARY"
+          : "/ask SYNTHETIC_COMMAND",
+      );
+      await ui.key("Enter");
+      expect(ui.calls).toHaveLength(1);
+    } finally {
+      await act(async () => result.resolve(false));
+      await ui.close();
+    }
+  }
+});
+
 test("accepted Ask clears the sent question, preserves a streaming follow-up draft, and empty Enter never resends", async () => {
   const ui = await mount(state("ask"));
   try {
@@ -3509,6 +3838,8 @@ test("OCR content that looks like a command remains ordinary text, and unsupport
     await ui.render({
       ...value,
       shortcuts: { ...value.shortcuts, macos: false, ocr: false },
+      desktop: { ...value.desktop, modelRevision: 2 },
+      model: { ...value.model, revision: 2 },
     });
     await ui.type("/ocr");
     await ui.key("Enter");
@@ -3770,8 +4101,11 @@ test("unified input preserves full UTF-8 drafts and refuses oversized text witho
     command: string,
     args?: Record<string, unknown>,
   ): Promise<T> => {
-    if (command === "translate_text" || command === "ask_text")
+    if (command === "translate_text" || command === "ask_text") {
       sent.push({ command, text: String(args?.text) });
+      snapshot.desktop.modelRevision++;
+      snapshot.model.revision = snapshot.desktop.modelRevision;
+    }
     return Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
   };
   try {
@@ -3816,6 +4150,10 @@ test("unified input preserves full UTF-8 drafts and refuses oversized text witho
           expect(element.textContent).toContain("15000 UTF-8 字节");
         }
         expect(input.value).toBe(text);
+        if (new TextEncoder().encode(text).length <= 15000)
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 140));
+          });
       }
     }
   } finally {
@@ -3834,7 +4172,11 @@ test("Chinese followups use the input byte budget and oversized questions stay e
     command: string,
     args?: Record<string, unknown>,
   ): Promise<T> => {
-    if (command === "ask_question") questions.push(String(args?.question));
+    if (command === "ask_question") {
+      questions.push(String(args?.question));
+      snapshot.desktop.modelRevision++;
+      snapshot.model.revision = snapshot.desktop.modelRevision;
+    }
     return Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
   };
   const typeAndSubmit = async (text: string) => {
@@ -3866,6 +4208,9 @@ test("Chinese followups use the input byte budget and oversized questions stay e
     const valid = "问".repeat(1500);
     await typeAndSubmit(valid);
     expect(questions).toEqual([valid]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 140));
+    });
     const tooLong = "问".repeat(5001);
     const input = await typeAndSubmit(tooLong);
     expect(questions).toEqual([valid]);

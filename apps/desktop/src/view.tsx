@@ -36,6 +36,32 @@ export type Perform = (
   command: string,
   args?: Record<string, unknown>,
 ) => Promise<void | boolean>;
+type Submission = {
+  command: "translate_text" | "ask_text" | "ask_question";
+  text: string;
+  epoch: number;
+  revision: number;
+  desktopRevision: number;
+  kind: "input" | "ocr";
+  acknowledged: boolean;
+};
+// Input context advances before the service can reject a submission. Match that
+// transition by source text and kind, including the failure that keeps Input open.
+function submissionScope(request: Submission, state: DesktopState): boolean {
+  const desktop = state.desktop;
+  return (
+    desktop.epoch === request.epoch ||
+    (request.command !== "ask_question" &&
+      desktop.epoch === request.epoch + 1 &&
+      ((desktop.modelRevision === request.desktopRevision &&
+        desktop.mode === "input") ||
+        (desktop.modelRevision > request.desktopRevision &&
+          desktop.operation ===
+            (request.command === "translate_text" ? "translate" : "ask"))) &&
+      desktop.context?.kind === request.kind &&
+      desktop.context.text === request.text)
+  );
+}
 const paths: Record<string, React.ReactNode> = {
   sofa: (
     <>
@@ -139,6 +165,13 @@ export function Desktop({
   const [modelSearch, setModelSearch] = useState<string | null>(null);
   const [commandNotice, setCommandNotice] = useState("");
   const commandInFlight = useRef(false);
+  const submission = useRef<Submission | null>(null);
+  const inputSubmission = useRef<Submission | null>(null);
+  const failedSubmission = useRef<Submission | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
+  const latestState = useRef(state);
+  latestState.current = state;
   const commandNoticeVersion = useRef(0);
   const commandList = useRef<HTMLElement>(null);
   const completionCaret = useRef<number | null>(null);
@@ -191,6 +224,88 @@ export function Desktop({
   const openSettings = (page: SettingsPage = "home") => {
     setSettingsPage(page);
     go("settings");
+  };
+  const reconcileSubmission = () => {
+    const next = latestState.current;
+    if (
+      failedSubmission.current &&
+      !submissionScope(failedSubmission.current, next)
+    ) {
+      failedSubmission.current = null;
+      setSubmissionError("");
+    }
+    const pending = submission.current;
+    if (!pending) return;
+    if (!submissionScope(pending, next)) {
+      submission.current = null;
+      setSubmitting(false);
+      setSubmissionError("");
+    } else if (
+      // IPC acknowledgement alone precedes the next authoritative task snapshot.
+      pending.acknowledged &&
+      next.desktop.modelRevision > pending.desktopRevision &&
+      next.model.revision > pending.revision &&
+      next.model.revision === next.desktop.modelRevision
+    ) {
+      submission.current = null;
+      setSubmitting(false);
+    }
+  };
+  useLayoutEffect(reconcileSubmission, [
+    d.epoch,
+    d.modelRevision,
+    model.revision,
+  ]);
+  useEffect(
+    () => () => {
+      submission.current = null;
+    },
+    [],
+  );
+  const submitText = (command: Submission["command"], text: string) => {
+    if (submission.current || commandInFlight.current || busy || !text.trim())
+      return;
+    const pending: Submission = {
+      command,
+      text,
+      epoch: d.epoch,
+      revision: model.revision,
+      desktopRevision: d.modelRevision,
+      kind: context?.kind === "ocr" ? "ocr" : "input",
+      acknowledged: false,
+    };
+    submission.current = pending;
+    if (command !== "ask_question") inputSubmission.current = pending;
+    setSubmitting(true);
+    setSubmissionError("");
+    void perform(
+      command,
+      command === "ask_question" ? { question: text } : { text },
+    ).then(
+      (accepted) => {
+        reconcileSubmission();
+        if (submission.current !== pending) return;
+        if (accepted === false) {
+          failedSubmission.current = pending;
+          submission.current = null;
+          setSubmitting(false);
+          setSubmissionError("提交失败，草稿已保留，请重试。");
+        } else {
+          pending.acknowledged = true;
+          reconcileSubmission();
+        }
+      },
+      (error) => {
+        reconcileSubmission();
+        if (submission.current !== pending) return;
+        failedSubmission.current = pending;
+        submission.current = null;
+        setSubmitting(false);
+        setSubmissionError(
+          `${errorMessage(error, state.shortcuts.macos)} 草稿已保留，请重试。`,
+        );
+      },
+    );
   };
   const executeCommand = (text: string) => {
     const parsed = parseCommand(text);
@@ -246,7 +361,7 @@ export function Desktop({
       return;
     }
     if (parsed.kind === "ask") {
-      if (commandInFlight.current) return;
+      if (submission.current || commandInFlight.current) return;
       if (busy) {
         setCommandNotice("正在处理当前任务，请等待完成或取消后再提问。");
         return;
@@ -262,6 +377,8 @@ export function Desktop({
         }
         return;
       }
+      submitText(isInput ? "ask_text" : "ask_question", parsed.question);
+      return;
     }
     if ((parsed.kind === "thinking" || parsed.kind === "tools") && busy) {
       setCommandNotice("请等待当前任务完成或取消后修改思考与工具设置。");
@@ -271,19 +388,15 @@ export function Desktop({
     if (commandInFlight.current) return;
     commandInFlight.current = true;
     const version = commandNoticeVersion.current;
-    setCommandNotice(parsed.kind === "ask" ? "正在提交问题…" : "正在应用设置…");
+    setCommandNotice("正在应用设置…");
     void perform(
       configuring
         ? "session_request"
-        : parsed.kind === "ask"
-          ? isInput
-            ? "ask_text"
-            : "ask_question"
-          : parsed.kind === "new"
-            ? "new_session"
-            : parsed.kind === "model"
-              ? "select_model"
-              : "patch_settings",
+        : parsed.kind === "new"
+          ? "new_session"
+          : parsed.kind === "model"
+            ? "select_model"
+            : "patch_settings",
       configuring
         ? {
             request: {
@@ -295,15 +408,11 @@ export function Desktop({
                   : {}),
             },
           }
-        : parsed.kind === "ask"
-          ? isInput
-            ? { text: parsed.question }
-            : { question: parsed.question }
-          : parsed.kind === "model"
-            ? { model: parsed.model }
-            : parsed.kind === "preferences"
-              ? { patch: parsed.patch }
-              : undefined,
+        : parsed.kind === "model"
+          ? { model: parsed.model }
+          : parsed.kind === "preferences"
+            ? { patch: parsed.patch }
+            : undefined,
     )
       .then(
         (applied) => {
@@ -311,11 +420,9 @@ export function Desktop({
             setCommandNotice(
               applied === false
                 ? ""
-                : parsed.kind === "ask"
-                  ? ""
-                  : parsed.kind === "new"
-                    ? "已新建会话。"
-                    : "设置已保存。",
+                : parsed.kind === "new"
+                  ? "已新建会话。"
+                  : "设置已保存。",
             );
         },
         (error) => {
@@ -379,14 +486,14 @@ export function Desktop({
     const action = visibleActions[selected];
     if (isInput) {
       if (input.trim())
-        void perform(
+        submitText(
           action?.id === "question" ? "ask_text" : "translate_text",
-          { text: unescapeCommandText(input) },
+          unescapeCommandText(input),
         );
       return;
     }
     const question = action?.question ?? unescapeCommandText(query.trim());
-    if (question) void perform("ask_question", { question });
+    if (question) submitText("ask_question", question);
   };
   useEffect(() => {
     setSelected(0);
@@ -394,6 +501,8 @@ export function Desktop({
   useEffect(() => {
     commandNoticeVersion.current++;
     setCommandNotice("");
+    failedSubmission.current = null;
+    setSubmissionError("");
     if (isCommandInput(input)) setSelected(0);
   }, [input, query]);
   useEffect(() => {
@@ -423,7 +532,15 @@ export function Desktop({
         setQuery("");
         setSelected(0);
       }
-      if (mode === "input") {
+      if (
+        mode === "input" &&
+        !(
+          inputSubmission.current &&
+          d.epoch === inputSubmission.current.epoch + 1 &&
+          submissionScope(inputSubmission.current, state) &&
+          d.modelRevision === inputSubmission.current.desktopRevision
+        )
+      ) {
         setInput(context?.kind === "ocr" ? ocrDraft(context.text) : "");
         setSelected(0);
       }
@@ -806,6 +923,7 @@ export function Desktop({
           }
           rows={1}
           value={input}
+          readOnly={submitting}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (isImeKey(e.nativeEvent)) return;
@@ -826,7 +944,7 @@ export function Desktop({
               !e.shiftKey &&
               shouldSubmitQuestion(
                 e.nativeEvent,
-                commandMode ? false : busy,
+                commandMode ? false : busy || submitting,
                 input,
               )
             ) {
@@ -847,6 +965,7 @@ export function Desktop({
               : "解释这段内容，或 / 打开命令"
           }
           value={query}
+          readOnly={submitting}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (isImeKey(e.nativeEvent) || e.shiftKey) return;
@@ -871,7 +990,7 @@ export function Desktop({
             if (
               shouldSubmitQuestion(
                 e.nativeEvent,
-                commandMode ? false : busy,
+                commandMode ? false : busy || submitting,
                 query || options[selected]?.label || "",
               )
             ) {
@@ -879,9 +998,7 @@ export function Desktop({
               if (commandMode) execute();
               else if (mode === "ask-result") {
                 if (query.trim())
-                  void perform("ask_question", {
-                    question: unescapeCommandText(query),
-                  });
+                  submitText("ask_question", unescapeCommandText(query));
               } else execute();
             }
           }}
@@ -890,23 +1007,37 @@ export function Desktop({
       {mode === "ask-result" && (
         <button
           className="send-question"
-          aria-label={commandMode ? "执行命令" : busy ? "停止生成" : "发送追问"}
-          title={
-            busy && !commandMode
-              ? "停止生成 · Esc"
-              : "Enter 发送 · Shift+Enter 换行"
+          aria-label={
+            submitting
+              ? "正在提交"
+              : commandMode
+                ? "执行命令"
+                : busy
+                  ? "停止生成"
+                  : "发送追问"
           }
-          disabled={!busy && !query.trim()}
+          title={
+            submitting
+              ? "正在提交…"
+              : busy && !commandMode
+                ? "停止生成 · Esc"
+                : "Enter 发送 · Shift+Enter 换行"
+          }
+          disabled={submitting || (!busy && !query.trim())}
           onClick={() => {
+            if (submission.current) return;
             if (commandMode) execute();
             else if (busy) void perform("cancel_task");
-            else
-              void perform("ask_question", {
-                question: unescapeCommandText(query),
-              });
+            else submitText("ask_question", unescapeCommandText(query));
           }}
         >
-          {commandMode ? "执行" : busy ? "停止" : "发送"}
+          {submitting
+            ? "正在提交…"
+            : commandMode
+              ? "执行"
+              : busy
+                ? "停止"
+                : "发送"}
         </button>
       )}
       <button className="sofa-mark" aria-label="返回阅读" onClick={back}>
@@ -1007,19 +1138,17 @@ export function Desktop({
               <button
                 key={action.id}
                 className={`action ${index === selected ? "selected" : ""}`}
-                disabled={busy || (isInput && !input.trim())}
+                disabled={submitting || busy || (isInput && !input.trim())}
                 onMouseEnter={() => setSelected(index)}
                 onClick={() =>
                   isInput
-                    ? void perform(
+                    ? submitText(
                         action.id === "question"
                           ? "ask_text"
                           : "translate_text",
-                        { text: unescapeCommandText(input) },
+                        unescapeCommandText(input),
                       )
-                    : void perform("ask_question", {
-                        question: action.question,
-                      })
+                    : submitText("ask_question", action.question)
                 }
               >
                 <span className="action-icon">
@@ -1036,7 +1165,7 @@ export function Desktop({
             {!isInput && options.length === 0 && (
               <button
                 className="action selected"
-                disabled={busy || !query.trim()}
+                disabled={submitting || busy || !query.trim()}
                 onClick={execute}
               >
                 <span className="action-icon">
@@ -1080,11 +1209,13 @@ export function Desktop({
               {commandMode && commandMenu}
               {composer}
               <div className="composer-hint" id="followup-hint">
-                {commandMode
-                  ? "↑↓ 选择 · Tab 补全 · Enter 执行 · Esc 关闭"
-                  : busy
-                    ? "正在生成 · Esc 停止 · 可继续编辑草稿"
-                    : "Enter 发送 · Shift+Enter 换行 · / 命令"}
+                {submitting
+                  ? "正在提交…"
+                  : commandMode
+                    ? "↑↓ 选择 · Tab 补全 · Enter 执行 · Esc 关闭"
+                    : busy
+                      ? "正在生成 · Esc 停止 · 可继续编辑草稿"
+                      : "Enter 发送 · Shift+Enter 换行 · / 命令"}
               </div>
             </div>
             <SessionStatus model={model} />{" "}
@@ -1092,12 +1223,15 @@ export function Desktop({
         )}
         {(mode !== "ask-result" ||
           !!commandNotice ||
+          !!submissionError ||
           !!message ||
           (current && model.phase === "error")) && (
           <footer className="launcher-footer">
             <span>
-              {commandNotice ||
+              {(submitting ? "正在提交…" : "") ||
+                commandNotice ||
                 message ||
+                submissionError ||
                 (commandMode
                   ? `↑↓ 选择 · Tab 补全 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
                   : current && model.phase === "error"
