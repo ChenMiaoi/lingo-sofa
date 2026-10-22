@@ -58,6 +58,8 @@ pub struct Context {
 pub struct DesktopView {
     #[serde(skip)]
     result_display: TranslationDisplay,
+    #[serde(skip)]
+    capture_pending: bool,
     pub mode: Mode,
     #[serde(skip)]
     settings_return: Option<Mode>,
@@ -70,6 +72,12 @@ pub struct DesktopView {
 }
 impl DesktopView {
     fn navigate(&mut self, mode: Mode) {
+        if self.capture_pending {
+            self.epoch += 1;
+            self.capture_pending = false;
+            self.context = None;
+            self.notice.clear();
+        }
         if mode == Mode::Settings && self.mode != Mode::Settings {
             self.settings_return = Some(match self.mode {
                 Mode::Ask | Mode::AskResult | Mode::Input => self.mode,
@@ -88,6 +96,7 @@ impl DesktopView {
     }
     fn reset_context(&mut self, mode: Mode) {
         self.epoch += 1;
+        self.capture_pending = false;
         self.context = None;
         self.translation.clear();
         self.notice.clear();
@@ -157,6 +166,47 @@ impl DesktopView {
         Ok(prompt)
     }
 
+    fn begin_capture(&mut self, display: TranslationDisplay) -> u64 {
+        self.epoch += 1;
+        self.capture_pending = true;
+        self.context = None;
+        self.translation.clear();
+        self.mode = Mode::Idle;
+        self.notice = "正在读取选中文字…".into();
+        self.result_display = display;
+        self.epoch
+    }
+
+    fn fail_capture(&mut self, epoch: u64, code: &str) -> bool {
+        if self.epoch != epoch || !self.capture_pending {
+            return false;
+        }
+        self.capture_pending = false;
+        self.notice = code.into();
+        self.mode = Mode::Menu;
+        true
+    }
+
+    fn window_bounds(&self, anchor: Option<Rect>, work: Rect, scale: f64) -> Rect {
+        let (width, height) = self.window_size();
+        let mut bounds = place(
+            if self.mode == Mode::Translation {
+                anchor
+            } else {
+                None
+            },
+            work,
+            scale,
+            width,
+            height,
+        );
+        if matches!(self.mode, Mode::Idle | Mode::Menu) {
+            bounds.x = (work.x + work.width - bounds.width - 16.0 * scale).max(work.x);
+            bounds.y = work.y + (work.height - bounds.height) * 0.55;
+        }
+        bounds
+    }
+
     /// Returns whether the window must collapse. Other modes retain their
     /// frozen source without repositioning or requesting foreground focus.
     fn expire_anchor(&mut self) -> bool {
@@ -187,6 +237,7 @@ impl Shell {
         Self {
             view: Arc::new(Mutex::new(DesktopView {
                 result_display: TranslationDisplay::Below,
+                capture_pending: false,
                 mode: Mode::Idle,
                 settings_return: None,
                 context: None,
@@ -244,6 +295,7 @@ impl Shell {
         }
         let mut v = self.view.lock().unwrap();
         v.epoch += 1;
+        v.capture_pending = false;
         v.model_revision = service.state().revision;
         v.context = serde_json::from_value(snapshot["metadata"]["context"].clone()).ok();
         if let Some(context) = &mut v.context {
@@ -279,6 +331,7 @@ impl Shell {
     fn input_context(&self, text: String, kind: &str) -> u64 {
         let mut v = self.view.lock().unwrap();
         v.epoch += 1;
+        v.capture_pending = false;
         v.context = Some(Context {
             text,
             origin: if kind == "clipboard" {
@@ -386,6 +439,7 @@ impl Shell {
             serde_json::json!({"context":v.context}),
         )?;
         v.model_revision = revision;
+        v.capture_pending = false;
         v.operation = "translate".into();
         v.mode = v.translation_mode();
         v.translation.clear();
@@ -465,30 +519,23 @@ impl Shell {
             )
         };
         let _ = service.cancel();
-        let epoch = {
-            let mut v = self.view.lock().unwrap();
-            v.epoch += 1;
-            v.context = None;
-            v.translation.clear();
-            v.mode = Mode::Idle;
-            v.notice = "正在读取选中文字…".into();
-            v.result_display = display;
-            v.epoch
-        };
+        let epoch = self.view.lock().unwrap().begin_capture(display);
         let this = self.clone();
         std::thread::spawn(move || {
             let result = this.watch(&app, &service, epoch, host, own, origin);
-            if let Err(code) = result
-                && this.view.lock().unwrap().epoch == epoch
-            {
-                this.failure(&app, code);
+            if let Err(code) = result {
+                // Release the view lock before position() reads it again.
+                let changed = this.view.lock().unwrap().fail_capture(epoch, code);
+                if changed {
+                    this.position(&app);
+                }
             }
         });
     }
     pub(crate) fn failure(&self, app: &tauri::AppHandle, code: &str) {
         let mut v = self.view.lock().unwrap();
+        v.navigate(Mode::Menu);
         v.notice = code.into();
-        v.mode = Mode::Menu;
         drop(v);
         self.position(app);
     }
@@ -671,22 +718,7 @@ impl Shell {
                 physical_anchor(anchor, scale)
             }
         });
-        let (width, height) = v.window_size();
-        let mut r = place(
-            if v.mode == Mode::Translation {
-                anchor
-            } else {
-                None
-            },
-            work,
-            scale,
-            width,
-            height,
-        );
-        if matches!(v.mode, Mode::Idle | Mode::Menu) {
-            r.x = work.x + work.width - r.width - 16.0 * scale;
-            r.y = work.y + (work.height - r.height) * 0.55;
-        }
+        let r = v.window_bounds(anchor, work, scale);
         let focus = matches!(
             v.mode,
             Mode::Ask | Mode::AskResult | Mode::Input | Mode::Settings
@@ -755,6 +787,63 @@ mod tests {
             view.ask_prompt("问".repeat(5000), true),
             Ok("问".repeat(5000))
         );
+    }
+
+    #[test]
+    fn navigating_away_from_pending_selection_fences_its_result_and_error() {
+        let shell = Shell::new(PathBuf::from("unused-test-helper"));
+        let mut view = shell.view.lock().unwrap();
+        for mode in [Mode::Input, Mode::Settings, Mode::Ask, Mode::Idle] {
+            let epoch = view.begin_capture(TranslationDisplay::Below);
+            view.navigate(mode);
+            assert_ne!(view.epoch, epoch);
+            assert!(!view.capture_pending);
+            assert!(!view.fail_capture(epoch, "selection_timeout"));
+            assert_eq!(view.mode, mode);
+            assert!(view.notice.is_empty());
+        }
+    }
+
+    #[test]
+    fn capture_errors_only_replace_the_pending_capture_they_belong_to() {
+        let shell = Shell::new(PathBuf::from("unused-test-helper"));
+        let mut view = shell.view.lock().unwrap();
+        let old = view.begin_capture(TranslationDisplay::Below);
+        let current = view.begin_capture(TranslationDisplay::Panel);
+        assert!(!view.fail_capture(old, "selection_timeout"));
+        assert!(view.capture_pending);
+        assert_eq!(view.mode, Mode::Idle);
+        assert!(view.fail_capture(current, "selection_unsupported"));
+        assert!(!view.capture_pending);
+        assert_eq!(view.mode, Mode::Menu);
+        assert_eq!(view.notice, "selection_unsupported");
+        assert!(!view.fail_capture(current, "selection_timeout"));
+        assert_eq!(view.notice, "selection_unsupported");
+    }
+
+    #[test]
+    fn edge_windows_stay_inside_small_scaled_and_negative_coordinate_displays() {
+        let shell = Shell::new(PathBuf::from("unused-test-helper"));
+        let mut view = shell.view.lock().unwrap();
+        for mode in [Mode::Idle, Mode::Menu, Mode::Input, Mode::Settings] {
+            view.mode = mode;
+            for scale in [1.0, 1.5, 3.0] {
+                for width in [40.0, 800.0] {
+                    let work = Rect {
+                        x: -1920.0,
+                        y: -200.0,
+                        width,
+                        height: 600.0,
+                    };
+                    let bounds = view.window_bounds(None, work, scale);
+                    assert!(bounds.valid());
+                    assert!(bounds.x >= work.x, "{mode:?}: {bounds:?}");
+                    assert!(bounds.y >= work.y);
+                    assert!(bounds.x + bounds.width <= work.x + work.width);
+                    assert!(bounds.y + bounds.height <= work.y + work.height);
+                }
+            }
+        }
     }
 
     #[test]
