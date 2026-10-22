@@ -31,6 +31,7 @@ pub struct Controller {
 pub struct Permit {
     controller: Controller,
     pub token: Arc<AtomicBool>,
+    pub reselection: bool,
 }
 impl Permit {
     pub fn valid(&self) -> bool {
@@ -82,7 +83,7 @@ impl Controller {
             state.token.store(false, Ordering::SeqCst);
         }
     }
-    pub fn begin(&self, source: usize, generation: u64) -> Option<Permit> {
+    pub fn begin(&self, source: usize, generation: u64, reselection: bool) -> Option<Permit> {
         let mut state = self.state.0.lock().unwrap();
         if !state.enabled
             || state.stopped
@@ -97,9 +98,17 @@ impl Controller {
         Some(Permit {
             controller: self.clone(),
             token: state.token.clone(),
+            reselection,
         })
     }
-    pub fn duplicate(&self, source: usize, text: &str, bounds: Rect) -> bool {
+    pub fn duplicate(
+        &self,
+        source: usize,
+        text: &str,
+        bounds: Rect,
+        live_selection: bool,
+        reselection: bool,
+    ) -> bool {
         self.state
             .0
             .lock()
@@ -107,7 +116,10 @@ impl Controller {
             .last
             .as_ref()
             .is_some_and(|last| {
-                last.source == source && last.text == text && last.bounds.near(bounds)
+                last.source == source
+                    && last.text == text
+                    && last.bounds.near(bounds)
+                    && (live_selection || !reselection)
             })
     }
     pub fn remember(&self, source: usize, text: String, bounds: Rect) {
@@ -143,6 +155,14 @@ struct Gesture {
     pressed: bool,
     press_source: Option<usize>,
     pending: Option<(usize, u64)>,
+    press: Option<((i32, i32), u64)>,
+    last_click: Option<(usize, (i32, i32), u64)>,
+    reselection: bool,
+}
+struct GestureThresholds {
+    drag: (i32, i32),
+    double_click_ms: u64,
+    double_click_radius: (i32, i32),
 }
 impl Gesture {
     fn enter_generation(&mut self, generation: u64) {
@@ -153,7 +173,54 @@ impl Gesture {
             };
         }
     }
+    fn button(
+        &mut self,
+        down: bool,
+        source: Option<usize>,
+        point: (i32, i32),
+        now_ms: u64,
+        thresholds: &GestureThresholds,
+    ) {
+        if down && !self.pressed {
+            self.press = Some((point, now_ms));
+            self.reselection = false;
+        } else if !down && self.pressed {
+            self.reselection = false;
+            if let Some((start, pressed_at)) = self.press.take()
+                && source.is_some()
+                && source == self.press_source
+            {
+                let dragged = (point.0 - start.0).abs() >= thresholds.drag.0
+                    || (point.1 - start.1).abs() >= thresholds.drag.1;
+                let double_clicked = self.last_click.is_some_and(|(host, previous, time)| {
+                    Some(host) == source
+                        && pressed_at.saturating_sub(time) <= thresholds.double_click_ms
+                        && (point.0 - previous.0).abs() <= thresholds.double_click_radius.0
+                        && (point.1 - previous.1).abs() <= thresholds.double_click_radius.1
+                });
+                self.reselection = dragged || double_clicked;
+                self.last_click = if self.reselection {
+                    None
+                } else {
+                    source.map(|host| (host, point, pressed_at))
+                };
+            } else {
+                self.last_click = None;
+            }
+        }
+        self.observe(down, source, now_ms);
+    }
     fn observe(&mut self, down: bool, source: Option<usize>, now_ms: u64) -> Option<usize> {
+        if self
+            .last_click
+            .is_some_and(|(host, _, _)| Some(host) != source)
+        {
+            self.last_click = None;
+        }
+        if self.pressed && self.press_source != source {
+            self.press = None;
+            self.reselection = false;
+        }
         if down {
             if !self.pressed {
                 self.press_source = source;
@@ -217,7 +284,7 @@ mod mouse_events {
             LibraryLoader::GetModuleHandleW,
             Threading::{CreateEventW, INFINITE, SetEvent},
         },
-        UI::WindowsAndMessaging::*,
+        UI::{Input::KeyboardAndMouse::GetDoubleClickTime, WindowsAndMessaging::*},
     };
     const DISABLED: u8 = 0;
     const ENABLED: u8 = 1;
@@ -442,7 +509,24 @@ mod mouse_events {
         if pressed && foreground.is_some() {
             this.interrupt_probe();
         }
-        gesture.observe(pressed, foreground, event.time_ms);
+        let thresholds = GestureThresholds {
+            drag: (
+                unsafe { GetSystemMetrics(SM_CXDRAG) }.max(1),
+                unsafe { GetSystemMetrics(SM_CYDRAG) }.max(1),
+            ),
+            double_click_ms: u64::from(unsafe { GetDoubleClickTime() }),
+            double_click_radius: (
+                (unsafe { GetSystemMetrics(SM_CXDOUBLECLK) } / 2).max(1),
+                (unsafe { GetSystemMetrics(SM_CYDOUBLECLK) } / 2).max(1),
+            ),
+        };
+        gesture.button(
+            pressed,
+            foreground,
+            (event.point.x, event.point.y),
+            event.time_ms,
+            &thresholds,
+        );
     }
     impl Controller {
         pub fn start(
@@ -527,7 +611,7 @@ mod mouse_events {
                     if let Some(host) =
                         gesture.observe(gesture.pressed, source, clock.elapsed().as_millis() as u64)
                     {
-                        if let Some(permit) = this.begin(host, generation) {
+                        if let Some(permit) = this.begin(host, generation, gesture.reselection) {
                             shell.capture_automatic(app.clone(), service.clone(), host, permit);
                         } else {
                             gesture.pending =
@@ -561,7 +645,7 @@ mod mouse_events {
             let new = controller.event_generation.load(Ordering::SeqCst);
             gesture.enter_generation(new);
             assert_eq!(gesture.observe(false, Some(1), 1000), None);
-            assert!(controller.begin(1, old).is_none());
+            assert!(controller.begin(1, old, false).is_none());
         }
         #[test]
         fn hook_install_failure_can_retry_in_the_same_pump_without_a_real_hook() {
@@ -624,7 +708,7 @@ mod mouse_events {
             };
             controller.set_enabled(false);
             controller.set_enabled(true);
-            assert!(controller.begin(1, old).is_none());
+            assert!(controller.begin(1, old, false).is_none());
             process_event(
                 &controller,
                 &mut gesture,
@@ -842,7 +926,7 @@ mod tests {
         let c = Controller::default();
         c.set_enabled(true);
         let permit = c
-            .begin(1, c.event_generation.load(Ordering::SeqCst))
+            .begin(1, c.event_generation.load(Ordering::SeqCst), false)
             .unwrap();
         c.check_source(Some(1));
         assert!(permit.valid());
@@ -850,7 +934,7 @@ mod tests {
         assert!(!permit.valid());
         drop(permit);
         let next = c
-            .begin(2, c.event_generation.load(Ordering::SeqCst))
+            .begin(2, c.event_generation.load(Ordering::SeqCst), false)
             .unwrap();
         assert!(next.valid());
         c.check_source(None);
@@ -860,35 +944,35 @@ mod tests {
     fn disabled_controller_never_starts_and_disable_fences_late_results() {
         let c = Controller::default();
         assert!(
-            c.begin(1, c.event_generation.load(Ordering::SeqCst))
+            c.begin(1, c.event_generation.load(Ordering::SeqCst), false)
                 .is_none()
         );
         c.set_enabled(true);
         let permit = c
-            .begin(1, c.event_generation.load(Ordering::SeqCst))
+            .begin(1, c.event_generation.load(Ordering::SeqCst), false)
             .unwrap();
         assert!(permit.valid());
         assert!(
-            c.begin(1, c.event_generation.load(Ordering::SeqCst))
+            c.begin(1, c.event_generation.load(Ordering::SeqCst), false)
                 .is_none()
         );
         c.set_enabled(false);
         assert!(!permit.valid());
         assert!(
-            c.begin(1, c.event_generation.load(Ordering::SeqCst))
+            c.begin(1, c.event_generation.load(Ordering::SeqCst), false)
                 .is_none()
         );
         drop(permit);
         c.set_enabled(true);
         let permit = c
-            .begin(1, c.event_generation.load(Ordering::SeqCst))
+            .begin(1, c.event_generation.load(Ordering::SeqCst), false)
             .unwrap();
         c.interrupt();
         assert!(!permit.valid());
         drop(permit);
         c.shutdown();
         assert!(
-            c.begin(1, c.event_generation.load(Ordering::SeqCst))
+            c.begin(1, c.event_generation.load(Ordering::SeqCst), false)
                 .is_none()
         );
     }
@@ -900,11 +984,123 @@ mod tests {
         c.interrupt();
         c.set_enabled(false);
         c.set_enabled(true);
-        assert!(c.duplicate(1, "selected", rect()));
-        assert!(!c.duplicate(2, "selected", rect()));
-        assert!(!c.duplicate(1, "changed", rect()));
-        assert!(!c.duplicate(1, "selected", Rect { x: 200.0, ..rect() }));
+        assert!(c.duplicate(1, "selected", rect(), false, false));
+        assert!(!c.duplicate(2, "selected", rect(), false, false));
+        assert!(!c.duplicate(1, "changed", rect(), false, false));
+        assert!(!c.duplicate(1, "selected", Rect { x: 200.0, ..rect() }, false, false));
     }
+    fn thresholds() -> GestureThresholds {
+        GestureThresholds {
+            drag: (4, 4),
+            double_click_ms: 500,
+            double_click_radius: (2, 2),
+        }
+    }
+    #[test]
+    fn same_selection_retries_require_both_an_ended_lifecycle_and_a_new_selection_gesture() {
+        let c = Controller::default();
+        c.remember(1, "selected".into(), rect());
+        assert!(c.duplicate(1, "selected", rect(), true, true));
+        assert!(c.duplicate(1, "selected", rect(), true, false));
+        assert!(c.duplicate(1, "selected", rect(), false, false));
+        assert!(!c.duplicate(1, "selected", rect(), false, true));
+        c.set_enabled(true);
+        c.set_enabled(false);
+        c.set_enabled(true);
+        assert!(c.duplicate(1, "selected", rect(), false, false));
+        c.interrupt();
+        assert!(c.duplicate(1, "selected", rect(), false, false));
+    }
+    #[test]
+    fn only_drag_distance_or_a_nearby_timely_double_click_marks_reselection() {
+        let t = thresholds();
+        let mut g = Gesture::default();
+        g.button(true, Some(1), (10, 10), 0, &t);
+        g.button(false, Some(1), (13, 13), 20, &t);
+        assert!(
+            !g.reselection,
+            "ordinary click jitter must not replay old text"
+        );
+        assert_eq!(g.observe(false, Some(1), 370), Some(1));
+        assert_eq!(g.observe(false, Some(1), 1000), None);
+        g.button(true, Some(1), (10, 10), 1100, &t);
+        g.button(false, Some(1), (14, 10), 1120, &t);
+        assert!(g.reselection, "system drag threshold is inclusive");
+        assert_eq!(g.observe(false, Some(1), 1470), Some(1));
+        for (second_time, second_point, expected) in [
+            (100, (11, 11), true),
+            (100, (100, 100), false),
+            (501, (10, 10), false),
+        ] {
+            let mut g = Gesture::default();
+            g.button(true, Some(1), (10, 10), 0, &t);
+            g.button(false, Some(1), (10, 10), 10, &t);
+            g.button(true, Some(1), second_point, second_time, &t);
+            g.button(false, Some(1), second_point, second_time + 10, &t);
+            assert_eq!(g.reselection, expected);
+        }
+    }
+    #[test]
+    fn source_and_generation_changes_discard_previous_click_and_drag_records() {
+        let t = thresholds();
+        for change_generation in [false, true] {
+            let mut g = Gesture::default();
+            g.enter_generation(1);
+            g.button(true, Some(1), (10, 10), 0, &t);
+            g.button(false, Some(1), (10, 10), 10, &t);
+            if change_generation {
+                g.enter_generation(2);
+            } else {
+                g.observe(false, Some(2), 20);
+            }
+            g.button(true, Some(1), (10, 10), 100, &t);
+            g.button(false, Some(1), (10, 10), 110, &t);
+            assert!(
+                !g.reselection,
+                "old click must not join a new source/generation"
+            );
+        }
+        let mut g = Gesture::default();
+        g.button(true, Some(1), (10, 10), 0, &t);
+        g.observe(true, Some(2), 100);
+        g.button(false, Some(2), (200, 10), 200, &t);
+        assert!(!g.reselection);
+        assert_eq!(g.observe(false, Some(2), 600), None);
+    }
+    #[test]
+    fn pending_reselection_keeps_its_intent_until_the_previous_watch_exits_but_not_across_interrupts()
+     {
+        for interrupt_again in [false, true] {
+            let c = Controller::default();
+            c.set_enabled(true);
+            let old = c
+                .begin(1, c.event_generation.load(Ordering::SeqCst), false)
+                .unwrap();
+            c.interrupt(); // Esc fences the old watch before it has dropped its permit.
+            let generation = c.event_generation.load(Ordering::SeqCst);
+            let mut g = Gesture::default();
+            g.enter_generation(generation);
+            g.button(true, Some(1), (10, 10), 0, &thresholds());
+            g.button(false, Some(1), (100, 10), 20, &thresholds());
+            let host = g.observe(false, Some(1), 370).unwrap();
+            assert!(c.begin(host, generation, g.reselection).is_none());
+            // This is the worker's existing bounded retry, retaining the gesture intent.
+            g.pending = Some((host, 20));
+            drop(old);
+            if interrupt_again {
+                c.interrupt();
+                g.enter_generation(c.event_generation.load(Ordering::SeqCst));
+                assert_eq!(g.observe(false, Some(1), 400), None);
+                assert!(c.begin(host, generation, true).is_none());
+            } else {
+                assert_eq!(g.observe(false, Some(1), 400), Some(host));
+                let next = c.begin(host, generation, g.reselection).unwrap();
+                assert!(next.valid() && next.reselection);
+                assert_eq!(g.observe(false, Some(1), 1000), None);
+            }
+        }
+    }
+
     #[test]
     fn release_waits_for_settled_source_and_does_not_repeat_on_unchanged_idle() {
         let mut g = Gesture::default();

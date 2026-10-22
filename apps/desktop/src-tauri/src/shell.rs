@@ -110,6 +110,20 @@ impl DesktopView {
             && model.task_id.is_none()
             && !matches!(model.phase.as_str(), "preparing" | "running" | "compacting")
     }
+    #[cfg(any(windows, test))]
+    fn same_live_selection(&self, candidate: &Context) -> bool {
+        self.context.as_ref().is_some_and(|current| {
+            current.kind == "selection"
+                && candidate.kind == "selection"
+                && current.anchor_valid
+                && current.text == candidate.text
+                && current.origin == candidate.origin
+                && current
+                    .anchor
+                    .zip(candidate.anchor)
+                    .is_some_and(|(a, b)| a.near(b))
+        })
+    }
     fn always_on_top(&self, pinned: bool) -> bool {
         pinned || matches!(self.mode, Mode::Idle | Mode::Menu | Mode::Translation)
     }
@@ -699,9 +713,13 @@ impl Shell {
             if v.epoch != expected_epoch
                 || !v.automatic_eligible(&model)
                 || !permit.valid()
-                || self
-                    .automatic
-                    .duplicate(host, &context.text, context.anchor?)
+                || self.automatic.duplicate(
+                    host,
+                    &context.text,
+                    context.anchor?,
+                    v.same_live_selection(&context),
+                    permit.reselection,
+                )
                 || crate::auto_selection::foreground_source() != Some(host)
                 || crate::auto_selection::mouse_down()
             {
@@ -872,7 +890,6 @@ impl Shell {
                             epoch = accepted_epoch;
                             self.position(app);
                         } else {
-                            self.automatic.remember(host, text.clone(), bounds);
                             let mut v = self.view.lock().unwrap();
                             if v.epoch != epoch {
                                 break;
@@ -880,7 +897,8 @@ impl Shell {
                             v.context = Some(context);
                             v.notice.clear();
                             drop(v);
-                            self.submit_translation(app, service, epoch, text)?;
+                            self.submit_translation(app, service, epoch, text.clone())?;
+                            self.automatic.remember(host, text, bounds);
                         }
                         #[cfg(not(windows))]
                         {
@@ -1056,6 +1074,93 @@ mod tests {
         model.settings.auto_selection_translation = false;
         assert!(!view.automatic_eligible(&model));
     }
+    #[cfg(windows)]
+    #[test]
+    fn hidden_or_expired_selection_can_be_reselected_with_a_new_drag() {
+        let shell = Shell::new("unused".into());
+        let bounds = Rect {
+            x: 10.0,
+            y: 20.0,
+            width: 200.0,
+            height: 30.0,
+        };
+        let candidate = Context {
+            text: "RESELECT_SAME_PARAGRAPH".into(),
+            origin: "Source".into(),
+            kind: "selection".into(),
+            anchor: Some(bounds),
+            anchor_valid: true,
+        };
+        for expire in [false, true] {
+            let mut view = shell.view.lock().unwrap();
+            view.mode = Mode::Translation;
+            view.context = Some(candidate.clone());
+            shell.automatic.remember(1, candidate.text.clone(), bounds);
+            if expire {
+                assert!(view.expire_anchor());
+            } else {
+                view.navigate(Mode::Idle);
+            }
+            assert!(
+                !shell.automatic.duplicate(
+                    1,
+                    &candidate.text,
+                    bounds,
+                    view.same_live_selection(&candidate),
+                    true
+                ),
+                "a new drag after hiding or expiring must permit the same paragraph"
+            );
+        }
+    }
+
+    #[test]
+    fn live_selection_identity_requires_matching_source_text_bounds_and_valid_anchor() {
+        let shell = Shell::new("unused".into());
+        let candidate = Context {
+            text: "selected".into(),
+            origin: "Source".into(),
+            kind: "selection".into(),
+            anchor: Some(Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 200.0,
+                height: 30.0,
+            }),
+            anchor_valid: true,
+        };
+        let mut view = shell.view.lock().unwrap();
+        view.context = Some(candidate.clone());
+        assert!(view.same_live_selection(&candidate));
+        for changed in [
+            Context {
+                text: "other".into(),
+                ..candidate.clone()
+            },
+            Context {
+                origin: "Other source".into(),
+                ..candidate.clone()
+            },
+            Context {
+                kind: "ocr".into(),
+                ..candidate.clone()
+            },
+            Context {
+                anchor: Some(Rect {
+                    x: 400.0,
+                    ..candidate.anchor.unwrap()
+                }),
+                ..candidate.clone()
+            },
+        ] {
+            view.context = Some(changed);
+            assert!(!view.same_live_selection(&candidate));
+        }
+        view.context = Some(candidate.clone());
+        view.context.as_mut().unwrap().anchor_valid = false;
+        assert!(!view.same_live_selection(&candidate));
+    }
+
     #[test]
     fn pinning_respects_focusable_modes_and_keeps_transient_overlays_visible() {
         let shell = super::Shell::new("fixture-helper".into());
