@@ -12,6 +12,7 @@ import { AccountLogin } from "./account-login";
 import { AskAnswer, SessionStatus } from "./ask-answer";
 import { SessionPicker } from "./session-picker";
 import { ModelPicker } from "./model-picker";
+import { TranslationReading } from "./translation-reading";
 import type { LoadModelCatalog } from "./model-providers";
 import {
   loadModelCatalog as defaultLoadModelCatalog,
@@ -603,22 +604,34 @@ export function Desktop({
         </button>
       </main>
     );
-  if (mode === "translation")
+  if (mode === "translation" || mode === "translation-detail")
     return (
-      <main className={`reading ${translationError ? "has-error" : ""}`}>
-        <section
-          className="annotation"
-          aria-label="译文"
-          title={d.translation || translation}
-        >
-          <p
-            className={!d.translation && !translationError ? "loading" : ""}
-            role="status"
-          >
-            {message || translation}
-          </p>
-        </section>
+      <TranslationReading
+        text={message || translation}
+        loading={!d.translation && !translationError}
+        error={translationError}
+        detail={mode === "translation-detail"}
+        epoch={d.epoch}
+        perform={perform}
+      >
+        {current &&
+          d.operation === "translate" &&
+          (busy || translationError) && (
+            <p className="reading-status" role="status">
+              {translationError
+                ? "翻译未完成，请检查服务后重试。"
+                : "译文仍在生成…"}
+            </p>
+          )}
         <nav className="translation-actions" aria-label="译文操作">
+          <button
+            disabled={!d.translation}
+            onClick={() =>
+              mode === "translation-detail" ? back() : go("translation-detail")
+            }
+          >
+            {mode === "translation-detail" ? "返回浮层" : "完整译文"}
+          </button>
           <button
             disabled={!d.translation}
             onClick={() => void perform("copy_result")}
@@ -646,7 +659,7 @@ export function Desktop({
             {contextLabel(context)} · 独立译文浮层
           </span>
         )}
-      </main>
+      </TranslationReading>
     );
   if ((isAsk || isInput) && modelSearch !== null)
     return (

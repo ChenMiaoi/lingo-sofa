@@ -25,7 +25,8 @@ export function App({ invoke = call }: { invoke?: typeof call }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [disconnected, setDisconnected] = useState(false);
   const perform = async (command: string, args?: Record<string, unknown>) => {
-    setNotice(null);
+    const layoutOnly = command === "resize_translation";
+    if (!layoutOnly) setNotice(null);
     const origin = state;
     try {
       const text =
@@ -41,9 +42,10 @@ export function App({ invoke = call }: { invoke?: typeof call }) {
       await invoke(command, args);
       return true;
     } catch (error) {
-      setNotice(
-        scopedNotice(errorMessage(error, origin.shortcuts.macos), origin),
-      );
+      if (!layoutOnly)
+        setNotice(
+          scopedNotice(errorMessage(error, origin.shortcuts.macos), origin),
+        );
       return false;
     }
   };

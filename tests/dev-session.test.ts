@@ -69,7 +69,7 @@ test("failed or stalled frontend startup never launches the desktop application"
 }, 15_000);
 
 test.skipIf(process.platform !== "win32")(
-  "Windows reaps the entire dev tree even when its supervisor is forcibly terminated",
+  "Windows dev children have no console window and are reaped when their supervisor is forcibly terminated",
   async () => {
     const directory = await temporaryDirectory();
     let child: ReturnType<typeof Bun.spawn> | undefined;
@@ -92,16 +92,31 @@ test.skipIf(process.platform !== "win32")(
         },
       );
       expect(await build.exited).toBe(0);
+      const probe = join(directory, "console-probe.exe");
+      const compileProbe = Bun.spawn(
+        [
+          "rustc",
+          "--edition=2024",
+          join(root, "tests/fixtures/windows-console-probe.rs"),
+          "-o",
+          probe,
+        ],
+        { cwd: root, env: cleanEnv(), stdout: "inherit", stderr: "inherit" },
+      );
+      expect(await compileProbe.exited).toBe(0);
       const log = join(directory, "guard.log");
       const pidFile = join(directory, "guard.pid");
+      const appPidFile = join(directory, "app.pid");
       child = Bun.spawn(
         [
           join(root, "target/debug/examples/dev-session.exe"),
           "node",
-          fixture,
-          "server",
-          log,
-          pidFile,
+          join(root, "scripts/dev-session.ts"),
+          JSON.stringify({
+            server: ["node", fixture, "server", log, pidFile],
+            app: ["node", fixture, "waiting-app", log, appPidFile],
+            cwd: directory,
+          }),
         ],
         {
           cwd: directory,
@@ -112,15 +127,33 @@ test.skipIf(process.platform !== "win32")(
       );
       for (
         let attempt = 0;
-        attempt < 200 && !(await Bun.file(pidFile).exists());
+        attempt < 200 && !(await Bun.file(appPidFile).exists());
         attempt++
       )
         await Bun.sleep(25);
-      expect(await Bun.file(pidFile).exists()).toBe(true);
+      expect(await Bun.file(appPidFile).exists()).toBe(true);
+      const pidFiles = [
+        `${pidFile}.supervisor`,
+        `${pidFile}.parent`,
+        pidFile,
+        `${appPidFile}.parent`,
+        appPidFile,
+      ];
+      for (const path of pidFiles) {
+        const pid = Number(await readFile(path, "utf8"));
+        const report = `${path}.console`;
+        const inspect = Bun.spawn([probe, String(pid), report], {
+          cwd: directory,
+          env: cleanEnv(),
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        expect(await inspect.exited).toBe(0);
+        expect(await readFile(report, "utf8")).toBe("none");
+      }
       child.kill();
       await child.exited;
-      await expectStopped(pidFile);
-      await expectStopped(`${pidFile}.parent`);
+      for (const path of pidFiles) await expectStopped(path);
     } finally {
       child?.kill();
       if (child) await child.exited;

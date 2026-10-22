@@ -10,8 +10,10 @@ if (mode === "app") {
   setInterval(() => {}, 1000);
 } else if (mode === "server") {
   writeFileSync(`${pidFile}.parent`, String(process.pid));
+  writeFileSync(`${pidFile}.supervisor`, String(process.ppid));
   const child = spawn(process.execPath, [import.meta.filename, "stall"], {
     stdio: "ignore",
+    windowsHide: true,
   });
   writeFileSync(pidFile!, String(child.pid));
   appendFileSync(log!, "ready\n");
@@ -24,8 +26,10 @@ if (mode === "app") {
     if (readFileSync(log!, "utf8").includes("app\n")) process.exit(8);
   }, 25);
 } else if (mode === "waiting-app") {
+  writeFileSync(`${pidFile}.parent`, String(process.pid));
   const child = spawn(process.execPath, [import.meta.filename, "stall"], {
     stdio: "ignore",
+    windowsHide: true,
   });
   writeFileSync(pidFile!, String(child.pid));
   appendFileSync(log!, "app\n");

@@ -39,6 +39,7 @@ pub enum Mode {
     Idle,
     Menu,
     Translation,
+    TranslationDetail,
     Ask,
     AskResult,
     Input,
@@ -60,6 +61,8 @@ pub struct DesktopView {
     result_display: TranslationDisplay,
     #[serde(skip)]
     capture_pending: bool,
+    #[serde(skip)]
+    translation_height: f64,
     pub mode: Mode,
     #[serde(skip)]
     settings_return: Option<Mode>,
@@ -80,7 +83,7 @@ impl DesktopView {
         }
         if mode == Mode::Settings && self.mode != Mode::Settings {
             self.settings_return = Some(match self.mode {
-                Mode::Ask | Mode::AskResult | Mode::Input => self.mode,
+                Mode::Ask | Mode::AskResult | Mode::Input | Mode::TranslationDetail => self.mode,
                 _ => Mode::Input,
             });
         } else if mode != Mode::Settings {
@@ -97,6 +100,7 @@ impl DesktopView {
     fn reset_context(&mut self, mode: Mode) {
         self.epoch += 1;
         self.capture_pending = false;
+        self.translation_height = 178.0;
         self.context = None;
         self.translation.clear();
         self.notice.clear();
@@ -126,13 +130,15 @@ impl DesktopView {
                     280.0
                 },
             ),
-            Mode::Translation => (500.0, 178.0),
+            Mode::Translation => (500.0, self.translation_height),
+            Mode::TranslationDetail => (700.0, 560.0),
             Mode::Ask => (660.0, 390.0),
             Mode::AskResult => (660.0, 640.0),
             Mode::Input => (620.0, 324.0),
             Mode::Settings => match self.settings_return {
                 Some(Mode::Ask) => (660.0, 480.0),
                 Some(Mode::AskResult) => (660.0, 640.0),
+                Some(Mode::TranslationDetail) => (700.0, 560.0),
                 _ => (620.0, 480.0),
             },
         }
@@ -169,6 +175,7 @@ impl DesktopView {
     fn begin_capture(&mut self, display: TranslationDisplay) -> u64 {
         self.epoch += 1;
         self.capture_pending = true;
+        self.translation_height = 178.0;
         self.context = None;
         self.translation.clear();
         self.mode = Mode::Idle;
@@ -187,8 +194,27 @@ impl DesktopView {
         true
     }
 
+    fn resize_translation(&mut self, epoch: u64, height: f64) -> bool {
+        if self.mode != Mode::Translation || self.epoch != epoch || !height.is_finite() {
+            return false;
+        }
+        let height = height.ceil().clamp(128.0, 480.0);
+        if self.translation_height == height {
+            return false;
+        }
+        self.translation_height = height;
+        true
+    }
+
     fn window_bounds(&self, anchor: Option<Rect>, work: Rect, scale: f64) -> Rect {
-        let (width, height) = self.window_size();
+        let (mut width, mut height) = self.window_size();
+        if self.mode == Mode::Translation {
+            if let Some(source) = anchor.filter(|source| source.valid()) {
+                // The card follows the selected column, with room for outer padding.
+                width = (source.width / scale + 24.0).clamp(360.0, 900.0);
+            }
+            height = height.min((work.height / scale * 0.6).max(128.0));
+        }
         let mut bounds = place(
             if self.mode == Mode::Translation {
                 anchor
@@ -238,6 +264,7 @@ impl Shell {
             view: Arc::new(Mutex::new(DesktopView {
                 result_display: TranslationDisplay::Below,
                 capture_pending: false,
+                translation_height: 178.0,
                 mode: Mode::Idle,
                 settings_return: None,
                 context: None,
@@ -265,6 +292,12 @@ impl Shell {
     pub fn mode(&self, app: &tauri::AppHandle, mode: Mode) {
         self.view.lock().unwrap().navigate(mode);
         self.position(app);
+    }
+    pub fn resize_translation(&self, app: &tauri::AppHandle, epoch: u64, height: f64) {
+        let changed = self.view.lock().unwrap().resize_translation(epoch, height);
+        if changed {
+            self.position_window(app, false);
+        }
     }
     pub fn back(&self, app: &tauri::AppHandle) {
         let mode = self.view.lock().unwrap().back_mode();
@@ -683,10 +716,16 @@ impl Shell {
         result
     }
     pub fn position(&self, app: &tauri::AppHandle) {
+        self.position_window(app, true);
+    }
+    fn position_window(&self, app: &tauri::AppHandle, activate: bool) {
         let Some(window) = app.get_webview_window("main") else {
             return;
         };
         let v = self.view.lock().unwrap().clone();
+        if !activate && v.mode != Mode::Translation {
+            return;
+        }
         let anchor = v
             .context
             .as_ref()
@@ -721,31 +760,36 @@ impl Shell {
         let r = v.window_bounds(anchor, work, scale);
         let focus = matches!(
             v.mode,
-            Mode::Ask | Mode::AskResult | Mode::Input | Mode::Settings
+            Mode::Ask | Mode::AskResult | Mode::Input | Mode::Settings | Mode::TranslationDetail
         );
-        // Native Acrylic blurs content behind the WebView; CSS alone cannot.
-        if focus || v.mode == Mode::Menu {
-            let _ = window.set_effects(
-                tauri::window::EffectsBuilder::new()
-                    .effect(if cfg!(target_os = "macos") {
-                        tauri::window::Effect::HudWindow
-                    } else {
-                        tauri::window::Effect::Acrylic
-                    })
-                    .color(tauri::window::Color(24, 24, 24, 220))
-                    .build(),
-            );
-        } else {
-            let _ = window.set_effects(None);
+        if activate {
+            // Native Acrylic blurs content behind the WebView; CSS alone cannot.
+            if focus || v.mode == Mode::Menu {
+                let _ = window.set_effects(
+                    tauri::window::EffectsBuilder::new()
+                        .effect(if cfg!(target_os = "macos") {
+                            tauri::window::Effect::HudWindow
+                        } else {
+                            tauri::window::Effect::Acrylic
+                        })
+                        .color(tauri::window::Color(24, 24, 24, 220))
+                        .build(),
+                );
+            } else {
+                let _ = window.set_effects(None);
+            }
+            let _ = window.set_focusable(false);
+            let _ =
+                window.set_always_on_top(!focus || app.state::<Service>().state().settings.pinned);
         }
-        let _ = window.set_focusable(false);
-        let _ = window.set_always_on_top(!focus || app.state::<Service>().state().settings.pinned);
         let _ = window.set_size(tauri::PhysicalSize::new(r.width as u32, r.height as u32));
         let _ = window.set_position(tauri::PhysicalPosition::new(r.x as i32, r.y as i32));
-        let _ = window.show();
-        let _ = window.set_focusable(focus || v.mode == Mode::Translation);
-        if focus {
-            let _ = window.set_focus();
+        if activate {
+            let _ = window.show();
+            let _ = window.set_focusable(focus || v.mode == Mode::Translation);
+            if focus {
+                let _ = window.set_focus();
+            }
         }
     }
 }
@@ -753,6 +797,116 @@ impl Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reading_follows_source_width_and_bounds_content_height_on_scaled_displays() {
+        let shell = Shell::new("fixture-helper".into());
+        let mut view = shell.view.lock().unwrap();
+        view.mode = Mode::Translation;
+        view.epoch = 4;
+        assert!(view.resize_translation(4, 333.2));
+        for scale in [1.0, 1.5, 2.0] {
+            let work = Rect {
+                x: -1920.0,
+                y: -200.0,
+                width: 1800.0 * scale,
+                height: 1080.0 * scale,
+            };
+            let source = Rect {
+                x: -1200.0,
+                y: 20.0,
+                width: 620.0 * scale,
+                height: 60.0 * scale,
+            };
+            let bounds = view.window_bounds(Some(source), work, scale);
+            assert_eq!(bounds.width, 644.0 * scale);
+            assert_eq!(bounds.height, 334.0 * scale);
+            assert_eq!(bounds.x + 12.0 * scale, source.x);
+            for (source_width, expected) in [(40.0, 360.0), (1600.0, 900.0)] {
+                assert_eq!(
+                    view.window_bounds(
+                        Some(Rect {
+                            width: source_width * scale,
+                            ..source
+                        }),
+                        work,
+                        scale
+                    )
+                    .width,
+                    expected * scale,
+                );
+            }
+            let small = Rect {
+                width: 300.0,
+                height: 250.0,
+                ..work
+            };
+            let bounds = view.window_bounds(Some(source), small, scale);
+            assert!(bounds.x >= small.x && bounds.y >= small.y);
+            assert!(bounds.x + bounds.width <= small.x + small.width);
+            assert!(bounds.y + bounds.height <= small.y + small.height);
+        }
+    }
+
+    #[test]
+    fn stale_or_invalid_layout_reports_cannot_resize_another_view() {
+        let shell = Shell::new("fixture-helper".into());
+        let mut view = shell.view.lock().unwrap();
+        view.mode = Mode::Translation;
+        view.epoch = 4;
+        for (epoch, height) in [(3, 400.0), (4, f64::NAN), (4, f64::INFINITY)] {
+            assert!(!view.resize_translation(epoch, height));
+            assert_eq!(view.window_size().1, 178.0);
+        }
+        assert!(view.resize_translation(4, 10000.0));
+        assert_eq!(view.window_size().1, 480.0);
+        assert!(!view.resize_translation(4, 10000.0));
+        assert!(view.resize_translation(4, -10.0));
+        assert_eq!(view.window_size().1, 128.0);
+        for mode in [
+            Mode::TranslationDetail,
+            Mode::Ask,
+            Mode::Input,
+            Mode::Settings,
+            Mode::Idle,
+        ] {
+            view.navigate(mode);
+            let size = view.window_size();
+            let epoch = view.epoch;
+            assert!(!view.resize_translation(epoch, 300.0));
+            assert_eq!(view.window_size(), size);
+        }
+    }
+
+    #[test]
+    fn complete_reading_keeps_its_translation_and_survives_source_expiry() {
+        let shell = Shell::new("fixture-helper".into());
+        let mut view = shell.view.lock().unwrap();
+        view.translation = "完整译文的最后一行。".into();
+        view.context = Some(Context {
+            text: "Original source".into(),
+            origin: "test".into(),
+            kind: "selection".into(),
+            anchor: Some(Rect {
+                x: 20.0,
+                y: 20.0,
+                width: 600.0,
+                height: 80.0,
+            }),
+            anchor_valid: true,
+        });
+        let epoch = view.epoch;
+        view.navigate(Mode::TranslationDetail);
+        assert_eq!(view.back_mode(), Mode::Translation);
+        assert!(!view.expire_anchor());
+        assert_eq!(view.mode, Mode::TranslationDetail);
+        assert_eq!(view.translation, "完整译文的最后一行。");
+        assert_eq!(view.context.as_ref().unwrap().text, "Original source");
+        assert_eq!(view.epoch, epoch);
+        assert_eq!(view.back_mode(), Mode::Idle);
+        view.navigate(Mode::Settings);
+        assert_eq!(view.back_mode(), Mode::TranslationDetail);
+    }
 
     #[test]
     fn chinese_followups_use_the_input_budget_and_bound_the_combined_source() {

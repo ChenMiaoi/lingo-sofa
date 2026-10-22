@@ -3,7 +3,9 @@
 #[cfg(windows)]
 fn main() {
     use lingo_sofa_omp_client::Job;
+    use std::os::windows::process::CommandExt;
     use std::process::{Command, exit};
+    use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
     let mut args = std::env::args_os().skip(1);
     let Some(program) = args.next() else {
@@ -12,6 +14,7 @@ fn main() {
     };
     let mut child = Command::new(program)
         .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .unwrap_or_else(|error| {
             eprintln!("Cannot launch development command: {error}");

@@ -142,28 +142,62 @@ kbd {
   color: var(--text-secondary);
 }
 .reading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   height: 100%;
-  padding: 8px 12px 0;
+  padding: 8px 12px 12px;
   position: relative;
 }
 .annotation {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
   background: var(--glass);
   border-radius: 2px;
-  padding: 12px 18px;
   border-left: 2px solid #b8b8b8;
   box-shadow: 0 1px 5px #00000005;
+}
+.translation-copy {
+  padding: 12px 18px;
 }
 .annotation p {
   font-size: 17px;
   line-height: 27px;
   margin: 0;
   color: var(--text);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.reading-controls {
+  flex-shrink: 0;
+}
+.reading-status {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.reading-detail {
+  padding: 16px;
+  background: #181818f5;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.reading-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 8px;
+  font-size: 13px;
+}
+.reading-heading span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.reading-detail .annotation {
+  background: #222;
 }
 .has-error .annotation {
   border-left-color: #9b9b9b;
@@ -174,21 +208,15 @@ kbd {
 .translation-actions {
   display: flex;
   align-items: center;
-  width: max-content;
+  flex-wrap: wrap;
+  width: fit-content;
   max-width: 100%;
-  margin: 7px 0 0 auto;
+  margin: 0 0 0 auto;
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 4px;
-  opacity: 0;
-  transition: opacity 0.12s;
   box-shadow: 0 1px 3px #00000008;
-}
-.reading:hover .translation-actions,
-.reading:focus-within .translation-actions,
-.has-error .translation-actions {
-  opacity: 1;
 }
 .translation-actions > button {
   display: flex;

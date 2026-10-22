@@ -183,7 +183,14 @@ export function textInputError(text: string): string | null {
 }
 
 export type Mode =
-  "idle" | "menu" | "translation" | "ask" | "ask-result" | "input" | "settings";
+  | "idle"
+  | "menu"
+  | "translation"
+  | "translation-detail"
+  | "ask"
+  | "ask-result"
+  | "input"
+  | "settings";
 export interface ReadingContext {
   text: string;
   origin: string;

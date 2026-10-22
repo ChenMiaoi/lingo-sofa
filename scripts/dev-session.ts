@@ -33,8 +33,9 @@ function launch(
   const child = spawn(command[0]!, command.slice(1), {
     cwd,
     env,
-    // Keep terminal Ctrl+C in the runner so it can stop complete child trees.
-    detached: true,
+    // Unix cleanup targets process groups. Windows uses taskkill and the job
+    // guard; detaching there can create an unwanted console window.
+    detached: process.platform !== "win32",
     windowsHide: true,
     stdio: ipc ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
   });

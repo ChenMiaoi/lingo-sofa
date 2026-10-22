@@ -70,6 +70,18 @@ fn set_mode(
     Ok(())
 }
 #[tauri::command]
+fn resize_translation(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<Shell>,
+    epoch: u64,
+    height: f64,
+) -> Result<(), String> {
+    allowed(&window)?;
+    shell.resize_translation(&app, epoch, height);
+    Ok(())
+}
+#[tauri::command]
 fn back_reading(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -546,6 +558,7 @@ fn main() {
             install_update,
             set_auto_update,
             set_mode,
+            resize_translation,
             back_reading,
             capture_selection,
             capture_ocr,

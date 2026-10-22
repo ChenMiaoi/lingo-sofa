@@ -205,6 +205,63 @@ test("accepted Ask clears the sent question, preserves a streaming follow-up dra
   }
 });
 
+test("complete translation reading retains the frozen text after Ask and opens without another model request", async () => {
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.operation = "ask";
+  value.desktop.translation =
+    "这是一段完整译文。\n".repeat(80) + "末尾：译文没有丢失。";
+  value.model.output = "A later Ask answer must not replace the translation.";
+  const ui = await mount(value);
+  try {
+    expect(
+      ui.element.querySelector('[aria-label="译文"]')!.textContent,
+    ).toContain("末尾：译文没有丢失。");
+    await ui.click("完整译文");
+    expect(ui.calls).toEqual([
+      { command: "set_mode", args: { mode: "translation-detail" } },
+    ]);
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, mode: "translation-detail" },
+    });
+    const reading =
+      ui.element.querySelector<HTMLElement>('[aria-label="译文"]')!;
+    expect(reading.textContent).toContain("末尾：译文没有丢失。");
+    expect(reading.textContent).not.toContain(value.model.output);
+    expect(document.activeElement).toBe(reading);
+    expect(ui.element.querySelector("input, textarea")).toBeNull();
+    await ui.click("复制");
+    await ui.key("Escape");
+    expect(ui.calls.slice(1)).toEqual([
+      { command: "copy_result", args: undefined },
+      { command: "back_reading", args: undefined },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("reading distinguishes an in-progress translation from a failed partial response", async () => {
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.operation = "translate";
+  value.desktop.translation = "尚未完成的译文";
+  value.model.phase = "running";
+  const ui = await mount(value);
+  try {
+    expect(ui.element.textContent).toContain("译文仍在生成");
+    await ui.render({ ...value, model: { ...value.model, phase: "error" } });
+    expect(ui.element.textContent).toContain("翻译未完成");
+    expect(ui.element.textContent).toContain("尚未完成的译文");
+    await ui.render({ ...value, model: { ...value.model, phase: "ready" } });
+    expect(ui.element.textContent).not.toContain("译文仍在生成");
+    expect(ui.element.textContent).not.toContain("翻译未完成");
+  } finally {
+    await ui.close();
+  }
+});
+
 test("shortcut drafts survive polling, save explicitly, and defaults do not apply until saved", async () => {
   const value = state("settings");
   value.shortcuts = { ...value.shortcuts, registered: [true, true, true] };
