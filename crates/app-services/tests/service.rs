@@ -360,6 +360,159 @@ fn consecutive_preference_commands_merge_without_overwriting_unrelated_settings(
 }
 
 #[test]
+fn automatic_selection_preference_defaults_off_persists_and_failed_save_keeps_previous_value() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = rusqlite::Connection::open(directory.path().join("settings.sqlite")).unwrap();
+    db.execute_batch(
+        r#"CREATE TABLE settings(id INTEGER PRIMARY KEY,body TEXT NOT NULL);
+        INSERT INTO settings VALUES(1,'{"target":"English","pinned":false}');"#,
+    )
+    .unwrap();
+    let service = start(directory.path());
+    assert!(!service.state().settings.auto_selection_translation);
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            auto_selection_translation: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(service.state().settings.auto_selection_translation);
+    service.shutdown();
+    let service = start(directory.path());
+    assert!(service.state().settings.auto_selection_translation);
+    assert_eq!(service.state().settings.target, "English");
+    db.execute_batch("CREATE TRIGGER reject_auto BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+    assert_eq!(
+        service.patch_settings(lingo_sofa_app_services::SettingsPatch {
+            auto_selection_translation: Some(false),
+            ..Default::default()
+        }),
+        Err("settings_write_failed")
+    );
+    assert!(service.state().settings.auto_selection_translation);
+    db.execute_batch("DROP TRIGGER reject_auto").unwrap();
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            auto_selection_translation: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    service.shutdown();
+    let service = start(directory.path());
+    assert!(!service.state().settings.auto_selection_translation);
+    service.shutdown();
+}
+
+#[test]
+fn automatic_requests_never_replace_busy_manual_work_or_dispatch_disabled_and_stale_probes() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let service = start(directory.path());
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    let token = || Arc::new(AtomicBool::new(true));
+    assert!(
+        !service
+            .submit_automatic_translation(1, "disabled".into(), serde_json::json!({}), token())
+            .unwrap()
+    );
+    assert_eq!(service.state().revision, 0);
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            auto_selection_translation: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    let stale = token();
+    stale.store(false, Ordering::SeqCst);
+    assert!(
+        !service
+            .submit_automatic_translation(
+                1,
+                "late disabled probe".into(),
+                serde_json::json!({}),
+                stale
+            )
+            .unwrap()
+    );
+    assert_eq!(service.state().revision, 0);
+    service
+        .submit(1, "W0_SLOW manual request".into(), true)
+        .unwrap();
+    // Wait for the asynchronous manual admission before checking busy priority;
+    // a cold SDK startup can legitimately outlast automatic admission's deadline.
+    let view = wait(&service, |v| v.revision == 1 && v.phase == "running");
+    assert!(
+        !service
+            .submit_automatic_translation(
+                2,
+                "background must not cancel manual".into(),
+                serde_json::json!({}),
+                token()
+            )
+            .unwrap()
+    );
+    let manual_id = view.task_id;
+    service.cancel_automatic_translation(0).unwrap();
+    // A synchronous settings acknowledgement drains the preceding cancel command.
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            pinned: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(service.state().task_id, manual_id);
+    assert_eq!(service.state().revision, 1);
+    service.cancel().unwrap();
+    wait(&service, |v| v.task_id.is_none() && v.phase != "running");
+    assert!(
+        service
+            .submit_automatic_translation(
+                3,
+                "new automatic selection".into(),
+                serde_json::json!({}),
+                token()
+            )
+            .unwrap()
+    );
+    wait(&service, |v| {
+        v.revision == 3 && v.phase == "ready" && v.task_id.is_none()
+    });
+    let running_permit = token();
+    assert!(
+        service
+            .submit_automatic_translation(
+                4,
+                "W0_SLOW automatic accepted".into(),
+                serde_json::json!({}),
+                running_permit.clone()
+            )
+            .unwrap()
+    );
+    let running = wait(&service, |v| v.revision == 4 && v.phase == "running");
+    running_permit.store(false, Ordering::SeqCst);
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            auto_selection_translation: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    // Disabling detection or beginning another gesture does not cancel paid work already admitted.
+    assert_eq!(service.state().task_id, running.task_id);
+    assert_eq!(service.state().revision, 4);
+    assert!(
+        !service
+            .submit_automatic_translation(5, "off again".into(), serde_json::json!({}), token())
+            .unwrap()
+    );
+    assert_eq!(service.state().revision, 4);
+    service.cancel().unwrap();
+    service.shutdown();
+}
+
+#[test]
 fn chinese_questions_accept_the_shared_budget_and_oversized_input_preserves_the_session() {
     let directory = tempfile::tempdir().unwrap();
     let service = start(directory.path());

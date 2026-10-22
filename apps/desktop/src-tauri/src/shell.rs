@@ -22,6 +22,27 @@ use tauri::Manager;
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
 
+struct SelectionSource {
+    host: usize,
+    own: usize,
+    origin: String,
+}
+#[cfg(windows)]
+type AutomaticPermit = crate::auto_selection::Permit;
+#[cfg(not(windows))]
+type AutomaticPermit = ();
+fn automatic_valid(permit: &AutomaticPermit) -> bool {
+    #[cfg(windows)]
+    {
+        permit.valid()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = permit;
+        false
+    }
+}
+
 // AX returns screen points; Tauri's window placement uses physical pixels.
 #[cfg(any(target_os = "macos", test))]
 fn physical_anchor(anchor: Rect, scale: f64) -> Rect {
@@ -74,6 +95,21 @@ pub struct DesktopView {
     pub operation: String,
 }
 impl DesktopView {
+    #[cfg(any(windows, test))]
+    fn automatic_mode(&self) -> bool {
+        !self.capture_pending
+            && (self.mode == Mode::Idle
+                || (self.mode == Mode::Translation
+                    && self.context.as_ref().is_some_and(|c| c.kind == "selection")))
+    }
+    #[cfg(any(windows, test))]
+    fn automatic_eligible(&self, model: &View) -> bool {
+        self.automatic_mode()
+            && model.key_configured
+            && model.settings.auto_selection_translation
+            && model.task_id.is_none()
+            && !matches!(model.phase.as_str(), "preparing" | "running" | "compacting")
+    }
     fn always_on_top(&self, pinned: bool) -> bool {
         pinned || matches!(self.mode, Mode::Idle | Mode::Menu | Mode::Translation)
     }
@@ -260,6 +296,8 @@ pub struct Shell {
     view: Arc<Mutex<DesktopView>>,
     sequence: Arc<AtomicU64>,
     helper: PathBuf,
+    #[cfg(windows)]
+    automatic: crate::auto_selection::Controller,
 }
 impl Shell {
     pub fn new(helper: PathBuf) -> Self {
@@ -279,6 +317,8 @@ impl Shell {
             })),
             sequence: Arc::new(AtomicU64::new(1)),
             helper,
+            #[cfg(windows)]
+            automatic: crate::auto_selection::Controller::default(),
         }
     }
     pub fn state(&self, service: &Service) -> State {
@@ -293,6 +333,7 @@ impl Shell {
         }
     }
     pub fn mode(&self, app: &tauri::AppHandle, mode: Mode) {
+        self.interrupt_automatic();
         self.view.lock().unwrap().navigate(mode);
         self.position(app);
     }
@@ -308,8 +349,11 @@ impl Shell {
     }
     pub fn shutdown(&self) {
         self.view.lock().unwrap().epoch += 1;
+        #[cfg(windows)]
+        self.automatic.shutdown();
     }
     pub fn clear(&self, app: &tauri::AppHandle, service: &Service) -> Result<(), &'static str> {
+        self.interrupt_automatic();
         service.reset()?;
         self.view.lock().unwrap().reset_context(Mode::Ask);
         self.position(app);
@@ -320,12 +364,14 @@ impl Shell {
         app: &tauri::AppHandle,
         service: &Service,
     ) -> Result<(), &'static str> {
+        self.interrupt_automatic();
         service.reset()?;
         self.view.lock().unwrap().reset_context(Mode::Input);
         self.position(app);
         Ok(())
     }
     pub fn restore(&self, app: &tauri::AppHandle, service: &Service, snapshot: &serde_json::Value) {
+        self.interrupt_automatic();
         if snapshot["sessionId"].as_str().is_none() {
             return;
         }
@@ -365,6 +411,7 @@ impl Shell {
         self.submit_translation(app, service, epoch, text)
     }
     fn input_context(&self, text: String, kind: &str) -> u64 {
+        self.interrupt_automatic();
         let mut v = self.view.lock().unwrap();
         v.epoch += 1;
         v.capture_pending = false;
@@ -489,6 +536,7 @@ impl Shell {
         service: &Service,
         question: String,
     ) -> Result<(), &'static str> {
+        self.interrupt_automatic();
         let model = service.state();
         let mut v = self.view.lock().unwrap();
         let question = v.ask_prompt(question, model.session_ready)?;
@@ -514,6 +562,7 @@ impl Shell {
         service: Service,
         display: Option<TranslationDisplay>,
     ) {
+        self.interrupt_automatic();
         let display = display.unwrap_or(service.state().settings.translation_display);
         #[cfg(windows)]
         let (host, own, origin) = {
@@ -558,7 +607,13 @@ impl Shell {
         let epoch = self.view.lock().unwrap().begin_capture(display);
         let this = self.clone();
         std::thread::spawn(move || {
-            let result = this.watch(&app, &service, epoch, host, own, origin);
+            let result = this.watch(
+                &app,
+                &service,
+                epoch,
+                SelectionSource { host, own, origin },
+                None,
+            );
             if let Err(code) = result {
                 // Release the view lock before position() reads it again.
                 let changed = this.view.lock().unwrap().fail_capture(epoch, code);
@@ -567,6 +622,128 @@ impl Shell {
                 }
             }
         });
+    }
+    fn interrupt_automatic(&self) {
+        #[cfg(windows)]
+        self.automatic.interrupt();
+    }
+    #[cfg(windows)]
+    pub fn automatic_failure(&self) {
+        self.view.lock().unwrap().notice = "auto_selection_unavailable".into();
+    }
+    pub fn sync_automatic(&self, enabled: bool) {
+        #[cfg(windows)]
+        self.automatic.set_enabled(enabled);
+        #[cfg(not(windows))]
+        let _ = enabled;
+    }
+    #[cfg(windows)]
+    pub fn start_automatic(&self, app: tauri::AppHandle, service: Service) {
+        self.sync_automatic(service.state().settings.auto_selection_translation);
+        self.automatic.start(self.clone(), app, service);
+    }
+    #[cfg(windows)]
+    pub fn capture_automatic(
+        &self,
+        app: tauri::AppHandle,
+        service: Service,
+        host: usize,
+        permit: crate::auto_selection::Permit,
+    ) {
+        let model = service.state();
+        let epoch = {
+            let v = self.view.lock().unwrap();
+            if !v.automatic_eligible(&model) || !permit.valid() {
+                return;
+            }
+            v.epoch
+        };
+        if crate::auto_selection::foreground_source() != Some(host) {
+            return;
+        }
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        let Ok(own) = window.hwnd() else {
+            return;
+        };
+        let mut title = [0u16; 256];
+        let len =
+            unsafe { GetWindowTextW(windows::Win32::Foundation::HWND(host as *mut _), &mut title) };
+        let origin = String::from_utf16_lossy(&title[..len.max(0) as usize]);
+        let own = own.0 as usize;
+        let this = self.clone();
+        std::thread::spawn(move || {
+            // Automatic read failures are silent and never replace manual UI.
+            let _ = this.watch(
+                &app,
+                &service,
+                epoch,
+                SelectionSource { host, own, origin },
+                Some(&permit),
+            );
+        });
+    }
+    #[cfg(windows)]
+    fn accept_automatic(
+        &self,
+        service: &Service,
+        expected_epoch: u64,
+        host: usize,
+        context: Context,
+        permit: &crate::auto_selection::Permit,
+    ) -> Option<u64> {
+        let model = service.state();
+        {
+            let v = self.view.lock().unwrap();
+            if v.epoch != expected_epoch
+                || !v.automatic_eligible(&model)
+                || !permit.valid()
+                || self
+                    .automatic
+                    .duplicate(host, &context.text, context.anchor?)
+                || crate::auto_selection::foreground_source() != Some(host)
+                || crate::auto_selection::mouse_down()
+            {
+                return None;
+            }
+        }
+        let revision = self.next();
+        let admitted = service
+            .submit_automatic_translation(
+                revision,
+                context.text.clone(),
+                serde_json::json!({"context":context}),
+                permit.token.clone(),
+            )
+            .ok()?;
+        if !admitted {
+            return None;
+        }
+        let mut v = self.view.lock().unwrap();
+        if v.epoch != expected_epoch
+            || !v.automatic_mode()
+            || !permit.valid()
+            || crate::auto_selection::foreground_source() != Some(host)
+            || crate::auto_selection::mouse_down()
+        {
+            permit.token.store(false, Ordering::SeqCst);
+            let _ = service.cancel_automatic_translation(revision);
+            return None;
+        }
+        self.automatic
+            .remember(host, context.text.clone(), context.anchor?);
+        v.epoch += 1;
+        v.context = Some(context);
+        v.result_display = model.settings.translation_display;
+        v.translation_height = 178.0;
+        v.model_revision = revision;
+        v.capture_pending = false;
+        v.translation.clear();
+        v.notice.clear();
+        v.operation = "translate".into();
+        v.mode = v.translation_mode();
+        Some(v.epoch)
     }
     pub(crate) fn failure(&self, app: &tauri::AppHandle, code: &str) {
         let mut v = self.view.lock().unwrap();
@@ -596,10 +773,10 @@ impl Shell {
         app: &tauri::AppHandle,
         service: &Service,
         epoch: u64,
-        host: usize,
-        own: usize,
-        origin: String,
+        source: SelectionSource,
+        automatic: Option<&AutomaticPermit>,
     ) -> Result<(), &'static str> {
+        let SelectionSource { host, own, origin } = source;
         let mut command = Command::new(&self.helper);
         command
             .args([host.to_string(), own.to_string()])
@@ -643,14 +820,32 @@ impl Shell {
             }
         });
         let mut selected = false;
+        #[cfg(windows)]
+        let mut epoch = epoch;
+        #[cfg(not(windows))]
+        let epoch = epoch;
+        let mut last_frame = std::time::Instant::now();
         let result = (|| {
             loop {
                 if self.view.lock().unwrap().epoch != epoch {
                     break;
                 }
-                let frame = rx
-                    .recv_timeout(Duration::from_millis(if selected { 900 } else { 3000 }))
-                    .map_err(|_| "selection_timeout")??;
+                if !selected && automatic.is_some_and(|permit| !automatic_valid(permit)) {
+                    break;
+                }
+                let limit = Duration::from_millis(if selected { 900 } else { 3000 });
+                let frame = match rx.recv_timeout(if automatic.is_some() {
+                    Duration::from_millis(75)
+                } else {
+                    limit
+                }) {
+                    Ok(frame) => frame?,
+                    Err(mpsc::RecvTimeoutError::Timeout) if last_frame.elapsed() < limit => {
+                        continue;
+                    }
+                    Err(_) => return Err("selection_timeout"),
+                };
+                last_frame = std::time::Instant::now();
                 match frame {
                     SelectionFrame::Selection { text, bounds } => {
                         if selected
@@ -660,21 +855,44 @@ impl Shell {
                         {
                             return Err("invalid_selection_frame");
                         }
+                        let context = Context {
+                            text: text.clone(),
+                            origin: origin.clone(),
+                            kind: "selection".into(),
+                            anchor: Some(bounds),
+                            anchor_valid: true,
+                        };
+                        #[cfg(windows)]
+                        if let Some(permit) = automatic {
+                            let Some(accepted_epoch) =
+                                self.accept_automatic(service, epoch, host, context, permit)
+                            else {
+                                break;
+                            };
+                            epoch = accepted_epoch;
+                            self.position(app);
+                        } else {
+                            self.automatic.remember(host, text.clone(), bounds);
+                            let mut v = self.view.lock().unwrap();
+                            if v.epoch != epoch {
+                                break;
+                            }
+                            v.context = Some(context);
+                            v.notice.clear();
+                            drop(v);
+                            self.submit_translation(app, service, epoch, text)?;
+                        }
+                        #[cfg(not(windows))]
                         {
                             let mut v = self.view.lock().unwrap();
                             if v.epoch != epoch {
                                 break;
                             }
-                            v.context = Some(Context {
-                                text: text.clone(),
-                                origin: origin.clone(),
-                                kind: "selection".into(),
-                                anchor: Some(bounds),
-                                anchor_valid: true,
-                            });
+                            v.context = Some(context);
                             v.notice.clear();
+                            drop(v);
+                            self.submit_translation(app, service, epoch, text)?;
                         }
-                        self.submit_translation(app, service, epoch, text)?;
                         selected = true;
                     }
                     SelectionFrame::Tick { bounds } => {
@@ -804,6 +1022,40 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn automatic_selection_preserves_manual_modes_pending_capture_and_busy_work() {
+        let shell = Shell::new("unused".into());
+        let mut model = View::default();
+        model.settings.auto_selection_translation = true;
+        model.key_configured = true;
+        let mut view = shell.view.lock().unwrap();
+        assert!(view.automatic_eligible(&model));
+        for mode in [
+            Mode::Ask,
+            Mode::AskResult,
+            Mode::Input,
+            Mode::Settings,
+            Mode::TranslationDetail,
+            Mode::Menu,
+        ] {
+            view.mode = mode;
+            assert!(!view.automatic_eligible(&model), "must preserve {mode:?}");
+        }
+        view.mode = Mode::Idle;
+        view.capture_pending = true;
+        assert!(!view.automatic_eligible(&model));
+        view.capture_pending = false;
+        for phase in ["preparing", "running", "compacting"] {
+            model.phase = phase.into();
+            assert!(!view.automatic_eligible(&model));
+        }
+        model.phase = "ready".into();
+        model.task_id = Some(4);
+        assert!(!view.automatic_eligible(&model));
+        model.task_id = None;
+        model.settings.auto_selection_translation = false;
+        assert!(!view.automatic_eligible(&model));
+    }
     #[test]
     fn pinning_respects_focusable_modes_and_keeps_transient_overlays_visible() {
         let shell = super::Shell::new("fixture-helper".into());

@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#[cfg(windows)]
+mod auto_selection;
 mod clipboard_text;
 mod external_links;
 mod ocr;
@@ -360,11 +362,13 @@ async fn save_settings(
 ) -> Result<(), String> {
     allowed(&window)?;
     let service = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || service.settings(settings))
+    let worker_service = service.clone();
+    tauri::async_runtime::spawn_blocking(move || worker_service.settings(settings))
         .await
         .map_err(|_| "service_unavailable".to_string())?
         .map_err(String::from)?;
     shell.apply_pinning(&app);
+    shell.sync_automatic(service.state().settings.auto_selection_translation);
     Ok(())
 }
 #[tauri::command]
@@ -377,11 +381,13 @@ async fn patch_settings(
 ) -> Result<(), String> {
     allowed(&window)?;
     let service = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || service.patch_settings(patch))
+    let worker_service = service.clone();
+    tauri::async_runtime::spawn_blocking(move || worker_service.patch_settings(patch))
         .await
         .map_err(|_| "service_unavailable".to_string())?
         .map_err(String::from)?;
     shell.apply_pinning(&app);
+    shell.sync_automatic(service.state().settings.auto_selection_translation);
     Ok(())
 }
 #[tauri::command]
@@ -665,6 +671,9 @@ fn main() {
                     }
                 })
                 .build(app)?;
+            #[cfg(windows)]
+            app.state::<Shell>()
+                .start_automatic(app.handle().clone(), app.state::<Service>().inner().clone());
             app.state::<Shell>().position(app.handle());
             updates::schedule(app.handle().clone());
             Ok(())

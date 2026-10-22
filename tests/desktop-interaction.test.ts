@@ -2124,9 +2124,7 @@ test("preference controls patch independent fields before polling catches up", a
     await ui.click("翻译偏好");
     await ui.select("English", "#target");
     await act(async () =>
-      ui.element
-        .querySelector<HTMLInputElement>('input[type="checkbox"]')!
-        .click(),
+      ui.element.querySelector<HTMLInputElement>("#pin-window")!.click(),
     );
     await ui.select("panel", "#translation-display");
     expect(ui.calls).toEqual([
@@ -2176,6 +2174,112 @@ test("failed preference persistence is shown in settings and keeps the previous 
     expect(element.textContent).toContain("设置保存失败，原配置继续生效。");
     expect(select.value).toBe("简体中文");
   } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("automatic mouse selection is opt-in, hidden on macOS, and failed persistence rolls back the checkbox", async () => {
+  for (const macos of [false, true]) {
+    const value = state("settings");
+    value.shortcuts = { ...value.shortcuts, macos };
+    const ui = await mount(value);
+    try {
+      await ui.click("翻译偏好");
+      const label = [...ui.element.querySelectorAll("label")].find((label) =>
+        label.textContent?.includes("鼠标选中后自动翻译"),
+      );
+      if (macos) {
+        expect(label).toBeUndefined();
+        continue;
+      }
+      expect(label?.querySelector<HTMLInputElement>("input")?.checked).toBe(
+        false,
+      );
+      expect(ui.element.textContent).toContain("原有划词快捷键仍可使用");
+      await act(async () =>
+        label!.querySelector<HTMLInputElement>("input")!.click(),
+      );
+      expect(ui.calls.at(-1)).toEqual({
+        command: "patch_settings",
+        args: { patch: { autoSelectionTranslation: true } },
+      });
+    } finally {
+      await ui.close();
+    }
+  }
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const snapshot = state("settings");
+  const invoke = <T>(command: string): Promise<T> =>
+    command === "patch_settings"
+      ? Promise.reject("settings_write_failed")
+      : Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    await act(async () =>
+      [...element.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.getAttribute("aria-label") === "翻译偏好")!
+        .click(),
+    );
+    const checkbox = [...element.querySelectorAll("label")]
+      .find((label) => label.textContent?.includes("鼠标选中后自动翻译"))!
+      .querySelector<HTMLInputElement>("input")!;
+    await act(async () => checkbox.click());
+    expect(element.textContent).toContain("设置保存失败，原配置继续生效。");
+    expect(checkbox.checked).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("automatic selection toggle shows pending save and rejects duplicate changes", async () => {
+  const value = state("settings");
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  let saves = 0;
+  const invoke = <T>(command: string): Promise<T> => {
+    if (command === "patch_settings") {
+      saves++;
+      return pending as Promise<T>;
+    }
+    return Promise.resolve((command === "desktop_state" ? value : {}) as T);
+  };
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    await act(async () =>
+      [...element.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.getAttribute("aria-label") === "翻译偏好")!
+        .click(),
+    );
+    const checkbox = [...element.querySelectorAll("label")]
+      .find((label) => label.textContent?.includes("鼠标选中后自动翻译"))!
+      .querySelector<HTMLInputElement>("input")!;
+    await act(async () => checkbox.click());
+    expect(checkbox.disabled).toBe(true);
+    expect(element.textContent).toContain("保存中…");
+    await act(async () => checkbox.click());
+    expect(saves).toBe(1);
+    value.model.settings = {
+      ...value.model.settings,
+      autoSelectionTranslation: true,
+    };
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.checked).toBe(true);
+    expect(element.textContent).not.toContain("保存中…");
+  } finally {
+    finish();
     await act(async () => root.unmount());
     element.remove();
   }

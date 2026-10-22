@@ -3,6 +3,7 @@ export interface Settings {
   target: string;
   pinned: boolean;
   translationDisplay: "panel" | "below";
+  autoSelectionTranslation: boolean;
 }
 export interface View {
   revision: number;
@@ -124,7 +125,12 @@ export const initialView: View = {
   activeCalls: 0,
   reportedTokens: 0,
   unknownCalls: 0,
-  settings: { target: "简体中文", pinned: true, translationDisplay: "below" },
+  settings: {
+    target: "简体中文",
+    pinned: true,
+    translationDisplay: "below",
+    autoSelectionTranslation: false,
+  },
   sessionId: null,
   messages: [],
   messageCount: 0,
@@ -150,6 +156,8 @@ export function errorMessage(error: unknown, macos = false): string {
   const messages: Record<string, string> = {
     external_url_invalid: "仅支持不含登录凭证的 HTTP 或 HTTPS 链接。",
     browser_open_failed: "无法打开浏览器，请复制链接后重试。",
+    auto_selection_unavailable:
+      "自动划词监听不可用。请关闭后重新开启，仍失败时重启应用；原有划词快捷键仍可使用。",
     selection_unsupported: "此应用暂不支持读取选区，可复制后翻译。",
     accessibility_permission_required: macos
       ? "请在系统设置 → 隐私与安全性 → 设备控制和数据访问（旧版称辅助功能）中允许系统提示的应用；从终端启动时需允许对应终端（如 Warp），安装版允许 LingoSofa。授权后重新打开应用；也可复制后翻译。"

@@ -61,6 +61,8 @@ pub struct Settings {
     pub pinned: bool,
     #[serde(default)]
     pub translation_display: TranslationDisplay,
+    #[serde(default)]
+    pub auto_selection_translation: bool,
 }
 #[derive(Clone, Copy, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -83,6 +85,7 @@ impl Default for Settings {
             target: "简体中文".into(),
             pinned: true,
             translation_display: TranslationDisplay::Below,
+            auto_selection_translation: false,
         }
     }
 }
@@ -92,6 +95,7 @@ pub struct SettingsPatch {
     pub target: Option<String>,
     pub pinned: Option<bool>,
     pub translation_display: Option<TranslationDisplay>,
+    pub auto_selection_translation: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -210,8 +214,13 @@ enum Command {
         fresh: bool,
         generation: u64,
         metadata: serde_json::Value,
+        automatic: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        admitted: Option<SyncSender<bool>>,
     },
     Cancel,
+    CancelAutomatic {
+        revision: u64,
+    },
     Compact,
     Settings(SettingsPatch, SyncSender<Result<(), &'static str>>),
     Shutdown(SyncSender<()>),
@@ -402,7 +411,47 @@ impl Service {
             fresh,
             generation: self.generation.fetch_add(1, Ordering::SeqCst) + 1,
             metadata,
+            automatic: None,
+            admitted: None,
         })
+    }
+    /// Automatic work cannot supersede a manual generation or active task.
+    /// Admission runs on the service thread before changing observable state.
+    pub fn submit_automatic_translation(
+        &self,
+        revision: u64,
+        text: String,
+        metadata: serde_json::Value,
+        permit: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<bool, &'static str> {
+        validate_text(&text)?;
+        let view = self.state();
+        if !permit.load(Ordering::SeqCst)
+            || !view.settings.auto_selection_translation
+            || !view.key_configured
+            || view.task_id.is_some()
+            || matches!(view.phase.as_str(), "preparing" | "running" | "compacting")
+        {
+            return Ok(false);
+        }
+        let (reply, accepted) = mpsc::sync_channel(1);
+        self.send(Command::Run {
+            revision,
+            text,
+            ask: false,
+            fresh: true,
+            generation: self.generation.load(Ordering::SeqCst),
+            metadata,
+            automatic: Some(permit.clone()),
+            admitted: Some(reply),
+        })?;
+        match accepted.recv_timeout(Duration::from_secs(3)) {
+            Ok(admitted) => Ok(admitted),
+            Err(_) => {
+                permit.store(false, Ordering::SeqCst);
+                Err("service_timeout")
+            }
+        }
     }
     pub fn session_request(
         &self,
@@ -443,6 +492,9 @@ impl Service {
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.send(Command::Cancel)
     }
+    pub fn cancel_automatic_translation(&self, revision: u64) -> Result<(), &'static str> {
+        self.send(Command::CancelAutomatic { revision })
+    }
     pub fn compact(&self) -> Result<(), &'static str> {
         self.send(Command::Compact)
     }
@@ -455,10 +507,15 @@ impl Service {
             target: Some(settings.target),
             pinned: Some(settings.pinned),
             translation_display: Some(settings.translation_display),
+            auto_selection_translation: Some(settings.auto_selection_translation),
         })
     }
     pub fn patch_settings(&self, patch: SettingsPatch) -> Result<(), &'static str> {
-        if patch.target.is_none() && patch.pinned.is_none() && patch.translation_display.is_none() {
+        if patch.target.is_none()
+            && patch.pinned.is_none()
+            && patch.translation_display.is_none()
+            && patch.auto_selection_translation.is_none()
+        {
             return Err("invalid_settings");
         }
         if let Some(target) = &patch.target {
@@ -883,7 +940,30 @@ fn serve(
                         fresh,
                         generation: accepted_generation,
                         metadata,
+                        automatic,
+                        admitted,
                     } => {
+                        let automatic_request = automatic.is_some();
+                        if let Some(permit) = &automatic {
+                            let v = state.lock().unwrap();
+                            let eligible = permit.load(Ordering::SeqCst)
+                                && accepted_generation == generation.load(Ordering::SeqCst)
+                                && v.settings.auto_selection_translation
+                                && v.key_configured
+                                && current.is_none()
+                                && v.task_id.is_none()
+                                && !matches!(
+                                    v.phase.as_str(),
+                                    "preparing" | "running" | "compacting"
+                                )
+                                && revision > v.revision;
+                            if !eligible {
+                                if let Some(reply) = admitted {
+                                    let _ = reply.send(false);
+                                }
+                                return Ok(());
+                            }
+                        }
                         validate_text(&text)?;
                         if revision <= state.lock().unwrap().revision {
                             return Err("stale_revision");
@@ -897,6 +977,9 @@ fn serve(
                             v.question = if ask { text.clone() } else { String::new() };
                             v.phase = "preparing".into();
                             v.message = "正在准备…".into();
+                        }
+                        if let Some(reply) = admitted {
+                            let _ = reply.send(true);
                         }
                         if !state.lock().unwrap().key_configured {
                             return Err("account_required");
@@ -928,7 +1011,11 @@ fn serve(
                                     .into(),
                             );
                         }
-                        if accepted_generation != generation.load(Ordering::SeqCst) {
+                        if accepted_generation != generation.load(Ordering::SeqCst)
+                            || automatic
+                                .as_ref()
+                                .is_some_and(|permit| !permit.load(Ordering::SeqCst))
+                        {
                             let mut v = state.lock().unwrap();
                             v.phase = "ready".into();
                             v.message = "已取消".into();
@@ -949,12 +1036,26 @@ fn serve(
                         } else {
                             translation_prompt(&text, &target)?
                         };
+                        if automatic
+                            .as_ref()
+                            .is_some_and(|permit| !permit.load(Ordering::SeqCst))
+                            || accepted_generation != generation.load(Ordering::SeqCst)
+                        {
+                            let mut v = state.lock().unwrap();
+                            v.phase = "ready".into();
+                            v.message = "已取消".into();
+                            return Ok(());
+                        }
                         host.events.clear();
                         let id = host.submit_task(Task {
                             session_id: session_id.clone(),
                             scope: "main-reading".into(),
                             revision,
-                            priority: Priority::Manual,
+                            priority: if automatic_request {
+                                Priority::Background
+                            } else {
+                                Priority::Manual
+                            },
                             ttl: Duration::from_secs(120),
                             work: Work::Prompt(prompt),
                         })?;
@@ -974,6 +1075,13 @@ fn serve(
                             v.messages.clear();
                             v.message_count = 0;
                             v.session_stats = serde_json::Value::Null;
+                        }
+                    }
+                    Command::CancelAutomatic { revision } => {
+                        if state.lock().unwrap().revision == revision
+                            && let Some(id) = current
+                        {
+                            host.cancel_task(id)?;
                         }
                     }
                     Command::Cancel => {
@@ -1011,6 +1119,9 @@ fn serve(
                                 translation_display: patch
                                     .translation_display
                                     .unwrap_or(previous.translation_display),
+                                auto_selection_translation: patch
+                                    .auto_selection_translation
+                                    .unwrap_or(previous.auto_selection_translation),
                             };
                             validate_settings(&settings)?;
                             let body =
@@ -1198,6 +1309,8 @@ mod tests {
         let settings: Settings =
             serde_json::from_str(r#"{"target":"English","pinned":false}"#).unwrap();
         assert_eq!(settings.translation_display, TranslationDisplay::Below);
+        assert!(!settings.auto_selection_translation);
+        assert!(!Settings::default().auto_selection_translation);
         assert!(
             serde_json::from_str::<SettingsPatch>(r#"{"translationDisplay":"unknown"}"#).is_err()
         );

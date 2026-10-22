@@ -39,6 +39,28 @@ export function Settings({
   const { model } = state;
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [query, setQuery] = useState("");
+  const [automaticSaving, setAutomaticSaving] = useState(false);
+  const automaticPending = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const saveAutomatic = (enabled: boolean) => {
+    if (automaticPending.current) return;
+    automaticPending.current = true;
+    setAutomaticSaving(true);
+    const complete = () => {
+      automaticPending.current = false;
+      if (mounted.current) setAutomaticSaving(false);
+    };
+    // App reports persistence errors; keep the controlled value authoritative.
+    void perform("patch_settings", {
+      patch: { autoSelectionTranslation: enabled },
+    }).then(complete, complete);
+  };
   const filterInput = useRef<HTMLInputElement>(null);
   const visibleCategories = categories.filter((category) =>
     `${category.title} ${category.detail}`
@@ -192,6 +214,28 @@ export function Settings({
           aria-labelledby="preferences-heading"
         >
           <h2 id="preferences-heading">翻译偏好</h2>
+          {!state.shortcuts.macos && (
+            <>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={model.settings.autoSelectionTranslation}
+                  disabled={automaticSaving}
+                  onChange={(event) => saveAutomatic(event.target.checked)}
+                />
+                鼠标选中后自动翻译
+              </label>
+              {automaticSaving && (
+                <p className="settings-help" role="status">
+                  保存中…
+                </p>
+              )}
+              <p className="settings-help">
+                默认关闭。开启后，在其他应用中用鼠标选中文字并松开，即可自动翻译；会调用当前模型服务。正在处理任务或使用
+                Ask 时暂停，原有划词快捷键仍可使用。
+              </p>
+            </>
+          )}
           <div className="preference-row">
             <label htmlFor="translation-display">划词与 OCR 译文位置</label>
             <select
@@ -230,6 +274,7 @@ export function Settings({
           <label className="check">
             <input
               type="checkbox"
+              id="pin-window"
               checked={model.settings.pinned}
               onChange={(e) =>
                 void perform("patch_settings", {
