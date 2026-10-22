@@ -2537,6 +2537,52 @@ test("OCR commands can override placement once without saving a preference", asy
   }
 });
 
+test("cold startup stays at the edge entry without requesting or displaying the previous session", async () => {
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const requests: Array<{ command: string; args?: Record<string, unknown> }> =
+    [];
+  const snapshot = structuredClone(initialState);
+  snapshot.model.keyConfigured = true;
+  snapshot.model.settings.target = "English";
+  const invoke = <T>(
+    command: string,
+    args?: Record<string, unknown>,
+  ): Promise<T> => {
+    requests.push({ command, args });
+    return Promise.resolve(
+      (command === "desktop_state"
+        ? snapshot
+        : {
+            sessionId: "old-session",
+            metadata: { context: { text: "OLD_SOURCE" } },
+          }) as T,
+    );
+  };
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    expect(requests.map((request) => request.command)).toEqual([
+      "desktop_state",
+    ]);
+    expect(element.querySelector(".edge")).not.toBeNull();
+    expect(element.querySelector("textarea")).toBeNull();
+    expect(element.textContent).not.toContain("OLD_SOURCE");
+    await act(async () =>
+      root.render(React.createElement(App, { invoke, key: "remounted" })),
+    );
+    expect(requests.map((request) => request.command)).toEqual([
+      "desktop_state",
+      "desktop_state",
+    ]);
+    expect(element.querySelector(".edge")).not.toBeNull();
+    expect(element.querySelector("textarea")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
 test("history search distinguishes no matches and clears the query back to focused history", async () => {
   const queries: string[] = [];
   const load: LoadSessions = async (_offset, query = "") => {
@@ -2653,90 +2699,6 @@ test("history loading and failed queries do not claim empty results or retain th
     expect(ui.element.textContent).toContain("重新加载会话");
   } finally {
     await ui.close();
-  }
-});
-
-test("a startup restore timeout cannot mask a later native shortcut translation", async () => {
-  const element = document.createElement("div");
-  document.body.append(element);
-  const root = createRoot(element);
-  let rejectRestore!: (error: unknown) => void;
-  const restore = new Promise((_, reject) => {
-    rejectRestore = reject;
-  });
-  let snapshot: DesktopState = {
-    ...initialState,
-    desktop: { ...initialState.desktop, mode: "menu" },
-  };
-  const invoke = <T>(command: string): Promise<T> =>
-    command === "session_request"
-      ? (restore as Promise<T>)
-      : Promise.resolve(snapshot as T);
-  try {
-    await act(async () => root.render(React.createElement(App, { invoke })));
-    await act(async () => {
-      rejectRestore("service_timeout");
-      await Promise.resolve();
-    });
-    expect(element.textContent).toContain("模型服务响应超时");
-    snapshot = {
-      ...snapshot,
-      desktop: {
-        ...snapshot.desktop,
-        epoch: 1,
-        modelRevision: 1,
-        mode: "translation",
-        context,
-        translation: "已完成的译文",
-      },
-      model: { ...snapshot.model, revision: 1, phase: "completed" },
-    };
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
-    expect(element.textContent).toContain("已完成的译文");
-    expect(element.textContent).not.toContain("模型服务响应超时");
-  } finally {
-    await act(async () => root.unmount());
-    element.remove();
-  }
-});
-
-test("a late startup restore failure does not replace an active translation", async () => {
-  const element = document.createElement("div");
-  document.body.append(element);
-  const root = createRoot(element);
-  let rejectRestore!: (error: unknown) => void;
-  const restore = new Promise((_, reject) => {
-    rejectRestore = reject;
-  });
-  const snapshot: DesktopState = {
-    ...initialState,
-    desktop: {
-      ...initialState.desktop,
-      epoch: 2,
-      modelRevision: 3,
-      mode: "translation",
-      context,
-      translation: "当前译文",
-    },
-    model: { ...initialState.model, revision: 3, phase: "completed" },
-  };
-  const invoke = <T>(command: string): Promise<T> =>
-    command === "session_request"
-      ? (restore as Promise<T>)
-      : Promise.resolve(snapshot as T);
-  try {
-    await act(async () => root.render(React.createElement(App, { invoke })));
-    await act(async () => {
-      rejectRestore("service_timeout");
-      await Promise.resolve();
-    });
-    expect(element.textContent).toContain("当前译文");
-    expect(element.textContent).not.toContain("模型服务响应超时");
-  } finally {
-    await act(async () => root.unmount());
-    element.remove();
   }
 });
 

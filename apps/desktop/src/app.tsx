@@ -51,18 +51,6 @@ export function App({ invoke = call }: { invoke?: typeof call }) {
   };
   useEffect(() => {
     let disposed = false;
-    void invoke("session_request", { request: { action: "restore" } }).catch(
-      (error) => {
-        if (!disposed)
-          setNotice(scopedNotice(errorMessage(error), initialState));
-      },
-    );
-    return () => {
-      disposed = true;
-    };
-  }, [invoke]);
-  useEffect(() => {
-    let disposed = false;
     let pending = false;
     const refresh = async () => {
       if (pending) return;

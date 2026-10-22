@@ -66,6 +66,64 @@ fn a_new_input_question_does_not_inherit_the_previous_reading_or_translation_ins
     service.shutdown();
 }
 #[test]
+fn cold_start_keeps_preferences_without_loading_history_and_explicit_resume_remains_available() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = start_options(directory.path(), &["--record-messages"]);
+    service.save_key("synthetic-desktop-secret".into()).unwrap();
+    wait(&service, |v| v.key_configured);
+    service
+        .submit_with_context(
+            1,
+            "OLD_READING_SENTINEL".into(),
+            false,
+            true,
+            serde_json::json!({"context":{"text":"OLD_SOURCE_SENTINEL","origin":"Fixture","kind":"selection","anchor":null,"anchorValid":false}}),
+        )
+        .unwrap();
+    let previous = wait(&service, |v| {
+        v.revision == 1 && v.phase == "ready" && v.task_id.is_none()
+    });
+    let old_id = previous.session_id.unwrap();
+    service
+        .patch_settings(lingo_sofa_app_services::SettingsPatch {
+            target: Some("English".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    service.shutdown();
+
+    let service = start_options(directory.path(), &["--record-messages"]);
+    let cold = service.state();
+    assert!(cold.key_configured);
+    assert_eq!(cold.default_model, previous.default_model);
+    assert_eq!(cold.settings.target, "English");
+    assert!(cold.session_id.is_none());
+    assert!(!cold.session_ready);
+    assert!(cold.output.is_empty() && cold.question.is_empty() && cold.messages.is_empty());
+    service
+        .submit_new_question(1, "INDEPENDENT_QUESTION_SENTINEL".into())
+        .unwrap();
+    wait(&service, |v| {
+        v.revision == 1 && v.phase == "ready" && v.task_id.is_none()
+    });
+    let messages =
+        std::fs::read_to_string(directory.path().join("synthetic-messages.json")).unwrap();
+    assert!(messages.contains("INDEPENDENT_QUESTION_SENTINEL"));
+    assert!(!messages.contains("OLD_READING_SENTINEL"));
+    assert!(!messages.contains("OLD_SOURCE_SENTINEL"));
+    assert!(!messages.contains("<source>"));
+    let restored = service
+        .session_request(lingo_sofa_app_services::SessionRequest::Resume { id: old_id.clone() })
+        .unwrap();
+    assert_eq!(
+        restored["metadata"]["context"]["text"],
+        "OLD_SOURCE_SENTINEL"
+    );
+    assert_eq!(service.state().session_id.as_deref(), Some(old_id.as_str()));
+    assert!(!service.state().messages.is_empty());
+    service.shutdown();
+}
+#[test]
 fn desktop_service_streams_asks_compacts_cancels_and_recovers_persisted_state() {
     let directory = tempfile::tempdir().unwrap();
     let service = start(directory.path());
