@@ -409,7 +409,7 @@ fn copy_result(
     };
     app.clipboard()
         .write_text(text)
-        .map_err(|_| "clipboard_unavailable".into())
+        .map_err(|_| "clipboard_write_failed".into())
 }
 #[tauri::command]
 fn copy_text(

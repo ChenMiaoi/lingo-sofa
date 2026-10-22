@@ -445,10 +445,31 @@ export function Desktop({
       field.style.height = `${Math.min(Math.max(field.scrollHeight, 24), 120)}px`;
     };
     resize();
+    const parent = field.parentElement;
+    let width = parent?.getBoundingClientRect().width;
+    let frame: number | undefined;
+    let disposed = false;
+    const observeWidth = () => {
+      if (disposed || !parent) return;
+      const nextWidth = parent.getBoundingClientRect().width;
+      if (nextWidth === width) return;
+      width = nextWidth;
+      if (frame === undefined)
+        frame = window.requestAnimationFrame(() => {
+          frame = undefined;
+          if (!disposed) resize();
+        });
+    };
     const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
-    if (field.parentElement) observer?.observe(field.parentElement);
-    return () => observer?.disconnect();
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(observeWidth);
+    if (parent) observer?.observe(parent);
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+    };
   }, [query, mode, modelSearch, sessionSearch, loginEntry]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
@@ -514,7 +535,8 @@ export function Desktop({
         下载官方 x64 运行库
       </button>
     ) : null;
-  const translationError = current && model.phase === "error";
+  const translationError =
+    current && d.operation === "translate" && model.phase === "error";
   const translation =
     d.translation ||
     (current && model.phase !== "running" ? model.message : "正在翻译…");
@@ -646,13 +668,18 @@ export function Desktop({
   if (mode === "translation" || mode === "translation-detail")
     return (
       <TranslationReading
-        text={message || translation}
+        text={d.translation || message || translation}
         loading={!d.translation && busy}
         error={translationError}
         detail={mode === "translation-detail"}
         epoch={d.epoch}
         perform={perform}
       >
+        {message && d.translation && (
+          <p className="reading-status" role="status">
+            {message}
+          </p>
+        )}
         {current &&
           d.operation === "translate" &&
           (busy ||

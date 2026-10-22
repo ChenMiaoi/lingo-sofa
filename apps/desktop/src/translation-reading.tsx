@@ -29,13 +29,17 @@ export function TranslationReading({
   }, [epoch, detail]);
   useLayoutEffect(() => {
     if (detail) return;
+    let disposed = false;
+    let frame: number | undefined;
     const measure = () => {
-      if (!root.current || !viewport.current || !copy.current) return;
+      frame = undefined;
+      if (disposed || !root.current || !viewport.current || !copy.current)
+        return;
       // Measure the rendered copy at the actual window width, including its
       // padding. The remaining space belongs to the toolbar and outer padding.
       const height = Math.ceil(
-        root.current.clientHeight -
-          viewport.current.clientHeight +
+        root.current.getBoundingClientRect().height -
+          viewport.current.getBoundingClientRect().height +
           copy.current.scrollHeight,
       );
       if (
@@ -46,11 +50,22 @@ export function TranslationReading({
         void perform("resize_translation", { epoch, height });
       }
     };
-    measure();
-    const observer = new window.ResizeObserver(measure);
+    // Window resizing must run outside ResizeObserver delivery; otherwise its
+    // layout feedback can trigger another observation in the same frame.
+    const schedule = () => {
+      if (!disposed && frame === undefined)
+        frame = window.requestAnimationFrame(measure);
+    };
+    schedule();
+    const observer = new window.ResizeObserver(schedule);
     if (root.current) observer.observe(root.current);
     if (copy.current) observer.observe(copy.current);
-    return () => observer.disconnect();
+    if (viewport.current) observer.observe(viewport.current);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+    };
   }, [epoch, detail, text, perform]);
   return (
     <main

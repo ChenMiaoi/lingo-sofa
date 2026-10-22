@@ -266,6 +266,117 @@ test("complete translation reading retains the frozen text after Ask and opens w
   }
 });
 
+test("OCR translation keeps its source hint and actions while complete text remains available", async () => {
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.context = { ...context, kind: "ocr" };
+  value.desktop.translation = "OCR 识别结果的译文。\n".repeat(80) + "OCR_END";
+  const ui = await mount(value);
+  try {
+    expect(ui.element.querySelector(".origin-hint")?.textContent).toContain(
+      "截图识别",
+    );
+    expect(
+      ui.element.querySelector('[aria-label="译文"]')?.textContent,
+    ).toContain("OCR_END");
+    await ui.click("复制");
+    await ui.click("Ask");
+    await ui.key("Escape");
+    expect(ui.calls).toEqual([
+      { command: "copy_result", args: undefined },
+      { command: "set_mode", args: { mode: "ask" } },
+      { command: "collapse", args: undefined },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("a failed result copy preserves the translation and reports its error in the reading controls", async () => {
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.operation = "translate";
+  value.desktop.translation = "TRANSLATION_SENTINEL";
+  value.model.phase = "ready";
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const invoke = <T>(command: string): Promise<T> =>
+    command === "copy_result"
+      ? Promise.reject("clipboard_write_failed")
+      : Promise.resolve((command === "desktop_state" ? value : undefined) as T);
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    const copy = [
+      ...element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "复制")!;
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+    expect(element.querySelector('[aria-label="译文"]')?.textContent).toBe(
+      "TRANSLATION_SENTINEL",
+    );
+    expect(element.querySelector(".reading-controls")?.textContent).toContain(
+      "复制失败，请稍后重试。",
+    );
+    expect(copy.disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("a reading notice remains the primary failure when no translation exists", async () => {
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.operation = "translate";
+  value.desktop.translation = "";
+  value.desktop.notice = "selection_unavailable";
+  value.model.phase = "error";
+  const ui = await mount(value);
+  try {
+    expect(
+      ui.element.querySelector('[aria-label="译文"]')?.textContent,
+    ).toContain("未能定位选区");
+    const copy = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "复制")!;
+    expect(copy.disabled).toBe(true);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("failed Ask does not mark the retained translation as failed and translation errors still do", async () => {
+  for (const mode of ["translation", "translation-detail"] as const) {
+    const value = state("ask-result");
+    value.desktop.mode = mode;
+    value.desktop.operation = "ask";
+    value.desktop.translation = "RETAINED_TRANSLATION";
+    value.model.phase = "error";
+    value.model.message = "LATER_ASK_FAILED";
+    const ui = await mount(value);
+    try {
+      expect(ui.element.querySelector('[aria-label="译文"]')?.textContent).toBe(
+        "RETAINED_TRANSLATION",
+      );
+      expect(ui.element.querySelector(".reading.has-error")).toBeNull();
+      expect(ui.element.querySelector(".reading-status")).toBeNull();
+      await ui.render({
+        ...value,
+        desktop: { ...value.desktop, operation: "translate" },
+      });
+      expect(ui.element.querySelector(".reading.has-error")).not.toBeNull();
+      expect(
+        ui.element.querySelector(".reading-status")?.textContent,
+      ).toContain("LATER_ASK_FAILED");
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
 test("reading distinguishes an in-progress translation from a failed partial response", async () => {
   const value = state("ask-result");
   value.desktop.mode = "translation";
@@ -3560,5 +3671,169 @@ test("Windows OCR exposes the command, floating menu and six shortcut fields ind
     ).toBe("Alt+Shift+O");
   } finally {
     await ui.close();
+  }
+});
+function observedFrames() {
+  const previousObserver = globalThis.ResizeObserver;
+  const previousWindowObserver = window.ResizeObserver;
+  const previousRequest = window.requestAnimationFrame;
+  const previousCancel = window.cancelAnimationFrame;
+  const observers: {
+    callback: () => void;
+    targets: Element[];
+    disconnected: boolean;
+  }[] = [];
+  const frames = new Map<number, FrameRequestCallback>();
+  let sequence = 0;
+  class Observer {
+    record: (typeof observers)[number];
+    constructor(callback: () => void) {
+      this.record = { callback, targets: [], disconnected: false };
+      observers.push(this.record);
+    }
+    observe(target: Element) {
+      this.record.targets.push(target);
+    }
+    unobserve() {}
+    disconnect() {
+      this.record.disconnected = true;
+    }
+  }
+  globalThis.ResizeObserver = window.ResizeObserver =
+    Observer as unknown as typeof ResizeObserver;
+  window.requestAnimationFrame = (callback) => {
+    frames.set(++sequence, callback);
+    return sequence;
+  };
+  window.cancelAnimationFrame = (id) => {
+    frames.delete(id);
+  };
+  return {
+    observers,
+    frames,
+    flush() {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    },
+    restore() {
+      globalThis.ResizeObserver = previousObserver;
+      window.ResizeObserver = previousWindowObserver;
+      window.requestAnimationFrame = previousRequest;
+      window.cancelAnimationFrame = previousCancel;
+    },
+  };
+}
+
+test("Ask observes width only and defers textarea layout outside observer delivery", async () => {
+  const scheduler = observedFrames();
+  const ui = await mount(state("ask"));
+  try {
+    const observer = scheduler.observers.find((item) =>
+      item.targets.some((target) =>
+        target.contains(ui.element.querySelector("textarea")),
+      ),
+    )!;
+    const parent = observer.targets[0]!;
+    const field = ui.element.querySelector("textarea")!;
+    let width = 0;
+    let reads = 0;
+    parent.getBoundingClientRect = () => ({ width }) as DOMRect;
+    Object.defineProperty(field, "scrollHeight", {
+      configurable: true,
+      get: () => {
+        reads++;
+        return 80;
+      },
+    });
+    observer.callback();
+    expect(reads).toBe(0);
+    expect(scheduler.frames.size).toBe(0);
+    width = 360;
+    observer.callback();
+    observer.callback();
+    expect(reads).toBe(0);
+    expect(scheduler.frames.size).toBe(1);
+    await act(async () => scheduler.flush());
+    expect(reads).toBe(1);
+    expect(field.style.height).toBe("80px");
+    observer.callback();
+    expect(scheduler.frames.size).toBe(0);
+    width = 400;
+    observer.callback();
+    const stale = [...scheduler.frames.values()][0]!;
+    await ui.close();
+    expect(scheduler.frames.size).toBe(0);
+    stale(0);
+    observer.callback();
+    expect(reads).toBe(1);
+    expect(observer.disconnected).toBe(true);
+  } finally {
+    if (ui.element.isConnected) await ui.close();
+    scheduler.restore();
+  }
+});
+
+test("reading coalesces layout feedback and fences stale frames on epoch change and unmount", async () => {
+  const scheduler = observedFrames();
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.translation = "READING";
+  const ui = await mount(value);
+  try {
+    const root = ui.element.querySelector<HTMLElement>(".reading")!;
+    const viewport = ui.element.querySelector<HTMLElement>(".annotation")!;
+    const copy = ui.element.querySelector<HTMLElement>(".translation-copy")!;
+    root.getBoundingClientRect = () => ({ height: 140.5 }) as DOMRect;
+    viewport.getBoundingClientRect = () => ({ height: 100.5 }) as DOMRect;
+    Object.defineProperty(copy, "scrollHeight", { get: () => 200 });
+    expect(
+      ui.calls.filter((call) => call.command === "resize_translation"),
+    ).toHaveLength(0);
+    await act(async () => scheduler.flush());
+    expect(
+      ui.calls.filter((call) => call.command === "resize_translation"),
+    ).toEqual([
+      {
+        command: "resize_translation",
+        args: { epoch: value.desktop.epoch, height: 240 },
+      },
+    ]);
+    const observer = scheduler.observers[0]!;
+    observer.callback();
+    observer.callback();
+    expect(scheduler.frames.size).toBe(1);
+    await act(async () => scheduler.flush());
+    expect(
+      ui.calls.filter((call) => call.command === "resize_translation"),
+    ).toHaveLength(1);
+    observer.callback();
+    const stale = [...scheduler.frames.values()][0]!;
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, epoch: value.desktop.epoch + 1 },
+    });
+    stale(0);
+    expect(
+      ui.calls.filter((call) => call.command === "resize_translation"),
+    ).toHaveLength(1);
+    await act(async () => scheduler.flush());
+    expect(
+      ui.calls.filter((call) => call.command === "resize_translation").at(-1)
+        ?.args,
+    ).toEqual({ epoch: value.desktop.epoch + 1, height: 240 });
+    const current = scheduler.observers.at(-1)!;
+    current.callback();
+    const afterUnmount = [...scheduler.frames.values()][0]!;
+    await ui.close();
+    expect(scheduler.frames.size).toBe(0);
+    afterUnmount(0);
+    current.callback();
+    expect(
+      ui.calls.filter((call) => call.command === "resize_translation"),
+    ).toHaveLength(2);
+  } finally {
+    if (ui.element.isConnected) await ui.close();
+    scheduler.restore();
   }
 });
