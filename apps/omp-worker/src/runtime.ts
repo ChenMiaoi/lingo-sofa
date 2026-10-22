@@ -1,3 +1,4 @@
+import { ProviderErrors, safeErrorCode } from "./errors";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -125,6 +126,7 @@ export async function runWorker(options: WorkerOptions) {
   );
   process.env.PI_AUTH_NO_BORROW = "1";
   process.env.PI_CODEX_WEBSOCKET = "0";
+  const providerErrors = new ProviderErrors();
   const realFetch = globalThis.fetch;
   globalThis.fetch = Object.assign(
     async (
@@ -145,7 +147,9 @@ export async function runWorker(options: WorkerOptions) {
         throw new Error("worker_network_scope");
       if (init?.redirect && init.redirect !== "error")
         throw new Error("worker_redirect_scope");
-      return realFetch(input, { ...init, redirect: "error" });
+      return providerErrors.fetch(() =>
+        realFetch(input, { ...init, redirect: "error" }),
+      );
     },
     { preconnect: () => undefined },
   );
@@ -187,6 +191,7 @@ export async function runWorker(options: WorkerOptions) {
     purpose: "generation" | "compaction";
     recordings: Promise<void>[];
     closed: boolean;
+    errorCode?: string;
   }
   const operations = new AsyncLocalStorage<CallScope>();
   async function emitEvent(id: number, payload: Record<string, unknown>) {
@@ -202,6 +207,7 @@ export async function runWorker(options: WorkerOptions) {
     frame: Frame,
     purpose: CallScope["purpose"],
     run: () => Promise<T>,
+    onError?: (code: string) => void,
   ): Promise<T> {
     const scope: CallScope = {
       requestId: frame.id,
@@ -211,12 +217,18 @@ export async function runWorker(options: WorkerOptions) {
       closed: false,
     };
     return operations.run(scope, async () => {
+      let result: T;
       try {
-        return await run();
+        result = await run();
       } finally {
         scope.closed = true;
         await Promise.all(scope.recordings);
       }
+      if (scope.errorCode) {
+        if (onError) onError(scope.errorCode);
+        else throw new Error(scope.errorCode);
+      }
+      return result;
     });
   }
   let nextAdmissionId = 0;
@@ -291,7 +303,7 @@ export async function runWorker(options: WorkerOptions) {
       errorMessage: code,
       timestamp: Date.now(),
     });
-    const recording = (async () => {
+    const recording = providerErrors.run(async (failure) => {
       await emitEvent(scope.requestId, { ...metadata, type: "call_requested" });
       const permit = await admissionRequest("acquire", metadata);
       if (typeof permit.admitted !== "boolean")
@@ -342,10 +354,10 @@ export async function runWorker(options: WorkerOptions) {
           else outer.push(event);
         }
         message = await stream.result();
-      } catch {
+      } catch (error) {
         message = localError(
           options?.signal?.aborted ? "aborted" : "error",
-          "provider_stream_failed",
+          safeErrorCode(error),
         );
         terminal = {
           type: "error",
@@ -354,6 +366,14 @@ export async function runWorker(options: WorkerOptions) {
         };
       } finally {
         activeProviderCalls.delete(metadata.callId);
+      }
+      if (message.stopReason === "error") {
+        scope.errorCode = providerErrors.terminal(
+          failure,
+          message.stopReason,
+          message.errorMessage,
+        );
+        message.errorMessage = scope.errorCode;
       }
       const { input, output, cacheRead, cacheWrite, totalTokens, cost } =
         message.usage.totalTokens > 0
@@ -384,7 +404,7 @@ export async function runWorker(options: WorkerOptions) {
       // The SDK cannot complete the operation before Rust commits the terminal.
       if (terminal) outer.push(terminal);
       outer.end(message);
-    })();
+    });
     scope.recordings.push(recording);
     void recording.catch(() => process.exit(2));
     return outer;
@@ -952,15 +972,26 @@ export async function runWorker(options: WorkerOptions) {
             }).catch(() => process.exit(2));
           }
         });
-        const prompt = operation(frame, "generation", () =>
-          entry.session.prompt(frame.payload.text as string),
+        let failure: string | undefined;
+        const prompt = operation(
+          frame,
+          "generation",
+          () => entry.session.prompt(frame.payload.text as string),
+          (code) => {
+            failure = code;
+          },
         );
         tasks.set(String(frame.payload.sessionId), prompt);
         try {
           await prompt;
           const last = entry.session.messages.at(-1);
           return {
-            status: last?.role === "assistant" ? last.stopReason : "unknown",
+            status: failure
+              ? "error"
+              : last?.role === "assistant"
+                ? last.stopReason
+                : "unknown",
+            code: failure,
             sessionId: frame.payload.sessionId,
           };
         } finally {
@@ -1082,14 +1113,14 @@ export async function runWorker(options: WorkerOptions) {
               ok: true,
               payload,
             }),
-          () =>
+          (error: unknown) =>
             sendFrame({
               v: 1,
               instance,
               kind: "response",
               id: frame.id,
               ok: false,
-              payload: { code: "operation_failed" },
+              payload: { code: safeErrorCode(error) },
             }),
         )
         .then(async () => {

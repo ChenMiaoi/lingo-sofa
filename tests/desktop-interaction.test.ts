@@ -275,8 +275,15 @@ test("reading distinguishes an in-progress translation from a failed partial res
   const ui = await mount(value);
   try {
     expect(ui.element.textContent).toContain("译文仍在生成");
-    await ui.render({ ...value, model: { ...value.model, phase: "error" } });
-    expect(ui.element.textContent).toContain("翻译未完成");
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        phase: "error",
+        message: "请求过于频繁，请稍后重试。",
+      },
+    });
+    expect(ui.element.textContent).toContain("请求过于频繁，请稍后重试。");
     expect(ui.element.textContent).toContain("尚未完成的译文");
     await ui.render({ ...value, model: { ...value.model, phase: "ready" } });
     expect(ui.element.textContent).not.toContain("译文仍在生成");
@@ -3252,6 +3259,61 @@ test("history browsing cannot replace the current answer code position", async (
     expect(
       ui.element.querySelector<HTMLElement>(".code-block pre")!.scrollTop,
     ).toBe(120);
+  } finally {
+    await ui.close();
+  }
+});
+test("truncated and incomplete results retain text and show recovery guidance in reading and Ask", async () => {
+  for (const phase of ["truncated", "incomplete", "error"]) {
+    for (const mode of ["translation", "ask-result"] as const) {
+      const value = state("ask-result");
+      value.desktop = {
+        ...value.desktop,
+        mode,
+        operation: "translate",
+        translation: "PARTIAL_ANSWER",
+      };
+      value.model = {
+        ...value.model,
+        phase,
+        taskId: null,
+        output: "PARTIAL_ANSWER",
+        message: "输出未完成，请分段提交。",
+      };
+      const ui = await mount(value);
+      try {
+        expect(ui.element.textContent).toContain("PARTIAL_ANSWER");
+        expect(ui.element.textContent).toContain("输出未完成，请分段提交。");
+        expect(
+          [...ui.element.querySelectorAll("button")].some(
+            (button) => button.textContent === "停止",
+          ),
+        ).toBe(false);
+      } finally {
+        await ui.close();
+      }
+    }
+  }
+});
+test("an empty incomplete translation stops loading and preserves the safe failure message", async () => {
+  const value = state("ask-result");
+  value.desktop = {
+    ...value.desktop,
+    mode: "translation",
+    operation: "translate",
+    translation: "",
+  };
+  value.model = {
+    ...value.model,
+    phase: "incomplete",
+    taskId: null,
+    output: "",
+    message: "模型未正常结束，请重试。",
+  };
+  const ui = await mount(value);
+  try {
+    expect(ui.element.querySelector(".loading")).toBeNull();
+    expect(ui.element.textContent).toContain("模型未正常结束，请重试。");
   } finally {
     await ui.close();
   }

@@ -67,6 +67,18 @@ await runWorker({
           );
         }
         const scenario = JSON.stringify(body.messages.at(-1));
+        for (const status of [401, 429, 413, 404, 400]) {
+          if (scenario.includes(`W0_HTTP_${status}`))
+            return Response.json(
+              {
+                error: {
+                  message: "PRIVATE_PROVIDER_RESPONSE synthetic-secret",
+                  code: status === 400 ? "context_length_exceeded" : "unknown",
+                },
+              },
+              { status },
+            );
+        }
         const toolRequest =
           process.argv.includes("--tool-fixture") &&
           scenario.includes("W0_TOOL_REQUEST") &&
@@ -116,7 +128,11 @@ await runWorker({
             {
               index: 0,
               delta: {},
-              finish_reason: toolRequest ? "tool_calls" : "stop",
+              finish_reason: toolRequest
+                ? "tool_calls"
+                : scenario.includes("W0_LENGTH")
+                  ? "length"
+                  : "stop",
             },
           ],
         };

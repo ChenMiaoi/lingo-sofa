@@ -46,6 +46,8 @@ impl Task {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
     Completed,
+    Truncated,
+    Incomplete,
     Failed,
     Cancelled,
     Expired,
@@ -270,8 +272,15 @@ impl Scheduler {
             Status::Stale
         } else if running.cancelled {
             Status::Cancelled
-        } else if ok && !matches!(payload["status"].as_str(), Some("error" | "aborted")) {
-            Status::Completed
+        } else if ok {
+            match payload["status"].as_str() {
+                Some("stop") => Status::Completed,
+                Some("length") => Status::Truncated,
+                Some("aborted") => Status::Cancelled,
+                Some("error") => Status::Failed,
+                None if matches!(running.entry.task.work, Work::Compact) => Status::Completed,
+                _ => Status::Incomplete,
+            }
         } else {
             Status::Failed
         };
@@ -280,7 +289,10 @@ impl Scheduler {
             Outcome {
                 status,
                 request_id: Some(request),
-                response: if matches!(status, Status::Completed | Status::Failed) {
+                response: if matches!(
+                    status,
+                    Status::Completed | Status::Truncated | Status::Incomplete | Status::Failed
+                ) {
                     Some(payload)
                 } else {
                     None
@@ -316,6 +328,28 @@ mod tests {
             priority,
             ttl: Duration::from_secs(10),
             work: Work::Prompt("test".into()),
+        }
+    }
+    #[test]
+    fn terminal_reasons_preserve_partial_output_and_never_assume_success() {
+        for (reason, expected) in [
+            ("stop", Status::Completed),
+            ("length", Status::Truncated),
+            ("error", Status::Failed),
+            ("aborted", Status::Cancelled),
+            ("unknown", Status::Incomplete),
+            ("toolUse", Status::Incomplete),
+        ] {
+            let mut scheduler = Scheduler::default();
+            let now = Instant::now();
+            let id = scheduler.submit(task("a", Priority::Manual), now).unwrap();
+            scheduler.dispatch(now, 2, |_| Ok(1)).unwrap();
+            scheduler.finish(1, true, json!({"status":reason,"text":"partial"}));
+            let result = scheduler.outcome(id).unwrap().unwrap();
+            assert_eq!(result.status, expected);
+            if expected != Status::Cancelled {
+                assert_eq!(result.response.unwrap()["text"], "partial");
+            }
         }
     }
     #[test]

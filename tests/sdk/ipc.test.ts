@@ -1,3 +1,8 @@
+import {
+  httpErrorCode,
+  ProviderErrors,
+  safeErrorCode,
+} from "../../apps/omp-worker/src/errors";
 import { expect, test } from "bun:test";
 import { MAX_FRAME, readFrames } from "../../apps/omp-worker/src/ipc";
 
@@ -54,4 +59,89 @@ test("worker rejects incompatible versions, unsafe IDs and extra envelope fields
   ]) {
     await expect(decode([encode(invalid)])).rejects.toThrow("invalid_envelope");
   }
+});
+
+test("IPC errors admit only explicit codes and structured status without response text", () => {
+  expect(safeErrorCode({ status: 401, message: "PRIVATE key" })).toBe("auth");
+  expect(safeErrorCode({ status: 429 })).toBe("rate_limit");
+  expect(safeErrorCode({ code: "ECONNRESET" })).toBe("network");
+  expect(safeErrorCode(new Error("auth"))).toBe("auth");
+  expect(safeErrorCode(new Error("401 auth PRIVATE"))).toBe("operation_failed");
+  expect(safeErrorCode("auth")).toBe("operation_failed");
+});
+
+test("HTTP classification uses numeric status and bounded structured context codes, and clears success", async () => {
+  expect(
+    await httpErrorCode(
+      Response.json(
+        { error: { code: "context_length_exceeded", message: "PRIVATE" } },
+        { status: 400 },
+      ),
+    ),
+  ).toBe("context_limit");
+  expect(
+    await httpErrorCode(
+      Response.json(
+        { error: { message: "context_length_exceeded PRIVATE" } },
+        { status: 400 },
+      ),
+    ),
+  ).toBe("operation_failed");
+  expect(
+    await httpErrorCode(new Response("x".repeat(20_000), { status: 400 })),
+  ).toBe("operation_failed");
+  expect(await httpErrorCode(new Response("PRIVATE", { status: 429 }))).toBe(
+    "rate_limit",
+  );
+  expect(await httpErrorCode(new Response("success"))).toBeUndefined();
+});
+
+test("an error body that stalls cannot indefinitely delay the SDK response", async () => {
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{"));
+      },
+    }),
+    { status: 400 },
+  );
+  expect(await httpErrorCode(response)).toBe("operation_failed");
+});
+
+test("provider HTTP failures stay isolated across sibling calls, successful retries and cancellation", async () => {
+  const errors = new ProviderErrors();
+  let release!: () => void;
+  const siblingFinished = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const failed = errors.run(async (failure) => {
+    await errors.fetch(async () => new Response("private", { status: 429 }));
+    await siblingFinished;
+    return errors.terminal(failure, "error", "PRIVATE");
+  });
+  const success = errors.run(async (failure) => {
+    await errors.fetch(async () => new Response("ok"));
+    release();
+    return errors.terminal(failure, "stop");
+  });
+  expect(await Promise.all([failed, success])).toEqual([
+    "rate_limit",
+    undefined,
+  ]);
+  await errors.run(async (failure) => {
+    await errors.fetch(async () => new Response("private", { status: 429 }));
+    await errors.fetch(async () => new Response("ok"));
+    expect(errors.terminal(failure, "error", "PRIVATE")).toBe(
+      "operation_failed",
+    );
+  });
+  await errors.run(async (failure) => {
+    await expect(
+      errors.fetch(async () => {
+        throw new DOMException("cancel", "AbortError");
+      }),
+    ).rejects.toThrow("cancel");
+    expect(errors.terminal(failure, "aborted", "PRIVATE")).toBeUndefined();
+    expect(errors.terminal(failure, "error", "PRIVATE")).toBe("network");
+  });
 });

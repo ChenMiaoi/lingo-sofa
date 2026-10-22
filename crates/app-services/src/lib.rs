@@ -497,6 +497,11 @@ fn message(code: &str) -> &'static str {
         "account_required" => "请先在模型与服务商中配置所选服务商的 API Key。",
         "provider_unsupported" => "该服务商暂不支持 API Key 配置。",
         "model_not_verified" => "所选模型不可用，请刷新模型列表后重试。",
+        "auth" => "账户认证失败，请检查凭证。",
+        "rate_limit" => "请求过于频繁，请稍后重试。",
+        "context_limit" => "上下文过长，请缩短文本或新建会话。",
+        "network" => "网络连接失败，请检查网络后重试。",
+        "model_unavailable" => "模型不可用，请切换模型。",
         "invalid_text" => "请输入文本或问题。",
         "text_too_long" => "文本或问题过长，请缩短或分段提交。",
         "task_running" => "请先等待或取消当前任务。",
@@ -1075,10 +1080,11 @@ fn serve(
                 }
                 v.tool_approvals.clear();
                 v.task_id = None;
-                v.phase = if outcome.status == Status::Failed {
-                    "error"
-                } else {
-                    "ready"
+                v.phase = match outcome.status {
+                    Status::Failed => "error",
+                    Status::Truncated => "truncated",
+                    Status::Incomplete => "incomplete",
+                    _ => "ready",
                 }
                 .into();
                 v.message = match outcome.status {
@@ -1091,11 +1097,18 @@ fn serve(
                         "当前会话较短，无需压缩"
                     }
                     Status::Completed => "已完成",
+                    Status::Truncated => "输出达到上限，内容未完成；请分段提交或继续提问。",
+                    Status::Incomplete => "模型未正常结束，已有内容已保留；请重试或切换模型。",
                     Status::Cancelled => "已取消；供应商可能仍产生费用",
                     Status::Expired => "任务已过期",
                     Status::Stale => "已丢弃过期结果",
                     Status::Lost => "连接中断，用量可能未知",
-                    Status::Failed => "模型请求失败，请检查账户或网络",
+                    Status::Failed => outcome
+                        .response
+                        .as_ref()
+                        .and_then(|response| response["code"].as_str())
+                        .map(message)
+                        .unwrap_or("模型请求失败，请检查账户或网络"),
                 }
                 .into();
             }

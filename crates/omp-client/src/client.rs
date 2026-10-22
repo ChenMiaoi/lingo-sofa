@@ -392,7 +392,7 @@ impl Host {
 
     pub fn wait(&mut self, id: u64, timeout: Duration) -> Result<Value> {
         let result = self.receive(id, timeout);
-        if matches!(result, Err(error) if error != "remote_error" && error != "unknown_request") {
+        if matches!(result, Err(error) if !is_remote_error(error) && error != "unknown_request") {
             self.stop();
         }
         result
@@ -413,7 +413,7 @@ impl Host {
                 return if frame.ok == Some(true) {
                     Ok(frame.payload)
                 } else {
-                    Err("remote_error")
+                    Err(remote_error_code(&frame.payload))
                 };
             }
             self.pump(deadline)?;
@@ -619,5 +619,49 @@ impl Host {
 impl Drop for Host {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+fn remote_error_code(payload: &Value) -> &'static str {
+    match payload["code"].as_str() {
+        Some("auth") => "auth",
+        Some("rate_limit") => "rate_limit",
+        Some("context_limit") => "context_limit",
+        Some("network") => "network",
+        Some("model_unavailable") => "model_unavailable",
+        Some("model_not_verified") => "model_not_verified",
+        Some("account_required") => "account_required",
+        Some("session_not_found") => "session_not_found",
+        Some("history_changed") => "history_changed",
+        Some("invalid_page") => "invalid_page",
+        Some("session_busy") => "session_busy",
+        _ => "remote_error",
+    }
+}
+fn is_remote_error(code: &str) -> bool {
+    code == "remote_error" || remote_error_code(&json!({"code":code})) != "remote_error"
+}
+
+#[cfg(test)]
+mod remote_error_tests {
+    use super::*;
+    #[test]
+    fn remote_codes_are_allowlisted_and_do_not_restart_the_worker() {
+        for code in [
+            "auth",
+            "rate_limit",
+            "context_limit",
+            "network",
+            "model_unavailable",
+            "model_not_verified",
+        ] {
+            assert_eq!(remote_error_code(&json!({"code":code})), code);
+            assert!(is_remote_error(code));
+        }
+        assert_eq!(
+            remote_error_code(&json!({"code":"PRIVATE_RESPONSE"})),
+            "remote_error"
+        );
+        assert!(!is_remote_error("worker_timeout_unknown"));
     }
 }

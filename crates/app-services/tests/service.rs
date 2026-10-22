@@ -724,3 +724,49 @@ fn tool_execution_waits_for_each_decision_and_records_reasoning_and_results() {
     );
     restored.shutdown();
 }
+
+#[test]
+fn truncated_translation_and_ask_preserve_output_and_end_busy_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = start(dir.path());
+    service.save_key("synthetic-secret".into()).unwrap();
+    for (revision, ask) in [(1, false), (2, true)] {
+        service.submit(revision, "W0_LENGTH".into(), ask).unwrap();
+        let view = wait(&service, |v| {
+            v.revision == revision && v.phase == "truncated"
+        });
+        assert!(view.output.contains("沙发译文"));
+        assert!(view.message.contains("输出达到上限"));
+        assert!(view.task_id.is_none());
+        assert!(view.reported_tokens > 0);
+    }
+    service.shutdown();
+}
+#[test]
+fn sdk_http_errors_cross_ipc_with_recoverable_safe_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = start(dir.path());
+    service.save_key("synthetic-secret".into()).unwrap();
+    for (revision, status, expected) in [
+        (1, 401, "检查凭证"),
+        (2, 429, "稍后重试"),
+        (3, 413, "上下文过长"),
+        (4, 404, "切换模型"),
+        (5, 400, "上下文过长"),
+    ] {
+        service
+            .submit_new_question(revision, format!("W0_HTTP_{status}"))
+            .unwrap();
+        let view = wait(&service, |v| {
+            v.revision == revision && v.phase == "error" && v.task_id.is_none()
+        });
+        assert!(view.message.contains(expected), "{}", view.message);
+        assert!(!view.message.contains("PRIVATE_PROVIDER_RESPONSE"));
+        assert!(
+            !serde_json::to_string(&view)
+                .unwrap()
+                .contains("synthetic-secret")
+        );
+    }
+    service.shutdown();
+}

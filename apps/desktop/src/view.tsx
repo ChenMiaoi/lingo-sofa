@@ -628,7 +628,7 @@ export function Desktop({
     return (
       <TranslationReading
         text={message || translation}
-        loading={!d.translation && !translationError}
+        loading={!d.translation && busy}
         error={translationError}
         detail={mode === "translation-detail"}
         epoch={d.epoch}
@@ -636,11 +636,16 @@ export function Desktop({
       >
         {current &&
           d.operation === "translate" &&
-          (busy || translationError) && (
+          (busy ||
+            translationError ||
+            model.phase === "truncated" ||
+            model.phase === "incomplete") && (
             <p className="reading-status" role="status">
               {translationError
-                ? "翻译未完成，请检查服务后重试。"
-                : "译文仍在生成…"}
+                ? model.message || "翻译未完成，请检查服务后重试。"
+                : busy
+                  ? "译文仍在生成…"
+                  : model.message}
             </p>
           )}
         <nav className="translation-actions" aria-label="译文操作">

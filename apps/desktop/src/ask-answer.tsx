@@ -336,8 +336,8 @@ export function AskAnswer({
           : model.thinkingOutput && !model.output
             ? "正在思考"
             : "正在回答"
-      : model.phase === "error"
-        ? "回答中断"
+      : ["error", "truncated", "incomplete"].includes(model.phase)
+        ? "回答未完成"
         : operation === "translate"
           ? "译文"
           : "回答";
@@ -547,11 +547,13 @@ export function AskAnswer({
                 </p>
               )}
             </div>
-            {current && answerText && model.phase === "error" && (
-              <p className="answer-error" role="alert">
-                {model.message}
-              </p>
-            )}
+            {current &&
+              answerText &&
+              ["error", "truncated", "incomplete"].includes(model.phase) && (
+                <p className="answer-error" role="alert">
+                  {model.message}
+                </p>
+              )}
           </>
         )}
       </div>
