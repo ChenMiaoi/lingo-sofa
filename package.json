@@ -19,7 +19,7 @@
     "test": "bun test tests/runtime-report.test.ts tests/bundle-inputs.test.ts tests/ocr-assets.test.ts tests/build-worker.test.ts tests/dev-session.test.ts tests/release.test.ts tests/platform.test.ts tests/models.test.ts tests/subscription-login.test.ts tests/sdk/ipc.test.ts tests/sdk/compaction-lifecycle.test.ts tests/desktop.test.ts tests/desktop-interaction.test.ts tests/session-history.test.ts",
     "test:runtime": "bun tests/sdk/run-host.ts",
     "test:runtime:packaged": "bun tests/sdk/run-host.ts --packaged",
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run test:runtime && cargo fmt --all --check && npm run build:worker && bun scripts/test-region-selector.ts && npm run build:web && cargo test --locked -p lingo-sofa-desktop -p lingo-sofa-ocr-helper && cargo clippy --workspace --all-targets -- -D warnings && cargo build --locked -p lingo-sofa-desktop",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run test:runtime && cargo fmt --all --check && npm run build:worker && bun scripts/test-region-selector.ts && npm run build:web && cargo test --locked -p lingo-sofa-desktop -p lingo-sofa-ocr-helper -p lingo-sofa-selection-helper && cargo clippy --workspace --all-targets -- -D warnings && cargo build --locked -p lingo-sofa-desktop",
     "verify:live": "bun --env-file=.env tests/sdk/run-live-host.ts --live",
     "verify:live:dual": "bun --env-file=.env tests/sdk/run-live-host.ts --live --dual",
     "test:sdk": "bun tests/sdk/run.ts",

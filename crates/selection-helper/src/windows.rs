@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 use windows::Win32::{
-    Foundation::{HWND, RECT},
+    Foundation::{E_NOINTERFACE, E_POINTER, HWND, RECT},
     System::{
         Com::{
             CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
@@ -124,10 +124,72 @@ fn source_ancestors<N: Clone>(
     }
     Err("selection_unsupported")
 }
+// Resolve the source boundary first, then read only providers on that path.
+// An empty/caret-only focused provider may coexist with a document selection.
+fn selected_provider<N, P, S>(
+    chain: Result<Vec<N>, &'static str>,
+    mut provider: impl FnMut(N) -> Result<Option<P>, &'static str>,
+    mut selection: impl FnMut(&P) -> Result<Option<S>, &'static str>,
+) -> Result<(P, S), &'static str> {
+    let mut supported = false;
+    for node in chain? {
+        if let Some(pattern) = provider(node)? {
+            supported = true;
+            if let Some(selected) = selection(&pattern)? {
+                return Ok((pattern, selected));
+            }
+        }
+    }
+    Err(if supported {
+        "selection_empty"
+    } else {
+        "selection_unsupported"
+    })
+}
+struct Selection {
+    ranges: Vec<IUIAutomationTextRange>,
+    text: String,
+    bounds: Rect,
+}
+fn read_selection(pattern: &IUIAutomationTextPattern) -> Result<Option<Selection>, &'static str> {
+    let selected = unsafe { pattern.GetSelection() }.map_err(|_| "selection_unavailable")?;
+    let length = unsafe { selected.Length() }.map_err(|_| "selection_unavailable")?;
+    if length == 0 {
+        return Ok(None);
+    }
+    if !(1..=16).contains(&length) {
+        return Err("selection_unavailable");
+    }
+    let mut ranges = Vec::new();
+    let mut text = String::new();
+    for index in 0..length {
+        let range = unsafe { selected.GetElement(index) }.map_err(|_| "selection_unavailable")?;
+        let part = unsafe { range.GetText(15001) }
+            .map_err(|_| "selection_unavailable")?
+            .to_string();
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&part);
+        if text.len() > 15000 {
+            return Err("text_too_long");
+        }
+        ranges.push(range);
+    }
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let bounds = bounds(&ranges)?;
+    Ok(Some(Selection {
+        ranges,
+        text,
+        bounds,
+    }))
+}
 fn selection_pattern(
     automation: &IUIAutomation,
     host: HWND,
-) -> Result<IUIAutomationTextPattern, &'static str> {
+) -> Result<(IUIAutomationTextPattern, Selection), &'static str> {
     let focus = unsafe { automation.GetFocusedElement() }.map_err(|_| "selection_unavailable")?;
     let source = unsafe { automation.ElementFromHandle(host) }.map_err(|_| "source_window_lost")?;
     let walker = unsafe { automation.RawViewWalker() }.map_err(|_| "selection_unavailable")?;
@@ -144,13 +206,25 @@ fn selection_pattern(
                 .map_err(|_| "selection_unavailable")
         },
         |node| unsafe { walker.GetParentElement(node) }.map_err(|_| "selection_unsupported"),
-    )?;
-    for element in chain {
-        if let Ok(pattern) = unsafe { element.GetCurrentPatternAs(UIA_TextPatternId) } {
-            return Ok(pattern);
-        }
-    }
-    Err("selection_unsupported")
+    );
+    selected_provider(
+        chain,
+        |element| match unsafe { element.GetCurrentPatternAs(UIA_TextPatternId) } {
+            Ok(pattern) => Ok(Some(pattern)),
+            // UIA returns a null interface for an unsupported pattern. The
+            // windows binding reports that as E_POINTER; a missing cast is
+            // E_NOINTERFACE. Other provider failures must not trigger fallback.
+            Err(error)
+                if error.code() == E_POINTER
+                    || error.code() == E_NOINTERFACE
+                    || error.code().0 as u32 == UIA_E_NOTSUPPORTED =>
+            {
+                Ok(None)
+            }
+            Err(_) => Err("selection_unavailable"),
+        },
+        read_selection,
+    )
 }
 fn run() -> Result<(), &'static str> {
     let args: Vec<_> = std::env::args().collect();
@@ -177,32 +251,15 @@ fn run() -> Result<(), &'static str> {
     let automation: IUIAutomation =
         unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
             .map_err(|_| "uia_initialization_failed")?;
-    let pattern = selection_pattern(&automation, host)?;
-    let selected = unsafe { pattern.GetSelection() }.map_err(|_| "selection_unavailable")?;
-    let length = unsafe { selected.Length() }.map_err(|_| "selection_unavailable")?;
-    if !(1..=16).contains(&length) {
-        return Err("selection_unavailable");
-    }
-    let mut ranges = Vec::new();
-    let mut text = String::new();
-    for index in 0..length {
-        let range = unsafe { selected.GetElement(index) }.map_err(|_| "selection_unavailable")?;
-        let part = unsafe { range.GetText(15001) }
-            .map_err(|_| "selection_unavailable")?
-            .to_string();
-        if !text.is_empty() {
-            text.push('\n');
-        }
-        text.push_str(&part);
-        if text.len() > 15000 {
-            return Err("text_too_long");
-        }
-        ranges.push(range);
-    }
-    if text.trim().is_empty() {
-        return Err("selection_empty");
-    }
-    let original = bounds(&ranges)?;
+    let (
+        pattern,
+        Selection {
+            ranges,
+            text,
+            bounds: original,
+        },
+    ) = selection_pattern(&automation, host)?;
+    let length = ranges.len() as i32;
     if unsafe { GetForegroundWindow() } != host {
         return Err("source_window_changed");
     }
@@ -248,6 +305,99 @@ pub fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_focused_provider_falls_back_to_selected_source_ancestor() {
+        let path = source_ancestors(0, |n| Ok(*n == 2), |_| Ok(false), |n| Ok(n + 1));
+        let mut reads = Vec::new();
+        let result = selected_provider(
+            path,
+            |n| Ok(Some(n)),
+            |n| {
+                reads.push(*n);
+                Ok((*n == 1).then_some("document selection"))
+            },
+        );
+        assert_eq!(result, Ok((1, "document selection")));
+        assert_eq!(reads, [0, 1]);
+    }
+    #[test]
+    fn focused_selection_wins_without_reading_ancestor_text() {
+        let mut reads = Vec::new();
+        let result = selected_provider(
+            Ok(vec![0, 1]),
+            |n| Ok(Some(n)),
+            |n| {
+                reads.push(*n);
+                Ok(Some("focused selection"))
+            },
+        );
+        assert_eq!(result, Ok((0, "focused selection")));
+        assert_eq!(reads, [0]);
+    }
+    #[test]
+    fn unsupported_and_empty_providers_have_distinct_outcomes() {
+        let unsupported: Result<(i32, ()), _> = selected_provider(
+            Ok(vec![0, 1]),
+            |_| Ok(None::<i32>),
+            |_| panic!("unsupported provider must not be read"),
+        );
+        assert_eq!(unsupported, Err("selection_unsupported"));
+        let empty = selected_provider(Ok(vec![0, 1]), |n| Ok(Some(n)), |_| Ok(None::<()>));
+        assert_eq!(empty, Err("selection_empty"));
+        let result = selected_provider(
+            Ok(vec![0, 1]),
+            |n| Ok((n == 1).then_some(n)),
+            |_| Ok(Some("selected")),
+        );
+        assert_eq!(result, Ok((1, "selected")));
+    }
+    #[test]
+    fn read_or_provider_errors_cannot_fall_back_to_another_selection() {
+        for failure in [
+            "selection_unavailable",
+            "text_too_long",
+            "invalid_selection_bounds",
+        ] {
+            let mut reads = Vec::new();
+            let result = selected_provider(
+                Ok(vec![0, 1]),
+                |n| Ok(Some(n)),
+                |n| {
+                    reads.push(*n);
+                    Err::<Option<()>, _>(failure)
+                },
+            );
+            assert_eq!(result, Err(failure));
+            assert_eq!(reads, [0]);
+        }
+        let result: Result<(i32, ()), _> = selected_provider(
+            Ok(vec![0, 1]),
+            |_| Err::<Option<i32>, _>("selection_unavailable"),
+            |_| panic!("failed provider must not be read"),
+        );
+        assert_eq!(result, Err("selection_unavailable"));
+    }
+    #[test]
+    fn wrong_source_or_password_paths_prevent_all_provider_reads() {
+        for path in [
+            source_ancestors(0, |_| Ok(false), |_| Ok(false), |n| Ok(n + 1)),
+            source_ancestors(0, |n| Ok(*n == 2), |n| Ok(*n == 1), |n| Ok(n + 1)),
+            source_ancestors(
+                0,
+                |_| Err("source_window_lost"),
+                |_| Ok(false),
+                |n| Ok(n + 1),
+            ),
+        ] {
+            let expected = *path.as_ref().unwrap_err();
+            let result: Result<(i32, ()), _> = selected_provider(
+                path,
+                |_| panic!("unvalidated path must not probe a provider"),
+                |_| Ok(Some(())),
+            );
+            assert_eq!(result, Err(expected));
+        }
+    }
     #[test]
     fn text_control_can_resolve_through_its_document_but_stops_at_source() {
         let path = source_ancestors(0, |n| Ok(*n == 3), |_| Ok(false), |n| Ok(n + 1)).unwrap();
