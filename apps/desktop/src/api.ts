@@ -214,6 +214,10 @@ export function errorMessage(error: unknown, macos = false): string {
       : "OCR 区域或文字行过大。请缩小范围：最多 400 万像素、最长边 4096 像素；过长单行请分段识别。",
     ocr_text_too_long: "识别文字过长，请缩小区域后分段识别。",
     shortcut_duplicate: "快捷键不能重复；请为每个操作选择不同组合。",
+    shortcut_recording_unavailable:
+      "暂时无法开始录入，请重试；原快捷键保持不变。",
+    shortcut_recording_restore_failed:
+      "部分快捷键未恢复，请重试恢复；已保存的组合未改变。",
     shortcuts_storage_failed:
       "快捷键保存失败，原设置继续生效。请检查本地数据目录后重试。",
   };
@@ -322,6 +326,7 @@ export interface ShortcutSnapshot {
   registered: boolean[];
   revision: number;
   message: string;
+  recording: boolean;
 }
 export const defaultShortcuts: ShortcutBindings = {
   input: "Alt+Shift+Space",
@@ -350,6 +355,7 @@ export const initialState: DesktopState = {
     registered: [false, false, false, false],
     revision: 0,
     message: "",
+    recording: false,
   },
   desktop: {
     mode: "idle",

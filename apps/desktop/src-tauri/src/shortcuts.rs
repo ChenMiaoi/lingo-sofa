@@ -232,6 +232,7 @@ pub struct Snapshot {
     pub registered: Vec<bool>,
     pub revision: u64,
     pub message: String,
+    pub recording: bool,
 }
 pub struct Manager {
     db: rusqlite::Connection,
@@ -239,6 +240,13 @@ pub struct Manager {
     keys: [Shortcut; 6],
     held: HashMap<u32, Shortcut>,
     revision: u64,
+    message: String,
+    recording: Option<Recording>,
+}
+struct Recording {
+    token: String,
+    keys: Vec<Shortcut>,
+    active: bool,
     message: String,
 }
 impl Manager {
@@ -261,7 +269,70 @@ impl Manager {
             held: HashMap::new(),
             revision: 0,
             message: String::new(),
+            recording: None,
         })
+    }
+    pub fn begin_recording(
+        &mut self,
+        token: String,
+        registry: &impl Registry,
+    ) -> Result<(), String> {
+        if self.recording.is_some() || token.is_empty() || token.len() > 80 {
+            return Err("shortcut_recording_unavailable".into());
+        }
+        let keys: Vec<_> = self.held.values().copied().collect();
+        let mut released = Vec::new();
+        for key in &keys {
+            if registry.unregister(*key).is_err() {
+                self.recording = Some(Recording {
+                    token,
+                    keys: released,
+                    active: false,
+                    message: self.message.clone(),
+                });
+                let _ = self.end_recording(None, registry);
+                return Err("shortcut_recording_unavailable".into());
+            }
+            self.held.remove(&key.id());
+            released.push(*key);
+        }
+        self.recording = Some(Recording {
+            token,
+            keys,
+            active: true,
+            message: self.message.clone(),
+        });
+        Ok(())
+    }
+    pub fn end_recording(
+        &mut self,
+        token: Option<&str>,
+        registry: &impl Registry,
+    ) -> Result<(), String> {
+        let Some(recording) = self.recording.as_mut() else {
+            return Ok(());
+        };
+        if token.is_some_and(|token| token != recording.token) {
+            return Ok(());
+        }
+        recording.active = false;
+        let mut failed = false;
+        for key in &recording.keys {
+            if let std::collections::hash_map::Entry::Vacant(entry) = self.held.entry(key.id()) {
+                if registry.register(*key).is_ok() {
+                    entry.insert(*key);
+                } else {
+                    failed = true;
+                }
+            }
+        }
+        if failed {
+            self.message = "部分快捷键未恢复，请结束录入后重试恢复。".into();
+            return Err("shortcut_recording_restore_failed".into());
+        }
+        self.message = recording.message.clone();
+        self.recording = None;
+        Ok(())
     }
     pub fn initialize(&mut self, registry: &impl Registry) {
         for key in self.keys.iter().take(active_count()).copied() {
@@ -286,9 +357,20 @@ impl Manager {
                 .collect(),
             revision: self.revision,
             message: self.message.clone(),
+            recording: self
+                .recording
+                .as_ref()
+                .is_some_and(|recording| recording.active),
         }
     }
     pub fn action(&self, key: &Shortcut) -> Option<Action> {
+        if self
+            .recording
+            .as_ref()
+            .is_some_and(|recording| recording.active)
+        {
+            return None;
+        }
         self.keys
             .iter()
             .position(|k| k.id() == key.id() && self.held.contains_key(&k.id()))
@@ -310,6 +392,9 @@ impl Manager {
         }
     }
     pub fn save(&mut self, proposed: Bindings, registry: &impl Registry) -> Result<(), String> {
+        if self.recording.is_some() {
+            return Err("shortcut_recording_unavailable".into());
+        }
         let (bindings, keys) = proposed.validate()?;
         let old: HashSet<_> = self.held.keys().copied().collect();
         for (index, key) in keys.iter().take(active_count()).enumerate() {
@@ -349,6 +434,8 @@ mod tests {
         held: RefCell<HashSet<u32>>,
         blocked: RefCell<HashSet<u32>>,
         fail_remove: RefCell<bool>,
+        remove_calls: std::cell::Cell<usize>,
+        fail_remove_at: std::cell::Cell<Option<usize>>,
     }
     impl Registry for Fake {
         fn register(&self, key: Shortcut) -> Result<(), ()> {
@@ -360,7 +447,9 @@ mod tests {
             }
         }
         fn unregister(&self, key: Shortcut) -> Result<(), ()> {
-            if *self.fail_remove.borrow() {
+            let call = self.remove_calls.get() + 1;
+            self.remove_calls.set(call);
+            if *self.fail_remove.borrow() || self.fail_remove_at.get() == Some(call) {
                 Err(())
             } else {
                 self.held.borrow_mut().remove(&key.id());
@@ -375,6 +464,80 @@ mod tests {
             clipboard: "Ctrl+Alt+T".into(),
             ..Bindings::default()
         }
+    }
+    #[test]
+    fn recording_suspends_registered_combinations_and_restores_without_persisting_changes() {
+        let mut manager = Manager::open(std::path::Path::new(":memory:")).unwrap();
+        let registry = Fake::default();
+        manager.initialize(&registry);
+        let original = manager.snapshot();
+        let keys = manager.keys;
+        manager.begin_recording("first".into(), &registry).unwrap();
+        assert!(registry.held.borrow().is_empty());
+        assert!(manager.snapshot().recording);
+        for key in keys {
+            assert_eq!(manager.action(&key), None);
+        }
+        assert!(manager.save(changed(), &registry).is_err());
+        manager.end_recording(Some("stale"), &registry).unwrap();
+        assert!(manager.snapshot().recording);
+        manager.end_recording(Some("first"), &registry).unwrap();
+        let restored = manager.snapshot();
+        assert!(!restored.recording);
+        assert_eq!(restored.registered, original.registered);
+        assert_eq!(restored.revision, original.revision);
+        assert_eq!(
+            serde_json::to_string(&restored.bindings).unwrap(),
+            serde_json::to_string(&original.bindings).unwrap()
+        );
+        assert_eq!(manager.action(&keys[0]), Some(Action::Input));
+        let persisted: i64 = manager
+            .db
+            .query_row("SELECT count(*) FROM shortcuts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(persisted, 0);
+        manager.begin_recording("second".into(), &registry).unwrap();
+        manager.end_recording(Some("first"), &registry).unwrap();
+        assert!(
+            manager.snapshot().recording,
+            "a stale token cannot release a newer recording"
+        );
+        manager.end_recording(None, &registry).unwrap(); // Native focus/close and remount recovery.
+        assert_eq!(manager.snapshot().registered, original.registered);
+    }
+    #[test]
+    fn recording_unregister_failure_rolls_back_and_restoration_failure_remains_retryable() {
+        let mut manager = Manager::open(std::path::Path::new(":memory:")).unwrap();
+        let registry = Fake::default();
+        manager.initialize(&registry);
+        let count = registry.held.borrow().len();
+        registry.fail_remove_at.set(Some(2));
+        assert!(
+            manager
+                .begin_recording("rollback".into(), &registry)
+                .is_err()
+        );
+        assert_eq!(registry.held.borrow().len(), count);
+        assert!(!manager.snapshot().recording);
+        registry.fail_remove_at.set(None);
+        manager.begin_recording("retry".into(), &registry).unwrap();
+        let blocked = manager.keys[0];
+        registry.blocked.borrow_mut().insert(blocked.id());
+        assert!(manager.end_recording(Some("retry"), &registry).is_err());
+        assert!(!manager.snapshot().registered[0]);
+        assert_eq!(manager.action(&blocked), None);
+        assert!(manager.snapshot().message.contains("未恢复"));
+        registry.blocked.borrow_mut().clear();
+        manager.end_recording(None, &registry).unwrap();
+        assert_eq!(registry.held.borrow().len(), count);
+        assert!(
+            manager
+                .snapshot()
+                .registered
+                .iter()
+                .all(|registered| *registered)
+        );
+        assert!(!manager.snapshot().message.contains("未恢复"));
     }
     #[test]
     fn aliases_duplicates_and_unsafe_or_ambiguous_combinations_are_validated() {

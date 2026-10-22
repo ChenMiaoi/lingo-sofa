@@ -349,6 +349,14 @@ impl Shell {
     pub fn mode(&self, app: &tauri::AppHandle, mode: Mode) {
         self.interrupt_automatic();
         self.view.lock().unwrap().navigate(mode);
+        if mode != Mode::Settings
+            && let Some(shortcuts) = app.try_state::<std::sync::Mutex<crate::shortcuts::Manager>>()
+        {
+            let _ = shortcuts
+                .lock()
+                .unwrap()
+                .end_recording(None, &crate::shortcuts::AppRegistry(app));
+        }
         self.position(app);
     }
     pub fn resize_translation(&self, app: &tauri::AppHandle, epoch: u64, height: f64) {

@@ -37,6 +37,22 @@ test("window dragging accepts title descendants but excludes controls and source
     expect(canDragWindow(title.querySelector(selector), 0)).toBe(false);
 });
 const { createRoot } = await import("react-dom/client");
+function recordingKey(
+  type: string,
+  init: ConstructorParameters<typeof dom.KeyboardEvent>[1],
+  altGraph = false,
+): KeyboardEvent {
+  const event = new dom.KeyboardEvent(type, {
+    ...init,
+    bubbles: true,
+    cancelable: true,
+  });
+  const modifierState = event.getModifierState.bind(event);
+  // Happy DOM aliases AltGraph to Alt; tests supply this state explicitly.
+  event.getModifierState = (key: string) =>
+    key === "AltGraph" ? altGraph : modifierState(key);
+  return event as unknown as KeyboardEvent;
+}
 const context = {
   text: "The project code is MAPLE-731.",
   origin: "Acceptance document",
@@ -94,12 +110,22 @@ async function mount(
   requestLogin?: RequestLogin,
   loadSessions?: LoadSessions,
   loadActivity?: LoadActivity,
+  onRecording?: Perform,
 ) {
   const element = document.createElement("div");
   document.body.append(element);
   const root = createRoot(element);
   const calls: { command: string; args?: Record<string, unknown> }[] = [];
+  const recordingCalls: { command: string; args?: Record<string, unknown> }[] =
+    [];
   const perform = async (command: string, args?: Record<string, unknown>) => {
+    if (
+      command === "begin_shortcut_recording" ||
+      command === "end_shortcut_recording"
+    ) {
+      recordingCalls.push({ command, args });
+      return onRecording ? onRecording(command, args) : true;
+    }
     calls.push({ command, args });
     return onPerform?.(command, args);
   };
@@ -121,6 +147,7 @@ async function mount(
   return {
     element,
     calls,
+    recordingCalls,
     render,
     async close() {
       await act(async () => root.unmount());
@@ -151,6 +178,33 @@ async function mount(
     async type(value: string, selector = "input, textarea") {
       const input = element.querySelector(selector)!;
       expect(input.closest("[hidden]")).toBeNull();
+      if (input.id.startsWith("shortcut-")) {
+        await act(async () => {
+          (input as HTMLInputElement).focus();
+          (input as HTMLInputElement).click();
+        });
+        const parts = value.toLowerCase().split("+");
+        const flags = {
+          ctrlKey: parts.includes("ctrl") || parts.includes("control"),
+          altKey: parts.includes("alt") || parts.includes("option"),
+          shiftKey: parts.includes("shift"),
+          metaKey: ["command", "cmd", "super", "meta"].some((part) =>
+            parts.includes(part),
+          ),
+        };
+        const terminal = parts.at(-1)!;
+        const key =
+          terminal === "space"
+            ? " "
+            : terminal.startsWith("f") && terminal.length > 1
+              ? terminal.toUpperCase()
+              : terminal;
+        await act(async () => {
+          input.dispatchEvent(recordingKey("keydown", { key, ...flags }));
+          input.dispatchEvent(recordingKey("keyup", { key }));
+        });
+        return;
+      }
       const setter = Object.getOwnPropertyDescriptor(
         input.tagName === "TEXTAREA"
           ? dom.HTMLTextAreaElement.prototype
@@ -695,13 +749,13 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
       "已启用",
     );
     expect(ui.element.querySelector("#shortcut-help")!.textContent).toContain(
-      "Command/Cmd/Meta/Super",
+      "点击输入框后按组合键",
     );
     await ui.type("Command+Option+Q", "#shortcut-input");
     await ui.render({ ...value, shortcuts: { ...value.shortcuts } });
     expect(
       ui.element.querySelector("#shortcut-preview-input")!.textContent,
-    ).toBe("⌘⌥Q");
+    ).toBe("⌥⌘Q");
     const buttons = [
       ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
     ];
@@ -713,7 +767,7 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
         command: "save_shortcuts",
         args: {
           bindings: {
-            input: "Command+Option+Q",
+            input: "Option+Command+Q",
             selection: "Option+Shift+S",
             clipboard: "Option+Shift+T",
             selectionAlternate: "Ctrl+Option+Shift+S",
@@ -931,6 +985,669 @@ test("settings categories navigate independently and preserve shortcut edits acr
         },
       },
     ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("shortcut recording previews modifiers and captures physical combinations only after release", async () => {
+  for (const [macos, key, code, flags, expected] of [
+    [false, "p", "KeyP", { ctrlKey: true, altKey: true }, "Ctrl+Alt+P"],
+    [false, " ", "Space", { altKey: true, shiftKey: true }, "Alt+Shift+Space"],
+    [false, "F24", "F24", { ctrlKey: true }, "Ctrl+F24"],
+    [true, "q", "KeyQ", { altKey: true, metaKey: true }, "Option+Command+Q"],
+  ] as const) {
+    const value = state("settings");
+    value.shortcuts = {
+      ...value.shortcuts,
+      macos,
+      registered: [true, true, true, true],
+    };
+    const ui = await mount(value);
+    try {
+      await ui.click("快捷键");
+      const input =
+        ui.element.querySelector<HTMLInputElement>("#shortcut-input")!;
+      expect(input.readOnly).toBe(true);
+      await act(async () => {
+        input.focus();
+        input.click();
+      });
+      await act(async () => {
+        input.dispatchEvent(
+          recordingKey("keydown", { key: "Alt", altKey: true }),
+        );
+      });
+      expect(input.value).toBe(macos ? "Option+…" : "Alt+…");
+      expect(ui.calls).toHaveLength(0);
+      expect(ui.element.querySelector(".shortcut-warning")).toBeNull();
+      await act(async () => {
+        input.dispatchEvent(
+          recordingKey("keydown", { key, code, ...flags, repeat: true }),
+        );
+      });
+      expect(input.value).toBe(macos ? "Option+…" : "Alt+…");
+      await act(async () => {
+        input.dispatchEvent(recordingKey("keydown", { key, code, ...flags }));
+        input.dispatchEvent(recordingKey("keyup", { key, code, ...flags }));
+      });
+      expect(input.value).toBe(expected);
+      expect(
+        ui.recordingCalls.filter(
+          (call) => call.command === "end_shortcut_recording",
+        ),
+      ).toHaveLength(1); // Mount recovery only; modifiers are still held.
+      await act(async () =>
+        input.dispatchEvent(recordingKey("keyup", { key: "Alt" })),
+      );
+      expect(ui.recordingCalls.at(-1)?.command).toBe("end_shortcut_recording");
+      expect(
+        ui.recordingCalls.filter(
+          (call) => call.command === "end_shortcut_recording",
+        ),
+      ).toHaveLength(2);
+      expect(ui.calls).toHaveLength(0);
+      if (expected !== value.shortcuts.bindings.input) {
+        await ui.click("保存快捷键");
+        expect(ui.calls.at(-1)?.args?.bindings).toEqual(
+          expect.objectContaining({ input: expected }),
+        );
+      }
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("shortcut recording Esc cancels the candidate without leaving settings and Tab releases normally", async () => {
+  const ui = await mount(state("settings"));
+  try {
+    await ui.click("快捷键");
+    const input =
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!;
+    const original = input.value;
+    await act(async () => {
+      input.focus();
+      input.click();
+    });
+    await act(async () =>
+      input.dispatchEvent(
+        recordingKey("keydown", {
+          key: "p",
+          code: "KeyP",
+          ctrlKey: true,
+          altKey: true,
+        }),
+      ),
+    );
+    expect(input.value).toBe("Ctrl+Alt+P");
+    const escape = recordingKey("keydown", { key: "Escape" });
+    await act(async () => input.dispatchEvent(escape));
+    expect(escape.defaultPrevented).toBe(true);
+    expect(input.value).toBe(original);
+    expect(input.closest("[hidden]")).toBeNull();
+    expect(ui.element.querySelector('[aria-label="返回设置"]')).not.toBeNull();
+    await act(async () => input.click());
+    const tab = recordingKey("keydown", { key: "Tab" });
+    await act(async () => input.dispatchEvent(tab));
+    expect(tab.defaultPrevented).toBe(false);
+    expect(ui.recordingCalls.at(-1)?.command).toBe("end_shortcut_recording");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("explicit Ctrl and left Alt recording accepts a valid combination even when AltGraph state is true", async () => {
+  const ui = await mount(state("settings"));
+  try {
+    await ui.click("快捷键");
+    const input =
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!;
+    await act(async () => {
+      input.focus();
+      input.click();
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        recordingKey("keydown", {
+          key: "Control",
+          code: "ControlLeft",
+          ctrlKey: true,
+        }),
+      );
+      input.dispatchEvent(
+        recordingKey(
+          "keydown",
+          { key: "Alt", code: "AltLeft", ctrlKey: true, altKey: true },
+          true,
+        ),
+      );
+      input.dispatchEvent(
+        recordingKey(
+          "keydown",
+          { key: "p", code: "KeyP", ctrlKey: true, altKey: true },
+          true,
+        ),
+      );
+    });
+    expect(input.value).toBe("Ctrl+Alt+P");
+    await act(async () => {
+      input.dispatchEvent(
+        recordingKey("keyup", {
+          key: "Control",
+          code: "ControlLeft",
+          altKey: true,
+        }),
+      );
+      input.dispatchEvent(
+        recordingKey("keyup", { key: "Alt", code: "AltLeft" }),
+      );
+    });
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toContain(
+      "修改尚未保存",
+    );
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("shortcut recording explains invalid keys and ignores IME and AltGraph without changing its draft", async () => {
+  const ui = await mount(state("settings"));
+  try {
+    await ui.click("快捷键");
+    const input =
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!;
+    const original = input.value;
+    await act(async () => {
+      input.focus();
+      input.click();
+    });
+    for (const init of [
+      { key: "p" },
+      { key: "Delete", ctrlKey: true },
+      { key: "F25", altKey: true },
+    ]) {
+      await act(async () => input.dispatchEvent(recordingKey("keydown", init)));
+      expect(
+        ui.element.querySelector(".shortcut-status")?.textContent,
+      ).toContain("请组合 Ctrl 或 Alt");
+    }
+    await act(async () =>
+      input.dispatchEvent(
+        recordingKey("keydown", { key: "Process", isComposing: true }),
+      ),
+    );
+    await act(async () =>
+      input.dispatchEvent(
+        recordingKey("keydown", {
+          key: "p",
+          code: "KeyP",
+          ctrlKey: true,
+          altKey: true,
+          keyCode: 229,
+        }),
+      ),
+    );
+    await act(async () =>
+      input.dispatchEvent(
+        recordingKey(
+          "keydown",
+          { key: "AltGraph", code: "AltRight", ctrlKey: true, altKey: true },
+          true,
+        ),
+      ),
+    );
+    await act(async () =>
+      input.dispatchEvent(
+        recordingKey(
+          "keydown",
+          { key: "@", code: "KeyQ", ctrlKey: true, altKey: true },
+          true,
+        ),
+      ),
+    );
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toContain(
+      "不支持 AltGraph",
+    );
+    await act(async () =>
+      input.dispatchEvent(recordingKey("keydown", { key: "Escape" })),
+    );
+    expect(input.value).toBe(original);
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("late native recording acknowledgement after blur or unmount always restores the matching lease", async () => {
+  for (const exit of ["field-blur", "window-blur", "hidden", "unmount"]) {
+    const begin = Promise.withResolvers<boolean>();
+    const ui = await mount(
+      state("settings"),
+      catalog,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async (command) =>
+        command === "begin_shortcut_recording" ? begin.promise : true,
+    );
+    let closed = false;
+    try {
+      await ui.click("快捷键");
+      const input =
+        ui.element.querySelector<HTMLInputElement>("#shortcut-input")!;
+      const original = input.value;
+      await act(async () => {
+        input.focus();
+        input.click();
+      });
+      await act(async () =>
+        input.dispatchEvent(
+          recordingKey("keydown", { key: "p", ctrlKey: true, altKey: true }),
+        ),
+      );
+      expect(input.value).toBe(original);
+      if (exit === "unmount") {
+        await ui.close();
+        closed = true;
+      } else if (exit === "window-blur") {
+        await act(async () =>
+          window.dispatchEvent(new dom.Event("blur") as unknown as Event),
+        );
+      } else if (exit === "hidden") await ui.click("返回设置");
+      else await act(async () => input.blur());
+      await act(async () => begin.resolve(true));
+      const started = ui.recordingCalls.find(
+        (call) => call.command === "begin_shortcut_recording",
+      )!;
+      expect(ui.recordingCalls.at(-1)).toEqual({
+        command: "end_shortcut_recording",
+        args: started.args,
+      });
+      expect(input.value).toBe(original);
+      expect(ui.calls).toHaveLength(0);
+    } finally {
+      begin.resolve(true);
+      if (!closed) await ui.close();
+    }
+  }
+});
+
+test("recording restore failure remains retryable and a remounted page recovers unknown old leases", async () => {
+  let recoveries = 0;
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async (command, args) =>
+      command !== "end_shortcut_recording" ||
+      args?.token !== null ||
+      ++recoveries > 1,
+  );
+  try {
+    await ui.click("快捷键");
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toContain(
+      "未恢复",
+    );
+    await ui.click("重试恢复快捷键");
+    expect(recoveries).toBe(2);
+    await ui.type("Ctrl+Alt+P", "#shortcut-input");
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Ctrl+Alt+P");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("failed restoration after recording keeps the new draft and retries the same lease", async () => {
+  let endAttempts = 0;
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async (command, args) =>
+      command !== "end_shortcut_recording" ||
+      args?.token === null ||
+      ++endAttempts > 1,
+  );
+  try {
+    await ui.click("快捷键");
+    await ui.type("Ctrl+Alt+P", "#shortcut-input");
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Ctrl+Alt+P");
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toContain(
+      "未恢复",
+    );
+    await ui.click("重试恢复快捷键");
+    expect(endAttempts).toBe(2);
+    const ends = ui.recordingCalls.filter(
+      (call) =>
+        call.command === "end_shortcut_recording" && call.args?.token !== null,
+    );
+    expect(ends[0]?.args).toEqual(ends[1]?.args);
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toContain(
+      "修改尚未保存",
+    );
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("shortcut edits reverted to the saved bindings no longer need saving", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    registered: [true, true, true, true],
+  };
+  const ui = await mount(value);
+  try {
+    await ui.click("快捷键");
+    await ui.type("Ctrl+Alt+Q", "#shortcut-input");
+    expect(ui.element.textContent).toContain("修改尚未保存");
+    await ui.type(value.shortcuts.bindings.input, "#shortcut-input");
+    const button = [...ui.element.querySelectorAll("button")].find(
+      (item) => item.textContent === "保存快捷键",
+    )!;
+    expect(button.disabled).toBe(true);
+    expect(ui.element.textContent).not.toContain("修改尚未保存");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("shortcut polling after a save preserves a newer edit and its focused input", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    registered: [true, true, true, true],
+  };
+  const ui = await mount(value, catalog, async () => true);
+  try {
+    await ui.click("快捷键");
+    await ui.type("ctrl+alt+q", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.type("Ctrl+Alt+W", "#shortcut-input");
+    const input =
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")!;
+    input.focus();
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 1,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+Q" },
+        message: "快捷键已保存并生效。",
+      },
+    });
+    expect(ui.element.querySelector("#shortcut-input") === input).toBe(true);
+    expect(input.value).toBe("Ctrl+Alt+W");
+    expect(document.activeElement).toBe(input);
+    expect(ui.element.textContent).toContain("修改尚未保存");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("shortcut save guards rapid duplicate clicks before rendering pending state", async () => {
+  const value = state("settings");
+  const result = Promise.withResolvers<boolean>();
+  const ui = await mount(value, catalog, () => result.promise);
+  try {
+    await ui.click("快捷键");
+    await ui.type("Ctrl+Alt+Q", "#shortcut-input");
+    const button = [...ui.element.querySelectorAll("button")].find(
+      (item) => item.textContent === "保存快捷键",
+    )!;
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(
+      ui.calls.filter((call) => call.command === "save_shortcuts"),
+    ).toHaveLength(1);
+    expect(button.disabled).toBe(true);
+  } finally {
+    await act(async () => result.resolve(false));
+    await ui.close();
+  }
+});
+
+test("successful shortcut polling clears the saved draft through the real settings parent", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    registered: [true, true, true, true],
+  };
+  const ui = await mount(value, catalog, async () => true);
+  try {
+    await ui.click("快捷键");
+    await ui.type("ctrl+alt+q", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 1,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+Q" },
+        message: "快捷键已保存并生效。",
+      },
+    });
+    expect(ui.element.textContent).not.toContain("修改尚未保存");
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Ctrl+Alt+Q");
+    const button = [...ui.element.querySelectorAll("button")].find(
+      (item) => item.textContent === "保存快捷键",
+    )!;
+    expect(button.disabled).toBe(true);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("shortcut canonical polling before the save reply does not revert normalized macOS bindings", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    macos: true,
+    ocr: true,
+    registered: [true, true, true, true, true, true],
+  };
+  const result = Promise.withResolvers<boolean>();
+  const ui = await mount(value, catalog, () => result.promise);
+  try {
+    await ui.click("快捷键");
+    await ui.type("cmd+option+q", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 1,
+        bindings: { ...value.shortcuts.bindings, input: "Alt+Super+Q" },
+      },
+    });
+    await act(async () => result.resolve(true));
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Option+Command+Q");
+    expect(ui.element.textContent).not.toContain("修改尚未保存");
+  } finally {
+    result.resolve(true);
+    await ui.close();
+  }
+});
+
+test("shortcut failed saves retain the draft and unregistered bindings remain retryable", async () => {
+  for (const throws of [false, true]) {
+    const value = state("settings");
+    let attempts = 0;
+    const ui = await mount(value, catalog, async () => {
+      if (++attempts > 1) return true;
+      if (throws) throw new Error("shortcuts_storage_failed");
+      return false;
+    });
+    try {
+      await ui.click("快捷键");
+      await ui.type("Ctrl+Alt+Q", "#shortcut-input");
+      await ui.click("保存快捷键");
+      expect(
+        ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+      ).toBe("Ctrl+Alt+Q");
+      expect(
+        ui.element.querySelector(".shortcut-status")?.textContent,
+      ).toContain("草稿已保留");
+      await ui.click("保存快捷键");
+      expect(attempts).toBe(2);
+      expect(ui.element.querySelector(".shortcut-status")?.textContent).toBe(
+        "快捷键已保存。",
+      );
+      const button = [...ui.element.querySelectorAll("button")].find(
+        (item) => item.textContent === "保存快捷键",
+      )!;
+      expect(button.disabled).toBe(false);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("restoring shortcut defaults only edits the draft and hidden snapshot refresh preserves newer edits", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+Q" },
+    registered: [true, true, true, true],
+  };
+  const ui = await mount(value);
+  try {
+    await ui.click("快捷键");
+    await ui.click("恢复默认");
+    expect(ui.calls).toHaveLength(0);
+    expect(ui.element.textContent).toContain("修改尚未保存");
+    await ui.click("返回设置");
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 1,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+W" },
+      },
+    });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("快捷键");
+    await ui.click("快捷键");
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe(initialState.shortcuts.bindings.input);
+    expect(ui.element.textContent).toContain("修改尚未保存");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("a second shortcut save before polling does not adopt the first save canonical snapshot", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    registered: [true, true, true, true],
+  };
+  const second = Promise.withResolvers<boolean>();
+  let attempts = 0;
+  const ui = await mount(value, catalog, async () =>
+    ++attempts === 1 ? true : second.promise,
+  );
+  try {
+    await ui.click("快捷键");
+    await ui.type("Ctrl+Alt+Q", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.type("ctrl+alt+w", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 1,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+Q" },
+      },
+    });
+    await act(async () => second.resolve(true));
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Ctrl+Alt+W");
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 2,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+W" },
+      },
+    });
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Ctrl+Alt+W");
+    expect(ui.element.textContent).not.toContain("修改尚未保存");
+  } finally {
+    second.resolve(true);
+    await ui.close();
+  }
+});
+
+test("a failed second shortcut save still accepts the preceding snapshot without losing its newer draft", async () => {
+  const value = state("settings");
+  value.shortcuts = {
+    ...value.shortcuts,
+    registered: [true, true, true, true],
+  };
+  let attempts = 0;
+  const ui = await mount(value, catalog, async () => ++attempts !== 2);
+  try {
+    await ui.click("快捷键");
+    await ui.type("Ctrl+Alt+Q", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.type("Ctrl+Alt+W", "#shortcut-input");
+    await ui.click("保存快捷键");
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 1,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+Q" },
+        message: "快捷键已保存并生效。",
+      },
+    });
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#shortcut-input")?.value,
+    ).toBe("Ctrl+Alt+W");
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toContain(
+      "保存失败，草稿已保留",
+    );
+    await ui.click("保存快捷键");
+    expect(attempts).toBe(3);
+    await ui.render({
+      ...value,
+      shortcuts: {
+        ...value.shortcuts,
+        revision: value.shortcuts.revision + 2,
+        bindings: { ...value.shortcuts.bindings, input: "Ctrl+Alt+W" },
+        message: "快捷键已保存并生效。",
+      },
+    });
+    expect(ui.element.querySelector(".shortcut-status")?.textContent).toBe(
+      "快捷键已保存并生效。",
+    );
   } finally {
     await ui.close();
   }

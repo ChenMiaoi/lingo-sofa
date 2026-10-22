@@ -56,6 +56,36 @@ fn desktop_state(
     })
 }
 #[tauri::command]
+fn begin_shortcut_recording(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<Shell>,
+    service: tauri::State<Service>,
+    shortcuts: tauri::State<Mutex<shortcuts::Manager>>,
+    token: String,
+) -> Result<(), String> {
+    allowed(&window)?;
+    let mut manager = shortcuts.lock().unwrap();
+    if !window.is_focused().unwrap_or(false) || shell.state(&service).desktop.mode != Mode::Settings
+    {
+        return Err("shortcut_recording_unavailable".into());
+    }
+    manager.begin_recording(token, &shortcuts::AppRegistry(&app))
+}
+#[tauri::command]
+fn end_shortcut_recording(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shortcuts: tauri::State<Mutex<shortcuts::Manager>>,
+    token: Option<String>,
+) -> Result<(), String> {
+    allowed(&window)?;
+    shortcuts
+        .lock()
+        .unwrap()
+        .end_recording(token.as_deref(), &shortcuts::AppRegistry(&app))
+}
+#[tauri::command]
 fn save_shortcuts(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -616,6 +646,8 @@ fn main() {
             save_settings,
             patch_settings,
             save_shortcuts,
+            begin_shortcut_recording,
+            end_shortcut_recording,
             copy_result,
             copy_text,
             collapse
@@ -679,6 +711,20 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::Focused(false) | tauri::WindowEvent::CloseRequested { .. }
+                )
+            {
+                let app = window.app_handle();
+                if let Some(shortcuts) = app.try_state::<Mutex<shortcuts::Manager>>() {
+                    let _ = shortcuts
+                        .lock()
+                        .unwrap()
+                        .end_recording(None, &shortcuts::AppRegistry(app));
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let app = window.app_handle();

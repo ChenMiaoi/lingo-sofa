@@ -290,7 +290,7 @@ export function Settings({
         </div>
         <div hidden={page !== "shortcuts"}>
           <ShortcutSettings
-            key={state.shortcuts.revision}
+            active={page === "shortcuts"}
             snapshot={state.shortcuts}
             display={model.settings.translationDisplay}
             notice={notice}

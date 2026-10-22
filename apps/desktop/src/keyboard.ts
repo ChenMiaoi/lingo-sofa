@@ -51,3 +51,41 @@ export function editableShortcut(value: string, macos: boolean): string {
     })
     .join("+");
 }
+
+export function capturedShortcut(
+  event: Pick<
+    KeyboardEvent,
+    "key" | "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey"
+  >,
+  macos: boolean,
+): { preview: string; value: string | null } {
+  const modifiers = [
+    event.ctrlKey ? "Ctrl" : "",
+    event.altKey ? (macos ? "Option" : "Alt") : "",
+    event.shiftKey ? "Shift" : "",
+    event.metaKey ? (macos ? "Command" : "Win") : "",
+  ].filter(Boolean);
+  const preview = modifiers.length ? `${modifiers.join("+")}+…` : "";
+  if (["Control", "Alt", "Shift", "Meta", "OS"].includes(event.key))
+    return { preview, value: null };
+  const physical = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(event.code);
+  const key = physical
+    ? physical[1] || physical[2]
+    : event.code === "Space" || event.key === " "
+      ? "Space"
+      : /^(?:F[1-9]|F1[0-9]|F2[0-4])$/.test(event.key)
+        ? event.key
+        : /^[a-z0-9]$/i.test(event.key)
+          ? event.key.toUpperCase()
+          : "";
+  if (
+    !key ||
+    (!macos && event.metaKey) ||
+    !(event.ctrlKey || event.altKey || (macos && event.metaKey))
+  )
+    return { preview, value: null };
+  return {
+    preview: [...modifiers, key].join("+"),
+    value: [...modifiers, key].join("+"),
+  };
+}
