@@ -15,6 +15,45 @@ export class SessionHistory {
   readonly directory: string;
   private readonly pointer: string;
   private selection = Promise.resolve();
+  private pageSequence = 0;
+  private readonly pages = new Map<
+    string,
+    { query: string; items: Awaited<ReturnType<SessionHistory["list"]>> }
+  >();
+  async page(offset: number, query = "", snapshot?: string) {
+    if (!Number.isSafeInteger(offset) || offset < 0 || query.length > 512)
+      throw new Error("invalid_page");
+    let page = snapshot ? this.pages.get(snapshot) : undefined;
+    if (snapshot && (!page || page.query !== query))
+      throw new Error("history_changed");
+    if (!page) {
+      const all = await this.list();
+      const normalized = query.trim().toLowerCase();
+      page = {
+        query,
+        items: all.filter((item) =>
+          `${item.title || item.firstMessage || "空白会话"} ${item.id}`
+            .toLowerCase()
+            .includes(normalized),
+        ),
+      };
+      snapshot = String(++this.pageSequence);
+      this.pages.set(snapshot, page);
+      if (this.pages.size > 8)
+        this.pages.delete(this.pages.keys().next().value!);
+    }
+    // Each browsing/search request sees a stable snapshot; reopening refreshes it.
+    return {
+      snapshot,
+      total: page.items.length,
+      sessions: page.items.slice(offset, offset + 50).map((item) => ({
+        id: item.id,
+        title: (item.title || item.firstMessage || "空白会话").slice(0, 100),
+        modified: item.modified.toISOString(),
+        messageCount: item.messageCount,
+      })),
+    };
+  }
   constructor(
     private readonly sdk: typeof SDK,
     private readonly cwd: string,

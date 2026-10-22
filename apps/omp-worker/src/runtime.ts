@@ -738,19 +738,14 @@ export async function runWorker(options: WorkerOptions) {
         const offset = Number(frame.payload.offset ?? 0);
         if (!Number.isSafeInteger(offset) || offset < 0)
           throw new Error("invalid_page");
-        const all = await history.list();
-        return {
-          sessions: all.slice(offset, offset + 50).map((item) => ({
-            id: item.id,
-            title: (item.title || item.firstMessage || "空白会话").slice(
-              0,
-              100,
-            ),
-            modified: item.modified.toISOString(),
-            messageCount: item.messageCount,
-          })),
-          total: all.length,
-        };
+        const query = frame.payload.query ?? "";
+        const snapshot = frame.payload.snapshot ?? undefined;
+        if (
+          typeof query !== "string" ||
+          (snapshot !== undefined && typeof snapshot !== "string")
+        )
+          throw new Error("invalid_page");
+        return history.page(offset, query, snapshot);
       }
       case "session.latest":
         return { id: await history.current() };

@@ -102,9 +102,13 @@ export async function loadActivity(
 }
 export type LoadSessions = (
   offset?: number,
-) => Promise<{ sessions: SessionInfo[]; total: number }>;
-export const loadSessions: LoadSessions = (offset = 0) =>
-  call("session_request", { request: { action: "list", offset } });
+  query?: string,
+  snapshot?: string,
+) => Promise<{ sessions: SessionInfo[]; total: number; snapshot?: string }>;
+export const loadSessions: LoadSessions = (offset = 0, query = "", snapshot) =>
+  call("session_request", {
+    request: { action: "list", offset, query, snapshot },
+  });
 export const initialView: View = {
   revision: 0,
   phase: "ready",
@@ -162,6 +166,7 @@ export function errorMessage(error: unknown, macos = false): string {
     context_limit: "上下文过长，请缩短文本或新建会话。",
     network: "网络连接失败，请检查网络后重试。",
     model_unavailable: "模型不可用，请切换模型。",
+    history_changed: "会话列表已过期，请重新加载。",
     model_not_verified: "所选模型不可用，请刷新模型列表后重试。",
     invalid_model: "请选择有效模型。",
     update_task_active: "请等待当前翻译或 Ask 任务结束后安装更新。",

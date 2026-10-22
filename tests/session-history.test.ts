@@ -283,3 +283,52 @@ test("durable activity restores every turn and complete tool data through bounde
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("history pages enumerate once per stable snapshot and search the complete metadata", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lingo-pages-"));
+  let reads = 0;
+  const entries = Array.from({ length: 125 }, (_, index) => ({
+    id: `session-${index}`,
+    title: index === 124 ? "x".repeat(110) + "needle" : `Title ${index}`,
+    firstMessage: "",
+    modified: new Date(1000 - index),
+    messageCount: 2,
+  }));
+  const fake = {
+    SessionManager: {
+      list: async () => {
+        reads++;
+        return [...entries];
+      },
+    },
+  } as unknown as typeof sdk;
+  const history = new SessionHistory(fake, directory);
+  try {
+    const first = await history.page(0);
+    expect(first.sessions).toHaveLength(50);
+    entries.unshift({ ...entries[0]!, id: "new", modified: new Date(2000) });
+    const second = await history.page(50, "", first.snapshot);
+    const last = await history.page(100, "", first.snapshot);
+    expect(reads).toBe(1);
+    expect(
+      new Set(
+        [...first.sessions, ...second.sessions, ...last.sessions].map(
+          (item) => item.id,
+        ),
+      ).size,
+    ).toBe(125);
+    expect((await history.page(0)).total).toBe(126);
+    expect(
+      (await history.page(0, "needle")).sessions.map((item) => item.id),
+    ).toEqual(["session-124"]);
+    await expect(history.page(50, "changed", first.snapshot)).rejects.toThrow(
+      "history_changed",
+    );
+    for (let i = 0; i < 8; i++) await history.page(0, String(i));
+    await expect(history.page(50, "", first.snapshot)).rejects.toThrow(
+      "history_changed",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

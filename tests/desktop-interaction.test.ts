@@ -2340,35 +2340,37 @@ test("a late startup restore failure does not replace an active translation", as
   }
 });
 
-test("history search includes later pages and never reports no matches for incomplete history", async () => {
-  const offsets: number[] = [];
+test("history loads one page, searches all history on the server and retries incomplete pages", async () => {
+  const requests: Array<[number, string]> = [];
   let fail = true;
-  const load: LoadSessions = async (offset = 0) => {
-    offsets.push(offset);
+  const load: LoadSessions = async (offset = 0, query = "") => {
+    requests.push([offset, query]);
     if (offset && fail) return { sessions: [], total: 2 };
     return {
       sessions: [
         {
-          id: offset ? "older" : "recent",
-          title: offset ? "Older target" : "Recent",
+          id: query ? "older" : offset ? "next" : "recent",
+          title: query ? "x".repeat(100) : offset ? "Next" : "Recent",
           modified: "2026-10-21T00:00:00Z",
           messageCount: 2,
         },
       ],
-      total: 2,
+      total: query ? 1 : 2,
+      snapshot: "stable",
     };
   };
   const ui = await mount(state("input"), catalog, undefined, undefined, load);
   try {
-    await ui.type("/resume Older");
+    await ui.type("/resume");
     await ui.key("Enter");
-    expect(offsets).toEqual([0, 1]);
+    expect(requests).toEqual([[0, ""]]);
+    await ui.click("加载更多会话");
     expect(ui.element.textContent).toContain("会话历史未加载完整");
-    expect(ui.element.textContent).not.toContain("没有匹配的会话");
     fail = false;
     await ui.click("重新加载会话");
-    expect(ui.element.textContent).toContain("Older target");
-    expect(ui.element.querySelector("strong")?.title).toBe("Older target");
+    await ui.type("Older");
+    expect(requests.at(-1)).toEqual([0, "Older"]);
+    expect(ui.element.querySelector("strong")?.title).toBe("x".repeat(100));
     await ui.key("Enter");
     expect(ui.calls.at(-1)?.args).toEqual({
       request: { action: "resume", id: "older" },
@@ -2536,15 +2538,15 @@ test("picker paging clamps to visible rows and history identifies the current se
     }),
     undefined,
     undefined,
-    async () => ({
-      total: 12,
-      sessions: Array.from({ length: 12 }, (_, i) => ({
+    async (_offset, query = "") => {
+      const sessions = Array.from({ length: 12 }, (_, i) => ({
         id: `item-${i}`,
         title: `Session ${i}`,
         modified: "2026-10-21T00:00:00Z",
         messageCount: 2,
-      })),
-    }),
+      })).filter((item) => item.title.includes(query));
+      return { total: sessions.length, sessions };
+    },
   );
   try {
     await ui.type("/model");
@@ -2572,7 +2574,7 @@ test("picker paging clamps to visible rows and history identifies the current se
       "Session 8",
     );
     await ui.type("Session 11");
-    expect(ui.element.textContent).toContain("1 / 12 个会话");
+    expect(ui.element.textContent).toContain("1 / 1 个会话");
     await ui.key("PageDown");
     expect(ui.element.querySelector(".action.selected")?.textContent).toContain(
       "Session 11",
@@ -3263,6 +3265,7 @@ test("history browsing cannot replace the current answer code position", async (
     await ui.close();
   }
 });
+
 test("active task identity keeps cancellation available and blocks followups after a phase change", async () => {
   for (const phase of ["ready", "error"] as const) {
     const value = state("ask-result");
@@ -3346,6 +3349,34 @@ test("truncated and incomplete results retain text and show recovery guidance in
     }
   }
 });
+test("history ignores search responses that arrive after the query changes", async () => {
+  let finish!: (value: Awaited<ReturnType<LoadSessions>>) => void;
+  const delayed = new Promise<Awaited<ReturnType<LoadSessions>>>((resolve) => {
+    finish = resolve;
+  });
+  const item = (id: string) => ({
+    id,
+    title: id,
+    modified: "2026-10-21T00:00:00Z",
+    messageCount: 1,
+  });
+  const load: LoadSessions = async (_offset, query) =>
+    query === "old" ? delayed : { sessions: [item("new")], total: 1 };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume old");
+    await ui.key("Enter");
+    await ui.type("new");
+    await act(async () => {
+      finish({ sessions: [item("old")], total: 1 });
+      await delayed;
+    });
+    expect(ui.element.querySelector("strong")?.title).toBe("new");
+  } finally {
+    await ui.close();
+  }
+});
+
 test("an empty incomplete translation stops loading and preserves the safe failure message", async () => {
   const value = state("ask-result");
   value.desktop = {

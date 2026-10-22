@@ -30,27 +30,26 @@ export function SessionPicker({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [snapshot, setSnapshot] = useState<string>();
+  const generation = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
   useEffect(() => {
     let disposed = false;
+    generation.current++;
     input.current?.focus();
     setLoading(true);
     setError("");
     setSessions([]);
+    setSnapshot(undefined);
     setSelected(0);
     void (async () => {
-      const all: SessionInfo[] = [];
       try {
-        while (!disposed) {
-          const value = await load(all.length);
-          if (disposed) return;
-          all.push(...value.sessions);
-          setSessions([...all]);
-          setTotal(value.total);
-          if (all.length >= value.total) break;
-          if (!value.sessions.length) throw new Error("incomplete_history");
-        }
+        const value = await load(0, query);
+        if (disposed) return;
+        setSessions(value.sessions);
+        setTotal(value.total);
+        setSnapshot(value.snapshot);
       } catch {
         if (!disposed) setError("会话历史未加载完整，请重试。");
       } finally {
@@ -59,13 +58,10 @@ export function SessionPicker({
     })();
     return () => {
       disposed = true;
+      generation.current++;
     };
-  }, [load, reload]);
-  const choices = sessions.filter((item) =>
-    `${item.title} ${item.id}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
-  );
+  }, [load, reload, query]);
+  const choices = sessions;
   useEffect(() => {
     setSelected(0);
   }, [query]);
@@ -75,6 +71,30 @@ export function SessionPicker({
       ?.querySelector(".action.selected")
       ?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
+  const more = async () => {
+    if (loading || saving) return;
+    const version = generation.current;
+    setLoading(true);
+    setError("");
+    try {
+      const value = await load(sessions.length, query, snapshot);
+      if (version !== generation.current) return;
+      if (!value.sessions.length && sessions.length < value.total)
+        throw new Error("incomplete_history");
+      setSessions((previous) => [
+        ...previous,
+        ...value.sessions.filter(
+          (item) => !previous.some((old) => old.id === item.id),
+        ),
+      ]);
+      setTotal(value.total);
+    } catch {
+      if (version === generation.current)
+        setError("会话历史未加载完整，请重试。");
+    } finally {
+      if (version === generation.current) setLoading(false);
+    }
+  };
   const choose = async (item?: SessionInfo) => {
     if (!item || pending.current) return;
     pending.current = true;
@@ -178,6 +198,11 @@ export function SessionPicker({
           <p className="quiet-status">
             {sessions.length ? "没有匹配的会话" : "暂无历史会话"}
           </p>
+        )}
+        {sessions.length < total && !error && (
+          <button disabled={loading || saving} onClick={() => void more()}>
+            加载更多会话
+          </button>
         )}
         {error && (
           <button

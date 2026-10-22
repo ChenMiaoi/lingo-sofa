@@ -509,7 +509,11 @@ fn omp_history_survives_new_and_restart_and_restores_complete_followup_context()
     service.reset().unwrap();
     wait(&service, |v| !v.session_ready && v.output.is_empty());
     let list = service
-        .session_request(SessionRequest::List { offset: 0 })
+        .session_request(SessionRequest::List {
+            offset: 0,
+            query: String::new(),
+            snapshot: None,
+        })
         .unwrap();
     assert!(
         list["sessions"]

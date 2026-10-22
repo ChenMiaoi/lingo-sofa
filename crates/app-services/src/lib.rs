@@ -36,6 +36,9 @@ pub enum SessionRequest {
     },
     List {
         offset: usize,
+        #[serde(default)]
+        query: String,
+        snapshot: Option<String>,
     },
     Resume {
         id: String,
@@ -423,7 +426,11 @@ impl Service {
             {
                 return Err("invalid_thinking");
             }
-            SessionRequest::List { offset } if *offset > 100_000 => return Err("invalid_page"),
+            SessionRequest::List { offset, query, .. }
+                if *offset > 100_000 || query.len() > 2048 =>
+            {
+                return Err("invalid_page");
+            }
             _ => {}
         }
         let (reply, result) = mpsc::sync_channel(1);
@@ -576,9 +583,14 @@ fn serve(
                                         json!({"sessionId":id,"offset":offset,"version":version}),
                                     )
                                 }
-                                SessionRequest::List { offset } => {
-                                    host.request("session.list", json!({"offset":offset}))
-                                }
+                                SessionRequest::List {
+                                    offset,
+                                    query,
+                                    snapshot,
+                                } => host.request(
+                                    "session.list",
+                                    json!({"offset":offset,"query":query,"snapshot":snapshot}),
+                                ),
                                 SessionRequest::Decision { id, approved } => host.request(
                                     "session.decision",
                                     json!({"sessionId":session, "id":id,"approved":approved}),
