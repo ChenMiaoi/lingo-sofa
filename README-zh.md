@@ -20,7 +20,7 @@ LingoSofa 是 Windows 上的悬浮翻译工具。选中文字，在旁边阅读�
 
 [效果预览](#效果预览) · [开始使用](#开始使用) · [文档](#文档) · [反馈问题](https://github.com/ChenMiaoi/lingo-sofa/issues)
 
-> **开发预览版。** 当前桌面版面向 Windows 11 x64，安装包尚未签名。浏览器选区仍待人工验收；macOS 已接入本地截图 OCR，Windows OCR 和部分模型协议尚未开放；订阅登录已接入，真实账户仍需逐项验收。已验证的应用范围与剩余工作见 [兼容与验收状态](docs/acceptance.md)。
+> **开发预览版。** 当前桌面版面向 Windows 11 x64，安装包尚未签名。浏览器选区仍待人工验收；Windows 与 macOS 已接入本地截图 OCR，Windows 使用随包 CPU 模型，部分模型协议尚未开放；订阅登录已接入，真实账户仍需逐项验收。已验证的应用范围与剩余工作见 [兼容与验收状态](docs/acceptance.md)。
 
 ## 效果预览
 
@@ -76,13 +76,15 @@ macOS 默认组合显示为 **⌥⇧Space**、**⌥⇧S**、**⌥⇧T**。自定
 
 在 **设置 → 全局快捷键** 中修改组合，保存后即时生效；注册失败时保留原设置，仍可通过边缘入口或托盘操作。
 
-macOS 可按 ⌥⇧O、从悬浮入口菜单选择“截图翻译”，或执行 `/ocr`，框选后直接在区域下方翻译。设置可切换集中面板；⌃⌥⇧O 临时使用另一种样式，划词对应 ⌥⇧S / ⌃⌥⇧S。图片不上传，Windows OCR 后续补齐。详见[截图识别指南](docs/macos-ocr.md)。
+Windows 与 macOS 均可从悬浮入口菜单选择“截图翻译”或执行 `/ocr`，框选后直接在区域下方翻译。Windows 快捷键为 Alt+Shift+O，macOS 为 ⌥⇧O；设置可切换集中面板，Ctrl+Alt+Shift+O（macOS 为 ⌃⌥⇧O）临时使用另一种布局。图片保持本地，识别文字会发送给默认翻译模型。Windows 使用随包 PP-OCRv5 mobile 与 ONNX Runtime CPU，需要 Microsoft Visual C++ 2015–2022 x64 运行库，限制单屏 400 万像素、最长边 4096；干净机与混合 DPI 验收仍待完成。详见 [Windows OCR](docs/windows-ocr.md) 和 [macOS 截图识别](docs/macos-ocr.md)。
 
 输入与 Ask 窗口中输入 `/` 可查看应用命令，使用方向键选择、Tab 补全命令、Enter 执行（例如 `/mo` → Tab → `/model `）。`/ask [问题]` 直接提问（独立输入创建新问题，Ask 中沿当前上下文追问；不带问题时准备输入），`/login` 打开订阅账户登录，`/settings` 打开设置，`/model` 在当前窗口打开可搜索的模型列表，方向键选择、Enter 切换、Esc 返回；`/model 搜索词` 可预先过滤，未配置时在同一浮层用键盘选择服务商、模型并输入 API Key，`/model deepseek/deepseek-flash` 设置默认模型，`/language en` 修改翻译语言，`/pin on` 或 `/pin off` 设置置顶，`/shortcuts` 打开快捷键页，`/new` 停止当前任务、清空原文与会话并回到空白输入（保留模型及其他设置）。导航与配置在本机处理，登录连接所选服务商授权接口；以 `//` 开头可提交斜杠正文。
 
 OMP 文件会话保留历史，重启后可继续。`/resume [搜索词]` 用方向键与 Enter 恢复，`/new` 保留旧会话。`/thinking high` 设置思考强度，`/tools on` 开启 Ask 工具，每次执行都需确认；界面显示 SDK 已知费用估算，订阅与缺失价格单列未知。详见[会话、思考与工具指南](docs/sessions.md)。
 
 输入面板内，**Enter** 执行，**Shift+Enter** 换行，**Alt+↑↓** 切换动作，**Esc** 返回阅读。macOS 提示对应显示为 **↩**、**⇧↩** 和 **⌥↑↓**。面板已打开时，再次按唤出快捷键会保留当前草稿。
+
+Windows 可在**设置 → 翻译偏好 → 鼠标选中后自动翻译**中开启自动划词，默认关闭并保存在本机。开启后，鼠标选中文字并松开即可触发当前模型服务，可能产生费用；任务处理中及 Ask 内暂停自动触发，原有快捷键仍可使用。仅键盘选区和 macOS 继续使用手动快捷键。
 
 选区取文能力取决于来源应用。当前已对记事本、开启可访问性的独立 VS Code 和 Discord 消息正文完成限定场景验证。浏览器选区尚未通过，可按 [手动验收步骤](docs/browser-manual-acceptance.md) 检查。
 

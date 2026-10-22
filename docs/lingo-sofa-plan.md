@@ -2,7 +2,7 @@
 
 实施版 v0.9 · 2026-10-21。
 
-现已迁移到 Windows 独立桌面工程，Rust + Tauri 2 + OMP 正式实现见 [当前架构](architecture.md) 和 [兼容与验收状态](acceptance.md)。旧浏览器/Discord/Bridge 源码已删除。W0 模型链路已有实现，UIA 已有记事本、独立 VS Code 与 Discord 实测，浏览器未通过；OCR 与完整 W0–W4 验收仍未完成；以下总体规划包含后续目标。
+现已迁移到 Windows 独立桌面工程，Rust + Tauri 2 + OMP 正式实现见 [当前架构](architecture.md) 和 [兼容与验收状态](acceptance.md)。旧浏览器/Discord/Bridge 源码已删除。W0 模型链路已有实现，UIA 已有记事本、独立 VS Code 与 Discord 实测，浏览器未通过；Windows/macOS OCR 已实现，但实际框选、跨设备兼容与完整 W0–W4 验收仍未完成；以下总体规划包含后续目标。
 
 ## 细化设计入口
 
@@ -79,7 +79,7 @@ Rust Core：窗口 / 托盘 / 快捷键 / 单实例 / 生命周期
 - 分行不直接等于语义段落。保留块边界、处理软换行，避免合并多栏、表格和代码；复杂结构允许用户修正，不保证版式复原。
 - 每次截图是独立快照。新截图、编辑原文或关闭未固定卡片使旧 revision 失效，旧结果不得覆盖新内容。图像默认不落盘，任务结束清理。
 
-**OCR 与安装方式共同选型，具体引擎待 W0 决定。** 优先验证 PP-OCRv6 轻量模型 + ONNX Runtime CPU，并与 v5 mobile、Windows OCR 和 Tesseract 同集评测；模型/字典/推理库/许可证一并锁定，见 [OCR 选型与评测](windows-ocr.md)。 Windows.Media.Ocr 官方要求桌面应用具有包身份，不能假设传统 EXE 安装后即可调用。比较带包身份分发及系统语言包依赖，与随包本地 OCR 的中英文质量、体积、速度和许可证后再定案；不提前承诺离线语言覆盖或识别耗时。[Windows.Media.Ocr](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr?view=winrt-26100)。
+**当前 Windows 使用随包 PP-OCRv5 mobile 检测/识别模型和 ONNX Runtime CPU。** Rust helper 完成本地推理，不依赖 Python、系统语言包或 MSIX 包身份，不静默回退到 Windows.Media.Ocr。首版只支持清晰单栏简体中文、英文及混排；限制 400 万像素、最长边 4096，要求 Visual C++ 2015–2022 x64 运行库。模型来源、分发和待验边界见 [Windows OCR](windows-ocr.md)。
 
 受保护画面、密码控件、安全桌面和提权窗口读取受限时明确失败。应用普通权限运行，不自动提权绕过。
 

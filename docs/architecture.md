@@ -21,7 +21,7 @@ React → Tauri commands → Service actor → scheduler → Host → private pi
 
 Tauri 命令检查 `main` 窗口身份，不开放任意 URL、SQL、文件或进程执行；前端仅拥有拖动权限，CSP 禁止供应商网络访问。Ask 输出使用 React Markdown AST 渲染标题、列表、代码与表格，跳过原始 HTML，不加载图片或提供直接导航链接；工具结果按纯文本投影显示。剪贴板快捷键仅在按下时读取文本。桌面快捷键模块独立管理全局组合，保存于 `shortcuts.sqlite`；先验证和注册新组合，再提交 SQLite，成功后更新路由并释放旧组合。失败会撤销新注册并保留原设置；启动时逐项注册和报告，未启用项不影响其他入口。旧组合若释放失败也不再分发动作。默认 Alt+Shift+Space 唤出输入面板，重复唤出保留草稿；所有按键展示来自当前注册状态。
 
-desktop v3 的边缘入口、译文浮层、Ask、输入和设置由 Rust Shell 控制窗口尺寸、位置和焦点。Alt+Shift+S 启动独立 `selection-helper.exe`，通过 UIA 只读取前台应用的非密码选区及矩形。首帧限时 1800ms，后续心跳限时 900ms；助手挂起时由 Job 回收。原窗口移动、选区变化或失效时收起译文并取消任务；已经主动打开的 Ask 保留原文，停止依赖旧锚点。几何计算有纯函数回归；应用兼容性按验收记录逐项说明，混合 DPI 尚未完成。macOS OCR 使用独立原生 `region-selector` 框选层和系统截图，临时 PNG 仅放在权限为 0700 的任务目录，再交给独立 `ocr-helper` 使用 Apple Vision 本机识别；20 秒识别截止、取消与退出会回收进程和临时文件。区域坐标回传主进程，识别后按主动请求直接翻译；默认在区域下方显示，可设置集中面板或用另一种样式的快捷键单次覆盖；图片不进入前端或 OMP。Windows OCR 尚未接入，详见 [macOS OCR](macos-ocr.md)。
+desktop v3 的边缘入口、译文浮层、Ask、输入和设置由 Rust Shell 控制窗口尺寸、位置和焦点。Alt+Shift+S 启动独立 `selection-helper.exe`，通过 UIA 只读取前台应用的非密码选区及矩形。首帧限时 1800ms，后续心跳限时 900ms；助手挂起时由 Job 回收。原窗口移动、选区变化或失效时收起译文并取消任务；已经主动打开的 Ask 保留原文，停止依赖旧锚点。几何计算有纯函数回归；应用兼容性按验收记录逐项说明，混合 DPI 尚未完成。macOS OCR 使用独立原生 `region-selector` 框选层和系统截图，临时 PNG 仅放在权限为 0700 的任务目录，再交给独立 `ocr-helper` 使用 Apple Vision 本机识别；20 秒识别截止、取消与退出会回收进程和临时文件。区域坐标回传主进程，识别后按主动请求直接翻译；默认在区域下方显示，可设置集中面板或用另一种样式的快捷键单次覆盖；图片不进入前端或 OMP。Windows 的单个原生 `ocr-helper.exe` 使用 Win32 框选、BitBlt 内存像素捕获、随包 PP-OCRv5 mobile 模型和 ONNX Runtime CPU，图片不落盘；两平台共享取消、超时和迟到结果隔离的生命周期。Windows helper 使用 kill-on-job-close Job Object，复用既有进程边界。能力字段独立于 macOS 快捷键符号，见 [Windows OCR](windows-ocr.md) 与 [macOS OCR](macos-ocr.md)。
 
 取文会先验证焦点至来源窗口的祖先路径（最多 32 层），再沿该路径查找 TextPattern；拒绝密码或无法验证的路径，不扫描文档后代。已验证记事本、独立 VS Code 与 Discord 消息正文；浏览器未通过，混合 DPI 仍未验收。
 

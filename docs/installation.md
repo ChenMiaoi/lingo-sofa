@@ -1,6 +1,6 @@
 # Windows 开发版安装与使用
 
-目标 Windows 11 x64。需要系统 WebView2；NSIS 使用 Tauri 默认 WebView2 检测/引导安装方式。安装包从 [GitHub Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) 下载。更新包具有 updater 签名；Windows 代码签名尚未配置，干净机器和无 WebView2 环境仍须专项验收。
+目标 Windows 11 x64。截图 OCR 另需 [Microsoft Visual C++ 2015–2022 x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)；缺失时应用提供官方修复入口，不自动安装。模型随包提供，识别阶段无需联网或系统 OCR 语言包，见 [Windows OCR](windows-ocr.md)。需要系统 WebView2；NSIS 使用 Tauri 默认 WebView2 检测/引导安装方式。安装包从 [GitHub Releases](https://github.com/ChenMiaoi/lingo-sofa/releases) 下载。更新包具有 updater 签名；Windows 代码签名尚未配置，干净机器和无 WebView2 环境仍须专项验收。
 
 从源码构建见 [README](../README-zh.md)。正式安装包输出到 `target/release/bundle/nsis`，调试包到 `target/debug/bundle/nsis`。安装后进入“设置 → 模型与服务商”，选择服务商并保存 API Key，再选择模型并点击“设为默认模型”。可配置多个服务商，每个服务商独立保存一份 API Key。服务商、模型名称和模型限制来自随包 oh-my-pi 目录；目录分批加载，可刷新或加载更多。订阅账户可输入 `/login` 或 `/subscribe` 登录，目录来自 OMP；支持浏览器授权、设备码、交互提示和独立浏览器会话，见[订阅登录指南](subscription-login.md)。云平台特殊凭证、本地/免 Key 模型、同一服务商多账户与自定义地址尚未接入。
 

@@ -10,7 +10,7 @@ bun install --frozen-lockfile
 npm run dev
 ```
 
-Windows x64 需要 Visual Studio C++ Build Tools 和 WebView2，使用 MSVC 工具链。开发入口会准备 worker 和选区助手，再启动前端与桌面应用。
+Windows x64 需要 Visual Studio C++ Build Tools 和 WebView2，使用 MSVC 工具链。开发入口会准备 worker、选区助手与 OCR 资源，再启动前端与桌面应用。Windows 构建阶段下载固定官方 PP-OCRv5 mobile 模型和 ONNX Runtime 1.31.0 CPU，按编译内置清单校验 SHA-256；缓存位于 `.cache/ocr-assets`。安装版识别不联网、不依赖 Python 或系统 OCR 语言包。模型、字典、DLL 与许可证均为打包必需项。见 [Windows OCR](windows-ocr.md)。
 
 拉取更新后先执行 `bun install --frozen-lockfile` 同步工作区依赖。开发入口会检查桌面依赖，缺失时提示安装命令；只有本次启动的前端服务监听成功后才会打开桌面应用。端口 1420 被占用、前端启动失败或超时会中止启动。Windows 开发会话由系统作业对象约束，按 Ctrl+C 或终端强制结束后仍会回收本次启动的前端、桌面及其子进程。
 
