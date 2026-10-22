@@ -860,7 +860,9 @@ fn serve(
                             Ok(())
                         })();
                         let _ = reply.send(result);
-                        result?;
+                        if let Err(error) = result {
+                            state.lock().unwrap().message = message(error).into();
+                        }
                     }
                     Command::Run {
                         revision,

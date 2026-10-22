@@ -743,6 +743,43 @@ fn truncated_translation_and_ask_preserve_output_and_end_busy_state() {
     service.shutdown();
 }
 #[test]
+fn failed_model_switch_keeps_running_task_cancellable() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = start(dir.path());
+    service.save_key("synthetic-secret".into()).unwrap();
+    service.submit(1, "W0_SLOW".into(), false).unwrap();
+    let before = wait(&service, |v| v.phase == "running" && !v.output.is_empty());
+    assert_eq!(
+        service.select_model(lingo_sofa_app_services::ModelSelection {
+            provider: "openai".into(),
+            model_id: "missing".into()
+        }),
+        Err("account_required")
+    );
+    assert_eq!(
+        service.select_model(lingo_sofa_app_services::ModelSelection {
+            provider: "deepseek".into(),
+            model_id: "missing-model".into()
+        }),
+        Err("model_not_verified")
+    );
+    let db = rusqlite::Connection::open(dir.path().join("settings.sqlite")).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_model BEFORE INSERT ON default_model BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
+    assert_eq!(
+        service.select_model(before.default_model.clone()),
+        Err("settings_write_failed")
+    );
+    db.execute_batch("DROP TRIGGER reject_model").unwrap();
+    let after = service.state();
+    assert_eq!(after.phase, "running");
+    assert_eq!(after.task_id, before.task_id);
+    service.cancel().unwrap();
+    let cancelled = wait(&service, |v| v.task_id.is_none() && v.phase == "ready");
+    assert!(cancelled.message.contains("已取消"));
+    service.shutdown();
+}
+
+#[test]
 fn sdk_http_errors_cross_ipc_with_recoverable_safe_messages() {
     let dir = tempfile::tempdir().unwrap();
     let service = start(dir.path());

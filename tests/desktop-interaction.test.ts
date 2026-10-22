@@ -3263,6 +3263,27 @@ test("history browsing cannot replace the current answer code position", async (
     await ui.close();
   }
 });
+test("provider settings retain a failed key for retry and clear it only after success", async () => {
+  let saved = false;
+  const ui = await mount(state("settings"), catalog, async () => saved);
+  try {
+    await ui.click("模型与服务商");
+    await ui.type("synthetic-retry-key", "#api-key");
+    await ui.click("保存凭证");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")!.value).toBe(
+      "synthetic-retry-key",
+    );
+    expect(ui.element.textContent).not.toContain("synthetic-retry-key");
+    saved = true;
+    await ui.click("保存凭证");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")!.value).toBe(
+      "",
+    );
+  } finally {
+    await ui.close();
+  }
+});
+
 test("truncated and incomplete results retain text and show recovery guidance in reading and Ask", async () => {
   for (const phase of ["truncated", "incomplete", "error"]) {
     for (const mode of ["translation", "ask-result"] as const) {

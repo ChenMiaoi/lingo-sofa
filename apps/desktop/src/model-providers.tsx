@@ -92,8 +92,8 @@ export function ModelProviders({
   const saveKey = async (value: string) => {
     setSaving(true);
     try {
-      await perform("save_provider", { provider, key: value });
-      setKey("");
+      const saved = await perform("save_provider", { provider, key: value });
+      if (saved !== false) setKey("");
     } finally {
       setSaving(false);
     }
