@@ -213,7 +213,8 @@ kbd {
   gap: 2px;
   justify-content: flex-end;
 }
-.translation-actions > button {
+.translation-actions > button,
+.translation-actions .copy-control > button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -228,7 +229,8 @@ kbd {
   width: 16px;
   height: 16px;
 }
-.translation-actions > button:hover {
+.translation-actions > button:hover,
+.translation-actions .copy-control > button:hover {
   background: #ffffff0b;
 }
 .origin-hint {

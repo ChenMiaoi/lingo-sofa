@@ -29,10 +29,16 @@ export function CopyButton({
   label,
   onCopy,
   preserveSelection = false,
+  disabled = false,
+  icon,
+  showFailureNotice = true,
 }: {
   label: string;
   onCopy: () => Promise<void | boolean>;
   preserveSelection?: boolean;
+  disabled?: boolean;
+  icon?: React.ReactNode;
+  showFailureNotice?: boolean;
 }) {
   const [status, setStatus] = useState<
     "idle" | "pending" | "copied" | "failed"
@@ -54,12 +60,12 @@ export function CopyButton({
     <span className="copy-control">
       <button
         aria-label={label}
-        disabled={status === "pending"}
+        disabled={disabled || status === "pending"}
         onPointerDown={(event) => {
           if (preserveSelection && event.button === 0) event.preventDefault();
         }}
         onClick={async () => {
-          if (locked.current) return;
+          if (locked.current || disabled) return;
           locked.current = true;
           setStatus("pending");
           try {
@@ -73,6 +79,7 @@ export function CopyButton({
           }
         }}
       >
+        {icon}
         {status === "pending"
           ? "复制中…"
           : status === "copied"
@@ -82,10 +89,14 @@ export function CopyButton({
               : label}
       </button>
       <span
-        className={status === "failed" ? "copy-error" : "copy-announcement"}
+        className={
+          status === "failed" && showFailureNotice
+            ? "copy-error"
+            : "copy-announcement"
+        }
         role="status"
       >
-        {status === "failed"
+        {status === "failed" && showFailureNotice
           ? "复制失败，请重试"
           : status === "copied"
             ? `${label}成功`

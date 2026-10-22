@@ -292,6 +292,91 @@ test("OCR translation keeps its source hint and actions while complete text rema
   }
 });
 
+test("translation copy reports pending and success while guarding duplicate clicks in both reading modes", async () => {
+  for (const mode of ["translation", "translation-detail"] as const) {
+    const value = state("ask-result");
+    value.desktop.mode = mode;
+    value.desktop.translation = "COPY_THIS_TRANSLATION";
+    let finish!: (result: boolean) => void;
+    const pending = new Promise<boolean>((resolve) => {
+      finish = resolve;
+    });
+    const ui = await mount(value, catalog, async (command) =>
+      command === "copy_result" ? pending : undefined,
+    );
+    try {
+      const button =
+        ui.element.querySelector<HTMLButtonElement>('[aria-label="复制"]') ||
+        [...ui.element.querySelectorAll<HTMLButtonElement>("button")].find(
+          (item) => item.textContent?.trim() === "复制",
+        )!;
+      await act(async () => {
+        button.click();
+        button.click();
+      });
+      expect(
+        ui.calls.filter((call) => call.command === "copy_result"),
+      ).toHaveLength(1);
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toContain("复制中…");
+      await act(async () => {
+        finish(true);
+        await pending;
+      });
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toContain("已复制");
+      expect(button.querySelector(".icon")).not.toBeNull();
+    } finally {
+      finish(true);
+      await ui.close();
+    }
+  }
+});
+
+test("late translation copy completion cannot change the next reading epoch", async () => {
+  const value = state("ask-result");
+  value.desktop.mode = "translation";
+  value.desktop.translation = "OLD_COPY";
+  let finish!: (result: boolean) => void;
+  const pending = new Promise<boolean>((resolve) => {
+    finish = resolve;
+  });
+  let copies = 0;
+  const ui = await mount(value, catalog, async (command) =>
+    command === "copy_result" ? (++copies === 1 ? pending : true) : undefined,
+  );
+  try {
+    await ui.click("复制");
+    expect(ui.element.textContent).toContain("复制中…");
+    await ui.render({
+      ...value,
+      desktop: {
+        ...value.desktop,
+        epoch: value.desktop.epoch + 1,
+        translation: "NEW_COPY",
+      },
+    });
+    const button =
+      ui.element.querySelector<HTMLButtonElement>('[aria-label="复制"]')!;
+    expect(button.disabled).toBe(false);
+    expect(button.textContent?.trim()).toBe("复制");
+    await act(async () => {
+      finish(true);
+      await pending;
+    });
+    expect(button.textContent?.trim()).toBe("复制");
+    expect(ui.element.querySelector('[aria-label="译文"]')?.textContent).toBe(
+      "NEW_COPY",
+    );
+    await ui.click("复制");
+    expect(copies).toBe(2);
+    expect(button.textContent).toContain("已复制");
+  } finally {
+    finish(true);
+    await ui.close();
+  }
+});
+
 test("a failed result copy preserves the translation and reports its error in the reading controls", async () => {
   const value = state("ask-result");
   value.desktop.mode = "translation";
@@ -321,6 +406,15 @@ test("a failed result copy preserves the translation and reports its error in th
       "复制失败，请稍后重试。",
     );
     expect(copy.disabled).toBe(false);
+    expect(copy.textContent).toContain("重试复制");
+    expect(
+      element.querySelector(".reading-controls .copy-error") === null,
+    ).toBe(true);
+    expect(
+      element
+        .querySelector(".reading-controls")
+        ?.textContent?.split("复制失败，请稍后重试。"),
+    ).toHaveLength(2);
   } finally {
     await act(async () => root.unmount());
     element.remove();

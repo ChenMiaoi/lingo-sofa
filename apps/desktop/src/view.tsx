@@ -14,6 +14,7 @@ import { AskAnswer, SessionStatus } from "./ask-answer";
 import { SessionPicker } from "./session-picker";
 import { ModelPicker } from "./model-picker";
 import { TranslationReading } from "./translation-reading";
+import { CopyButton } from "./answer-markdown";
 import type { LoadModelCatalog } from "./model-providers";
 import {
   loadModelCatalog as defaultLoadModelCatalog,
@@ -703,13 +704,14 @@ export function Desktop({
           >
             {mode === "translation-detail" ? "返回浮层" : "完整译文"}
           </button>
-          <button
+          <CopyButton
+            key={d.epoch}
+            label="复制"
             disabled={!d.translation}
-            onClick={() => void perform("copy_result")}
-          >
-            <Icon name="copy" />
-            复制
-          </button>
+            icon={<Icon name="copy" />}
+            showFailureNotice={false}
+            onCopy={() => perform("copy_result")}
+          />
           <button onClick={() => go("ask")}>
             <Icon name="search" />
             Ask
