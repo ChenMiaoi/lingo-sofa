@@ -803,7 +803,6 @@ export function Desktop({
               : "输入文字，翻译或提问；/ 打开命令…"
           }
           rows={1}
-          maxLength={5000}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {

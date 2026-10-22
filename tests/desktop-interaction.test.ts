@@ -2396,6 +2396,70 @@ test("automatic selection toggle shows pending save and rejects duplicate change
   }
 });
 
+test("unified input preserves full UTF-8 drafts and refuses oversized text without a native call", async () => {
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const snapshot = state("input");
+  const sent: Array<{ command: string; text: string }> = [];
+  const invoke = <T>(
+    command: string,
+    args?: Record<string, unknown>,
+  ): Promise<T> => {
+    if (command === "translate_text" || command === "ask_text")
+      sent.push({ command, text: String(args?.text) });
+    return Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
+  };
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    const input = element.querySelector<HTMLTextAreaElement>(
+      '[aria-label="需要翻译的原文或新问题"]',
+    )!;
+    expect(input.hasAttribute("maxlength")).toBe(false);
+    const setter = Object.getOwnPropertyDescriptor(
+      dom.HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    for (const [command, label] of [
+      ["translate_text", "翻译这段文字"],
+      ["ask_text", "作为新问题提问"],
+    ] as const) {
+      for (const text of [
+        "a".repeat(6000),
+        "😀".repeat(3750),
+        "a".repeat(15001),
+        "😀".repeat(3750) + "a",
+      ]) {
+        const previous = sent.length;
+        await act(async () => {
+          setter.call(input, text);
+          input.dispatchEvent(
+            new dom.Event("input", { bubbles: true }) as unknown as Event,
+          );
+        });
+        const action = [
+          ...element.querySelectorAll<HTMLButtonElement>("button"),
+        ].find(
+          (button) => button.querySelector("strong")?.textContent === label,
+        )!;
+        await act(async () => action.click());
+        if (new TextEncoder().encode(text).length <= 15000) {
+          expect(sent.at(-1)).toEqual({ command, text });
+          expect(sent).toHaveLength(previous + 1);
+        } else {
+          expect(sent).toHaveLength(previous);
+          expect(element.textContent).toContain("文本或问题过长");
+          expect(element.textContent).toContain("15000 UTF-8 字节");
+        }
+        expect(input.value).toBe(text);
+      }
+    }
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
 test("Chinese followups use the input byte budget and oversized questions stay editable without a native call", async () => {
   const element = document.createElement("div");
   document.body.append(element);
