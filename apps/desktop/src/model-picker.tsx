@@ -1,3 +1,5 @@
+import { listIndex } from "./keyboard";
+import { dragWindow } from "./window-drag";
 import React, { useEffect, useRef, useState } from "react";
 import {
   errorMessage,
@@ -213,7 +215,7 @@ export function ModelPicker({
   };
   return (
     <main
-      className="launcher model-picker"
+      className="launcher model-picker selection-page"
       onKeyDown={(event) => {
         if (isImeKey(event.nativeEvent)) return;
         if (event.key === "Escape") {
@@ -223,7 +225,7 @@ export function ModelPicker({
         }
       }}
     >
-      <header className="command-header" data-tauri-drag-region>
+      <header className="command-header" onMouseDown={dragWindow}>
         <span className="model-picker-prefix">/model</span>
         {credentialFor ? (
           <input
@@ -258,13 +260,10 @@ export function ModelPicker({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (isImeKey(event.nativeEvent) || event.shiftKey) return;
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              const next = listIndex(event.key, index, count);
+              if (next !== null) {
                 event.preventDefault();
-                const total = Math.max(count, 1);
-                setSelected(
-                  (index + (event.key === "ArrowDown" ? 1 : -1) + total) %
-                    total,
-                );
+                setSelected(next);
               }
               if (event.key === "Enter") {
                 event.preventDefault();
@@ -346,7 +345,9 @@ export function ModelPicker({
             <button
               key={entry.id}
               className={`action ${position === index ? "selected" : ""}`}
-              onMouseEnter={() => setSelected(position)}
+              onMouseMove={(event) => {
+                if (event.movementX || event.movementY) setSelected(position);
+              }}
               onClick={() => {
                 setProvider(entry.id);
                 setBrowsingProviders(false);
@@ -365,7 +366,11 @@ export function ModelPicker({
                       : "选择模型后输入 API Key"}
                 </small>
               </span>
-              {position === index && <span className="enter-key">↵</span>}
+              {position === index && (
+                <span className="enter-key" aria-hidden="true">
+                  ↵
+                </span>
+              )}
             </button>
           ))
         ) : (
@@ -374,22 +379,26 @@ export function ModelPicker({
               key={`${choice.provider}/${choice.id}`}
               className={`action ${position === index ? "selected" : ""}`}
               disabled={saving}
-              onMouseEnter={() => setSelected(position)}
+              onMouseMove={(event) => {
+                if (event.movementX || event.movementY) setSelected(position);
+              }}
               onClick={() => void choose(choice)}
             >
               <span className="action-copy">
-                <strong>
-                  {choice.name}
-                  {choice.provider === model.defaultModel.provider &&
-                  choice.id === model.defaultModel.modelId
-                    ? " · 当前"
-                    : ""}
-                </strong>
+                <strong title={choice.name}>{choice.name}</strong>
                 <small>
                   {choice.provider}/{choice.id}
                 </small>
               </span>
-              {position === index && <span className="enter-key">↵</span>}
+              {choice.provider === model.defaultModel.provider &&
+                choice.id === model.defaultModel.modelId && (
+                  <span className="current-badge">当前</span>
+                )}
+              {position === index && (
+                <span className="enter-key" aria-hidden="true">
+                  ↵
+                </span>
+              )}
             </button>
           ))
         )}
@@ -412,7 +421,7 @@ export function ModelPicker({
                 ? "凭证只用于所选服务商，不会发送给模型。"
                 : browsingProviders
                   ? "↑↓ 选择服务商 · Enter 查看模型 · Esc 返回"
-                  : "↑↓ 选择 · Enter 切换 · Esc 返回；切换会结束当前会话")}
+                  : "↑↓ 选择 · PgUp/PgDn 翻页 · Enter 切换 · Esc 返回；切换会结束当前会话")}
         </span>
       </footer>
     </main>

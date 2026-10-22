@@ -1,3 +1,5 @@
+import { listIndex } from "./keyboard";
+import { dragWindow } from "./window-drag";
 import React, { useEffect, useRef, useState } from "react";
 import {
   errorMessage,
@@ -9,11 +11,13 @@ import type { Perform } from "./view";
 
 export function SessionPicker({
   search,
+  currentId,
   load,
   perform,
   onClose,
 }: {
   search: string;
+  currentId?: string | null;
   load: LoadSessions;
   perform: Perform;
   onClose: (applied?: boolean) => void;
@@ -25,30 +29,38 @@ export function SessionPicker({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
   useEffect(() => {
     let disposed = false;
     input.current?.focus();
-    void load()
-      .then(
-        (value) => {
-          if (!disposed) {
-            setSessions(value.sessions);
-            setTotal(value.total);
-          }
-        },
-        () => {
-          if (!disposed) setError("无法读取会话历史，请重试。");
-        },
-      )
-      .finally(() => {
+    setLoading(true);
+    setError("");
+    setSessions([]);
+    setSelected(0);
+    void (async () => {
+      const all: SessionInfo[] = [];
+      try {
+        while (!disposed) {
+          const value = await load(all.length);
+          if (disposed) return;
+          all.push(...value.sessions);
+          setSessions([...all]);
+          setTotal(value.total);
+          if (all.length >= value.total) break;
+          if (!value.sessions.length) throw new Error("incomplete_history");
+        }
+      } catch {
+        if (!disposed) setError("会话历史未加载完整，请重试。");
+      } finally {
         if (!disposed) setLoading(false);
-      });
+      }
+    })();
     return () => {
       disposed = true;
     };
-  }, [load]);
+  }, [load, reload]);
   const choices = sessions.filter((item) =>
     `${item.title} ${item.id}`
       .toLowerCase()
@@ -83,7 +95,7 @@ export function SessionPicker({
   };
   return (
     <main
-      className="launcher model-picker"
+      className="launcher model-picker selection-page"
       aria-label="会话历史"
       onKeyDown={(event) => {
         if (isImeKey(event.nativeEvent)) return;
@@ -94,7 +106,7 @@ export function SessionPicker({
         }
       }}
     >
-      <header className="command-header" data-tauri-drag-region>
+      <header className="command-header" onMouseDown={dragWindow}>
         <span className="model-picker-prefix">/resume</span>
         <input
           ref={input}
@@ -105,15 +117,10 @@ export function SessionPicker({
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (isImeKey(event.nativeEvent) || event.shiftKey) return;
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            const next = listIndex(event.key, selected, choices.length);
+            if (next !== null) {
               event.preventDefault();
-              setSelected(
-                (index) =>
-                  (index +
-                    (event.key === "ArrowDown" ? 1 : -1) +
-                    Math.max(choices.length, 1)) %
-                  Math.max(choices.length, 1),
-              );
+              setSelected(next);
             } else if (event.key === "Enter") {
               event.preventDefault();
               void choose(choices[selected]);
@@ -125,60 +132,68 @@ export function SessionPicker({
           disabled={saving}
           aria-label="返回会话"
         >
-          Esc
+          返回
         </button>
       </header>
       <section className="action-list" aria-label="历史会话列表">
         <div className="list-caption">
-          <span>{loading ? "正在读取…" : `${total} 个会话`}</span>
+          <span>
+            {loading
+              ? "正在读取…"
+              : query.trim()
+                ? `${choices.length} / ${total} 个会话`
+                : `${total} 个会话`}
+          </span>
           <span>保存在本机</span>
         </div>
         {choices.map((item, index) => (
           <button
             key={item.id}
             className={`action ${selected === index ? "selected" : ""}`}
+            aria-current={item.id === currentId ? "true" : undefined}
             disabled={saving}
-            onMouseEnter={() => setSelected(index)}
+            onMouseMove={(event) => {
+              if (event.movementX || event.movementY) setSelected(index);
+            }}
             onClick={() => void choose(item)}
           >
             <span className="action-copy">
-              <strong>{item.title}</strong>
+              <strong title={item.title}>{item.title}</strong>
               <small>
                 {new Date(item.modified).toLocaleString()} · {item.messageCount}{" "}
                 条消息
               </small>
             </span>
-            <span className="enter-key">↵</span>
+            {item.id === currentId && (
+              <span className="current-badge">当前</span>
+            )}
+            {selected === index && (
+              <span className="enter-key" aria-hidden="true">
+                ↵
+              </span>
+            )}
           </button>
         ))}
-        {!loading && !choices.length && (
+        {!loading && !error && !choices.length && (
           <p className="quiet-status">
             {sessions.length ? "没有匹配的会话" : "暂无历史会话"}
           </p>
         )}
-        {sessions.length < total && (
+        {error && (
           <button
             disabled={loading || saving}
-            onClick={() => {
-              setLoading(true);
-              void load(sessions.length)
-                .then(
-                  (value) => {
-                    setSessions((current) => [...current, ...value.sessions]);
-                    setTotal(value.total);
-                  },
-                  () => setError("加载失败，请重试。"),
-                )
-                .finally(() => setLoading(false));
-            }}
+            onClick={() => setReload((value) => value + 1)}
           >
-            加载更多会话
+            重新加载会话
           </button>
         )}
       </section>
       <footer className="launcher-footer">
         <span role={error ? "alert" : undefined}>
-          {error || (saving ? "正在恢复…" : "↑↓ 选择 · Enter 恢复 · Esc 返回")}
+          {error ||
+            (saving
+              ? "正在恢复…"
+              : "↑↓ 选择 · PgUp/PgDn 翻页 · Enter 恢复 · Esc 返回")}
         </span>
       </footer>
     </main>

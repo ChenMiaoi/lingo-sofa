@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
+    "lowlight": "3.3.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",

@@ -56,6 +56,50 @@ export interface SessionInfo {
   modified: string;
   messageCount: number;
 }
+export interface SessionTurn {
+  id: string;
+  question: string;
+  output: string;
+  thinkingOutput: string;
+  toolCalls: View["toolCalls"];
+}
+export type LoadActivity = (
+  id: string,
+  signal: AbortSignal,
+) => Promise<{ turns: SessionTurn[] }>;
+export async function loadActivity(
+  id: string,
+  signal: AbortSignal,
+  invoke: typeof call = call,
+): Promise<{ turns: SessionTurn[] }> {
+  let offset = 0;
+  let version: string | undefined;
+  const chunks: string[] = [];
+  for (;;) {
+    signal.throwIfAborted();
+    const page = await invoke<{
+      chunk: string;
+      next: number | null;
+      version: string;
+    }>("session_request", {
+      request: { action: "activity", id, offset, version: version ?? null },
+    });
+    signal.throwIfAborted();
+    if (
+      typeof page.chunk !== "string" ||
+      !page.version ||
+      (version && version !== page.version) ||
+      (page.next !== null &&
+        (!page.chunk.length || page.next !== offset + page.chunk.length))
+    )
+      throw new Error("invalid_activity_page");
+    version = page.version;
+    chunks.push(page.chunk);
+    if (page.next === null) break;
+    offset = page.next;
+  }
+  return JSON.parse(chunks.join(""));
+}
 export type LoadSessions = (
   offset?: number,
 ) => Promise<{ sessions: SessionInfo[]; total: number }>;
@@ -100,6 +144,8 @@ export function call<T>(
 export function errorMessage(error: unknown, macos = false): string {
   const code = String(error);
   const messages: Record<string, string> = {
+    external_url_invalid: "仅支持不含登录凭证的 HTTP 或 HTTPS 链接。",
+    browser_open_failed: "无法打开浏览器，请复制链接后重试。",
     selection_unsupported: "此应用暂不支持读取选区，可复制后翻译。",
     accessibility_permission_required: macos
       ? "请在系统设置 → 隐私与安全性 → 设备控制和数据访问（旧版称辅助功能）中允许系统提示的应用；从终端启动时需允许对应终端（如 Warp），安装版允许 LingoSofa。授权后重新打开应用；也可复制后翻译。"
@@ -121,6 +167,9 @@ export function errorMessage(error: unknown, macos = false): string {
       "文本或问题过长，请缩短或分段提交（最多 15000 UTF-8 字节，约 5000 个汉字）。",
     invalid_text: "请输入文本或问题。",
     clipboard_unavailable: "没有读到剪贴板文本，请先复制。",
+    clipboard_write_failed: "复制失败，请稍后重试。",
+    clipboard_text_too_long: "内容超过单次复制上限（4 MiB），请分段选择复制。",
+    clipboard_text_invalid: "内容包含剪贴板不支持的空字符，请分段选择复制。",
     keychain_read_failed:
       "当前无法访问钥匙串凭证；本次启动不再重复请求，重新打开应用后可再次授权。",
     keychain_open_failed:

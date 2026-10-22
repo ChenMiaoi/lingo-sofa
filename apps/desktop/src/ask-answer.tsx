@@ -1,42 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { View } from "./api";
+import {
+  isImeKey,
+  type View,
+  type LoadActivity,
+  type SessionTurn,
+} from "./api";
 import type { Perform } from "./view";
 
-export function AnswerMarkdown({ text }: { text: string }) {
-  return (
-    <div className="answer-prose">
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        skipHtml
-        components={{
-          img: ({ alt }) => (
-            <span className="answer-image-label">
-              {alt ? `[图片：${alt}]` : "[图片]"}
-            </span>
-          ),
-          a: ({ children, href }) => (
-            <span className="answer-link">
-              {children}
-              {href && href !== String(children) && (
-                <span className="answer-link-url"> ({href})</span>
-              )}
-            </span>
-          ),
-          pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
-          table: ({ children }) => (
-            <div className="answer-table" tabIndex={0}>
-              <table>{children}</table>
-            </div>
-          ),
-        }}
-      >
-        {text}
-      </Markdown>
-    </div>
-  );
-}
+import { AnswerSearch } from "./answer-search";
+import { readingHash, useReadingPosition } from "./reading-position";
+import { AnswerMarkdown, CopyButton } from "./answer-markdown";
+export { AnswerMarkdown } from "./answer-markdown";
+
 function parseObject(text: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(text);
@@ -53,6 +28,49 @@ function parameterLabel(text: string) {
   for (const key of ["path", "command", "pattern", "query"])
     if (typeof value[key] === "string") return value[key];
   return "查看参数";
+}
+
+function ActivityDetails({
+  className,
+  label,
+  summary,
+  children,
+  onInspect,
+}: {
+  className: string;
+  label: string;
+  summary: React.ReactNode;
+  children: React.ReactNode;
+  onInspect: () => void;
+}) {
+  return (
+    <details
+      className={className}
+      onToggle={(event) => {
+        if (event.currentTarget.open) onInspect();
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.key === "Escape" &&
+          !isImeKey(event.nativeEvent) &&
+          event.currentTarget.open
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.open = false;
+          event.currentTarget.querySelector("summary")?.focus();
+        }
+      }}
+    >
+      <summary aria-label={label}>
+        {summary}
+        <span className="activity-chevron" aria-hidden="true">
+          ›
+        </span>
+      </summary>
+      {children}
+    </details>
+  );
 }
 export function toolRows(events: View["toolCalls"], busy: boolean) {
   const rows = new Map<
@@ -230,6 +248,7 @@ export function AskAnswer({
   operation,
   perform,
   onActions,
+  loadActivity,
 }: {
   model: View;
   current: boolean;
@@ -237,19 +256,57 @@ export function AskAnswer({
   operation: string;
   perform: Perform;
   onActions: () => void;
+  loadActivity?: LoadActivity;
 }) {
   const [history, setHistory] = useState(false);
   const [following, setFollowing] = useState(true);
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  const tools = toolRows(model.toolCalls, busy);
+  const [archive, setArchive] = useState<{
+    key: string;
+    turns: SessionTurn[];
+  } | null>(null);
+  const [archiveError, setArchiveError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const archiveKey = `${model.sessionId}:${model.revision}:${busy}`;
+  const turns = archive?.key === archiveKey ? archive.turns : null;
+  const restored = !busy ? turns?.at(-1) : undefined;
+  const answerText = restored?.output ?? model.output;
+  const thinkingOutput = restored?.thinkingOutput ?? model.thinkingOutput;
+  const tools = toolRows(restored?.toolCalls ?? model.toolCalls, busy);
+  useEffect(() => {
+    const controller = new AbortController();
+    setArchiveError(false);
+    if (
+      current &&
+      !busy &&
+      model.sessionReady &&
+      model.sessionId &&
+      loadActivity
+    ) {
+      void loadActivity(model.sessionId, controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted)
+            setArchive({ key: archiveKey, turns: result.turns });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setArchiveError(true);
+        });
+    }
+    return () => controller.abort();
+  }, [archiveKey, current, model.sessionReady, loadActivity, retry]);
+  const inspectActivity = () => {
+    follow.current = false;
+    setFollowing(false);
+  };
   useEffect(() => {
     setHistory(false);
     follow.current = busy;
-    setFollowing(busy);
+    setFollowing(true);
   }, [model.revision]);
   useEffect(() => {
     if (
+      busy &&
       follow.current &&
       !history &&
       !model.toolApprovals.length &&
@@ -257,12 +314,18 @@ export function AskAnswer({
     )
       scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [
+    busy,
     model.output,
     model.thinkingOutput,
     model.toolCalls,
     model.toolApprovals.length,
     history,
   ]);
+  const readingKey =
+    model.sessionId && !busy && (turns || !loadActivity || !model.sessionReady)
+      ? `${model.sessionId}:${history ? "history" : restored?.id || readingHash(model.question + answerText)}`
+      : null;
+  useReadingPosition(scroll, readingKey, inspectActivity);
   const phase = model.toolApprovals.length
     ? "等待确认"
     : busy
@@ -281,12 +344,21 @@ export function AskAnswer({
   return (
     <section className="answer-section" aria-label="Ask 回答">
       <div className="answer-caption">
-        <span className={`answer-phase${busy ? " is-active" : ""}`}>
+        <span
+          className={`answer-phase${busy ? " is-active" : ""}`}
+          role="status"
+        >
           <i aria-hidden="true" />
           {history ? "会话记录" : phase}
         </span>
         <div>
-          {model.messages.length > 0 && (
+          {current && answerText && !history && (
+            <CopyButton
+              label="复制回答"
+              onCopy={() => perform("copy_text", { text: answerText })}
+            />
+          )}
+          {(model.messages.length > 0 || !!turns?.length) && (
             <button aria-pressed={history} onClick={() => setHistory(!history)}>
               {history ? "当前回答" : `会话记录 · ${model.messageCount}`}
             </button>
@@ -307,12 +379,6 @@ export function AskAnswer({
             </summary>
             <div className="answer-actions">
               <button onClick={onActions}>返回动作</button>
-              <button
-                disabled={!current || !model.output}
-                onClick={() => void perform("copy_result")}
-              >
-                复制回答
-              </button>
               {busy ? (
                 <button
                   className="stop-generation"
@@ -341,6 +407,28 @@ export function AskAnswer({
           )}
         </div>
       </div>
+      <AnswerSearch
+        key={`${model.sessionId}:${history}`}
+        root={scroll}
+        content={history ? turns || model.messages : answerText}
+        onInspect={inspectActivity}
+      />
+      {archiveError && (
+        <div className="activity-load-status" role="status">
+          完整过程加载失败。
+          <button onClick={() => setRetry(retry + 1)}>重试加载完整过程</button>
+        </div>
+      )}
+      {!archiveError &&
+        !turns &&
+        !busy &&
+        model.sessionId &&
+        model.sessionReady &&
+        loadActivity && (
+          <div className="activity-load-status" role="status">
+            正在读取完整会话记录…
+          </div>
+        )}
       <div
         className="answer"
         ref={scroll}
@@ -357,26 +445,62 @@ export function AskAnswer({
         {history ? (
           <div className="conversation-history">
             <p className="history-notice">
-              最近 {model.messages.length} 条消息摘要 · 完整上下文保存在本机
+              {turns
+                ? `${turns.length} 轮完整记录 · 保存在本机`
+                : `最近 ${model.messages.length} 条消息摘要 · ${archiveError ? "完整记录暂不可用" : "正在读取完整记录"}`}
             </p>
-            {model.messages.map((message, index) => (
-              <article
-                className={`history-message role-${message.role}`}
-                key={index}
-              >
-                <div className="message-author">
-                  {message.role === "user"
-                    ? "你"
-                    : message.role === "assistant"
-                      ? "助手"
-                      : "工具 / 上下文"}
-                </div>
-                <AnswerMarkdown text={message.content} />
-                {message.truncated && (
-                  <span className="history-notice">显示摘要已截断</span>
-                )}
-              </article>
-            ))}
+            {turns
+              ? turns.map((turn, index) => (
+                  <ActivityDetails
+                    key={turn.id}
+                    className="history-turn"
+                    label={`第 ${index + 1} 轮完整记录`}
+                    onInspect={inspectActivity}
+                    summary={
+                      <>
+                        <span>第 {index + 1} 轮</span>
+                        <span className="thinking-preview">
+                          {turn.question}
+                        </span>
+                      </>
+                    }
+                  >
+                    <div className="question-block">
+                      <p>{turn.question}</p>
+                    </div>
+                    <ActivityBody
+                      thinkingOutput={turn.thinkingOutput}
+                      tools={toolRows(turn.toolCalls, false)}
+                      phase="思考过程"
+                      revision={0}
+                      perform={perform}
+                      inspectActivity={inspectActivity}
+                    />
+                    <AnswerMarkdown
+                      readingKey={`${model.sessionId}:history:${turn.id}`}
+                      text={turn.output || "本轮暂无可恢复的回答。"}
+                      perform={perform}
+                    />
+                  </ActivityDetails>
+                ))
+              : model.messages.map((message, index) => (
+                  <article
+                    className={`history-message role-${message.role}`}
+                    key={index}
+                  >
+                    <div className="message-author">
+                      {message.role === "user"
+                        ? "你"
+                        : message.role === "assistant"
+                          ? "助手"
+                          : "工具 / 上下文"}
+                    </div>
+                    <AnswerMarkdown perform={perform} text={message.content} />
+                    {message.truncated && (
+                      <span className="history-notice">显示摘要已截断</span>
+                    )}
+                  </article>
+                ))}
           </div>
         ) : (
           <>
@@ -388,91 +512,26 @@ export function AskAnswer({
                 <p>{model.question}</p>
               </div>
             )}
-            {model.thinkingOutput && (
-              <details className="thinking-row">
-                <summary>
-                  <span className="thinking-mark" aria-hidden="true">
-                    ✧
-                  </span>
-                  {phase === "正在思考" ? "正在思考" : "思考过程"}
-                  <span className="thinking-preview">
-                    {model.thinkingOutput.split("\n")[0]}
-                  </span>
-                  <span className="row-hint">⌄</span>
-                </summary>
-                <div className="thinking-body">
-                  <AnswerMarkdown text={model.thinkingOutput} />
-                </div>
-              </details>
-            )}
-            {tools.length > 0 && (
-              <div className="tool-timeline" aria-label="工具调用">
-                {tools.map((tool) => (
-                  <div className="tool-entry" key={tool.id}>
-                    <details className={`tool-row status-${tool.status}`}>
-                      <summary>
-                        <span className="tool-state" aria-hidden="true">
-                          {tool.status === "running"
-                            ? "◌"
-                            : tool.status === "error"
-                              ? "!"
-                              : tool.status === "interrupted"
-                                ? "−"
-                                : "✓"}
-                        </span>
-                        <strong>
-                          {tool.name.charAt(0).toUpperCase() +
-                            tool.name.slice(1)}
-                        </strong>
-                        <code>{parameterLabel(tool.args)}</code>
-                        <span className="tool-status">
-                          {tool.status === "running"
-                            ? "执行中"
-                            : tool.status === "error"
-                              ? "失败"
-                              : tool.status === "interrupted"
-                                ? "已停止"
-                                : "完成"}
-                        </span>
-                      </summary>
-                      <div className="tool-body">
-                        <div className="tool-detail-label">参数</div>
-                        <pre>
-                          {parseObject(tool.args)
-                            ? JSON.stringify(parseObject(tool.args), null, 2)
-                            : tool.args}
-                        </pre>
-                        {tool.result && (
-                          <>
-                            <div className="tool-detail-label">结果</div>
-                            <pre>{tool.result}</pre>
-                          </>
-                        )}
-                      </div>
-                    </details>
-                    {tool.result && (
-                      <pre
-                        className="tool-preview"
-                        aria-label={`${tool.name} 结果预览`}
-                      >
-                        {tool.result.split("\n").slice(0, 2).join("\n")}
-                        {tool.result.split("\n").length > 2 ? " …" : ""}
-                      </pre>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <ActivityBody
+              thinkingOutput={thinkingOutput}
+              tools={tools}
+              phase={phase}
+              revision={model.revision}
+              perform={perform}
+              inspectActivity={inspectActivity}
+            />
             {model.toolApprovals.map((item) => (
               <ToolApproval key={item.id} approval={item} perform={perform} />
             ))}
-            <div
-              className="answer-response"
-              aria-live="polite"
-              aria-busy={busy}
-            >
-              {current && model.output ? (
-                <AnswerMarkdown text={model.output} />
+            <div className="answer-response" aria-busy={busy}>
+              {current && answerText ? (
+                <AnswerMarkdown
+                  key={readingKey || "live"}
+                  readingKey={readingKey || undefined}
+                  perform={perform}
+                  text={answerText}
+                  onInspect={inspectActivity}
+                />
               ) : busy &&
                 (model.toolApprovals.length ||
                   model.thinkingOutput ||
@@ -481,15 +540,22 @@ export function AskAnswer({
                   {current
                     ? busy
                       ? `${phase}…`
-                      : model.message
+                      : model.question && model.phase !== "error"
+                        ? "本轮暂无可恢复的回答，可继续追问或查看会话记录。"
+                        : model.message
                     : "正在准备回答…"}
                 </p>
               )}
             </div>
+            {current && answerText && model.phase === "error" && (
+              <p className="answer-error" role="alert">
+                {model.message}
+              </p>
+            )}
           </>
         )}
       </div>
-      {!following && busy && !history && !model.toolApprovals.length && (
+      {!following && !history && !model.toolApprovals.length && (
         <button
           className="follow-answer"
           onClick={() => {
@@ -502,6 +568,136 @@ export function AskAnswer({
         </button>
       )}
     </section>
+  );
+}
+
+function ActivityBody({
+  thinkingOutput,
+  tools,
+  phase,
+  revision,
+  perform,
+  inspectActivity,
+}: {
+  thinkingOutput: string;
+  tools: ReturnType<typeof toolRows>;
+  phase: string;
+  revision: number;
+  perform: Perform;
+  inspectActivity: () => void;
+}) {
+  return (
+    <>
+      {" "}
+      {thinkingOutput && (
+        <ActivityDetails
+          key={revision}
+          className="thinking-row"
+          label="思考过程"
+          onInspect={inspectActivity}
+          summary={
+            <>
+              <span className="thinking-mark" aria-hidden="true">
+                ✧
+              </span>
+              {phase === "正在思考" ? "正在思考" : "思考过程"}
+              <span className="thinking-preview">
+                {thinkingOutput
+                  .trim()
+                  .split("\n")
+                  .find((line) => line.trim())}
+              </span>
+              <span className="tool-status">
+                {phase === "正在思考" ? "生成中" : "查看过程"}
+              </span>
+            </>
+          }
+        >
+          <div className="thinking-body" tabIndex={0} aria-label="思考过程内容">
+            <AnswerMarkdown perform={perform} text={thinkingOutput} />
+          </div>
+        </ActivityDetails>
+      )}
+      {tools.length > 0 && (
+        <div className="tool-timeline" aria-label="工具调用">
+          <div className="activity-caption">
+            <span>工具调用 · {tools.length}</span>
+            <span>
+              {tools.filter((tool) => tool.status === "done").length} 完成
+              {tools.some((tool) => tool.status === "error")
+                ? ` · ${tools.filter((tool) => tool.status === "error").length} 失败`
+                : ""}
+            </span>
+          </div>
+          {tools.map((tool) => (
+            <div className="tool-entry" key={tool.id}>
+              <ActivityDetails
+                className={`tool-row status-${tool.status}`}
+                label={`${tool.name} 调用详情`}
+                onInspect={inspectActivity}
+                summary={
+                  <>
+                    <span className="tool-state" aria-hidden="true">
+                      {tool.status === "running"
+                        ? "◌"
+                        : tool.status === "error"
+                          ? "!"
+                          : tool.status === "interrupted"
+                            ? "−"
+                            : "✓"}
+                    </span>
+                    <strong>
+                      {tool.name.charAt(0).toUpperCase() + tool.name.slice(1)}
+                    </strong>
+                    <code title={parameterLabel(tool.args)}>
+                      {parameterLabel(tool.args)}
+                    </code>
+                    <span className="tool-status">
+                      {tool.status === "running"
+                        ? "执行中"
+                        : tool.status === "error"
+                          ? "失败"
+                          : tool.status === "interrupted"
+                            ? "已停止"
+                            : "完成"}
+                    </span>
+                  </>
+                }
+              >
+                <div className="tool-body">
+                  <div className="tool-detail-label">参数</div>
+                  <pre tabIndex={0} aria-label={`${tool.name} 参数`}>
+                    {parseObject(tool.args)
+                      ? JSON.stringify(parseObject(tool.args), null, 2)
+                      : tool.args}
+                  </pre>
+                  {(tool.result || tool.status !== "running") && (
+                    <>
+                      <div className="tool-detail-label">结果</div>
+                      <pre tabIndex={0} aria-label={`${tool.name} 结果`}>
+                        {tool.result ||
+                          (tool.status === "interrupted"
+                            ? "调用已停止，暂无结果。"
+                            : "未返回文本结果。")}
+                      </pre>
+                    </>
+                  )}
+                </div>
+              </ActivityDetails>
+              {tool.result && (
+                <pre
+                  className="tool-preview"
+                  aria-label={`${tool.name} 结果预览`}
+                >
+                  {tool.result.split("\n").slice(0, 2).join("\n")}
+                  {tool.result.split("\n").length > 2 ? " …" : ""}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

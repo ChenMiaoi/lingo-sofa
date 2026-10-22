@@ -4,11 +4,19 @@ import React, { act } from "react";
 import { Desktop, type Perform } from "../apps/desktop/src/view";
 import { App } from "../apps/desktop/src/app";
 import {
+  saveReading,
+  useReadingPosition,
+} from "../apps/desktop/src/reading-position";
+import { findAnswerMatches } from "../apps/desktop/src/answer-search";
+import { codeTokens } from "../apps/desktop/src/highlighted-code";
+import { canDragWindow } from "../apps/desktop/src/window-drag";
+import {
   initialState,
   type DesktopState,
   type ModelCatalog,
   type RequestLogin,
   type LoadSessions,
+  type LoadActivity,
 } from "../apps/desktop/src/api";
 
 const dom = new Window();
@@ -16,7 +24,17 @@ Object.assign(globalThis, {
   window: dom,
   document: dom.document,
   HTMLElement: dom.HTMLElement,
+  Element: dom.Element,
   IS_REACT_ACT_ENVIRONMENT: true,
+});
+test("window dragging accepts title descendants but excludes controls and source text", () => {
+  const title = document.createElement("header");
+  title.innerHTML =
+    "<span>Title</span><button><svg><path /></svg></button><textarea></textarea><section data-no-drag><p>Source</p></section>";
+  expect(canDragWindow(title.querySelector("span"), 0)).toBe(true);
+  expect(canDragWindow(title.querySelector("span"), 2)).toBe(false);
+  for (const selector of ["path", "textarea", "p"])
+    expect(canDragWindow(title.querySelector(selector), 0)).toBe(false);
 });
 const { createRoot } = await import("react-dom/client");
 const context = {
@@ -75,6 +93,7 @@ async function mount(
   onPerform?: Perform,
   requestLogin?: RequestLogin,
   loadSessions?: LoadSessions,
+  loadActivity?: LoadActivity,
 ) {
   const element = document.createElement("div");
   document.body.append(element);
@@ -93,6 +112,7 @@ async function mount(
           loadModelCatalog: loadCatalog,
           requestLogin,
           loadSessions,
+          loadActivity,
         }),
       ),
     );
@@ -184,10 +204,12 @@ test("accepted Ask clears the sent question, preserves a streaming follow-up dra
     ]);
     const answer = state("ask-result", 2);
     await ui.render(answer);
-    expect(ui.element.querySelector("input")!.value).toBe("");
-    expect(ui.element.querySelector("input")!.placeholder).toBe(
-      "继续追问，或 / 打开命令",
-    );
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.placeholder,
+    ).toBe("继续追问，或 / 打开命令");
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(1);
     await ui.type("Keep this follow-up draft.");
@@ -195,11 +217,13 @@ test("accepted Ask clears the sent question, preserves a streaming follow-up dra
       ...answer,
       model: { ...answer.model, phase: "running", output: "MAPLE" },
     });
-    expect(ui.element.querySelector("input")!.value).toBe(
-      "Keep this follow-up draft.",
-    );
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("Keep this follow-up draft.");
     await ui.render(state("ask-result", 3));
-    expect(ui.element.querySelector("input")!.value).toBe("");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("");
   } finally {
     await ui.close();
   }
@@ -579,11 +603,7 @@ test("settings returns to input, Ask and follow-up drafts without submitting or 
       const input = ui.element.querySelector<
         HTMLInputElement | HTMLTextAreaElement
       >("input, textarea")!;
-      expect(input.value).toBe(
-        mode === "input"
-          ? "Keep my unsent draft.\n第二行"
-          : "Keep my unsent draft.第二行",
-      );
+      expect(input.value).toBe("Keep my unsent draft.\n第二行");
       expect(document.activeElement).toBe(input);
       if (mode === "input") {
         expect(
@@ -1109,7 +1129,9 @@ test("confirming the current model leaves the running session intact", async () 
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(0);
     expect(ui.element.querySelector('[aria-label="选择模型"]')).toBeNull();
-    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe("");
+    expect(
+      ui.element.querySelector<HTMLInputElement>("input, textarea")?.value,
+    ).toBe("");
   } finally {
     await ui.close();
   }
@@ -1380,9 +1402,9 @@ test("Escape cancels an authorization attempt and restores the original command"
           entry.action === "cancel" && entry.attempt === "cancel-attempt",
       ),
     ).toBe(true);
-    expect(ui.element.querySelector<HTMLInputElement>("input")?.value).toBe(
-      "/login anthropic",
-    );
+    expect(
+      ui.element.querySelector<HTMLInputElement>("input, textarea")?.value,
+    ).toBe("/login anthropic");
     expect(ui.calls).toHaveLength(0);
   } finally {
     await ui.close();
@@ -2164,11 +2186,11 @@ test("Chinese followups use the input byte budget and oversized questions stay e
     return Promise.resolve((command === "desktop_state" ? snapshot : {}) as T);
   };
   const typeAndSubmit = async (text: string) => {
-    const input = element.querySelector<HTMLInputElement>(
+    const input = element.querySelector<HTMLTextAreaElement>(
       '[aria-label="Ask 问题或动作"]',
     )!;
     const setter = Object.getOwnPropertyDescriptor(
-      dom.HTMLInputElement.prototype,
+      dom.HTMLTextAreaElement.prototype,
       "value",
     )!.set!;
     await act(async () => {
@@ -2308,5 +2330,929 @@ test("a late startup restore failure does not replace an active translation", as
   } finally {
     await act(async () => root.unmount());
     element.remove();
+  }
+});
+
+test("history search includes later pages and never reports no matches for incomplete history", async () => {
+  const offsets: number[] = [];
+  let fail = true;
+  const load: LoadSessions = async (offset = 0) => {
+    offsets.push(offset);
+    if (offset && fail) return { sessions: [], total: 2 };
+    return {
+      sessions: [
+        {
+          id: offset ? "older" : "recent",
+          title: offset ? "Older target" : "Recent",
+          modified: "2026-10-21T00:00:00Z",
+          messageCount: 2,
+        },
+      ],
+      total: 2,
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume Older");
+    await ui.key("Enter");
+    expect(offsets).toEqual([0, 1]);
+    expect(ui.element.textContent).toContain("会话历史未加载完整");
+    expect(ui.element.textContent).not.toContain("没有匹配的会话");
+    fail = false;
+    await ui.click("重新加载会话");
+    expect(ui.element.textContent).toContain("Older target");
+    expect(ui.element.querySelector("strong")?.title).toBe("Older target");
+    await ui.key("Enter");
+    expect(ui.calls.at(-1)?.args).toEqual({
+      request: { action: "resume", id: "older" },
+    });
+  } finally {
+    await ui.close();
+  }
+});
+
+test("multiline followups support explicit send and keep IME, Shift Enter and busy drafts intact", async () => {
+  const value = state("ask-result");
+  const ui = await mount(value);
+  try {
+    await ui.type("第一行\n第二行");
+    await ui.key("Enter", true);
+    await ui.key("Enter", false, { shiftKey: true });
+    expect(ui.calls).toHaveLength(0);
+    await ui.click("发送追问");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "ask_question",
+      args: { question: "第一行\n第二行" },
+    });
+    value.model.phase = "running";
+    await ui.render(value);
+    await ui.type("继续编辑的草稿");
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(1);
+    await ui.click("停止生成");
+    expect(ui.calls.at(-1)?.command).toBe("cancel_task");
+    expect(ui.element.querySelector("textarea")?.value).toBe("继续编辑的草稿");
+    await ui.key("Escape");
+    expect(ui.calls.at(-1)?.command).toBe("cancel_task");
+    expect(ui.calls.some((call) => call.command === "set_mode")).toBe(false);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("followup commands preserve the answer surface and Escape returns to editing", async () => {
+  const value = state("ask-result");
+  value.model.output = "Keep this answer visible";
+  const ui = await mount(value);
+  try {
+    const answer = ui.element.querySelector('[aria-label="Ask 回答"]');
+    await ui.type("/model");
+    expect(ui.element.querySelector('[aria-label="Ask 回答"]')).toBe(answer);
+    expect(ui.element.textContent).toContain("Keep this answer visible");
+    expect(
+      ui.element.querySelector('.followup-composer [aria-label="应用命令"]'),
+    ).not.toBeNull();
+    await ui.key("Escape");
+    expect(ui.element.querySelector('[aria-label="应用命令"]')).toBeNull();
+    expect(ui.element.querySelector("textarea")?.value).toBe("");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("restored unanswered questions show an answer-specific empty state", async () => {
+  const value = state("ask-result");
+  value.model.question = "Interrupted question";
+  value.model.output = "";
+  value.model.message = "选择文字，复制后翻译。";
+  const ui = await mount(value);
+  try {
+    expect(ui.element.textContent).toContain("本轮暂无可恢复的回答");
+    expect(ui.element.textContent).not.toContain("选择文字，复制后翻译。");
+    value.model.phase = "error";
+    value.model.message = "请求失败";
+    await ui.render(value);
+    expect(ui.element.textContent).toContain("请求失败");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("multiline Ask leaves plain arrows to the editor and Alt arrows select actions", async () => {
+  const ui = await mount(state("ask"));
+  try {
+    await ui.type("First line\nSecond line");
+    const input = ui.element.querySelector("textarea")!;
+    for (const altKey of [false, true]) {
+      const event = new dom.KeyboardEvent("keydown", {
+        key: "ArrowUp",
+        bubbles: true,
+        cancelable: true,
+        altKey,
+      });
+      await act(async () => {
+        input.dispatchEvent(event as unknown as Event);
+      });
+      expect(event.defaultPrevented).toBe(altKey);
+    }
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("answer links open through the native boundary only after an explicit click", async () => {
+  const value = state("ask-result");
+  value.model.output =
+    "[Documentation](https://example.com/docs)\n\n[Unsafe](javascript:alert(1))";
+  const ui = await mount(value);
+  try {
+    expect(ui.calls).toHaveLength(0);
+    expect(ui.element.querySelectorAll(".answer-link-button")).toHaveLength(1);
+    await ui.click("Documentation ↗");
+    expect(ui.calls).toEqual([
+      {
+        command: "open_external_url",
+        args: { url: "https://example.com/docs" },
+      },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings search keeps its query across subpages and Escape clears before leaving", async () => {
+  const ui = await mount(state("settings"));
+  try {
+    await ui.type("置顶", '[aria-label="搜索设置"]');
+    expect(
+      ui.element.querySelectorAll(".settings-categories .action"),
+    ).toHaveLength(1);
+    await ui.key("Enter");
+    expect(ui.element.querySelector("#target")!.closest("[hidden]")).toBeNull();
+    await ui.key("Escape");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("翻译偏好");
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索设置"]')!
+        .value,
+    ).toBe("置顶");
+    await ui.key("Escape");
+    expect(
+      ui.element.querySelectorAll(".settings-categories .action"),
+    ).toHaveLength(4);
+    expect(ui.calls).toHaveLength(0);
+    await ui.type("不存在", '[aria-label="搜索设置"]');
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("没有匹配的设置");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("picker paging clamps to visible rows and history identifies the current session", async () => {
+  const value = state("input");
+  value.model.sessionId = "item-0";
+  value.model.configuredProviders = ["openai"];
+  const ui = await mount(
+    value,
+    async () => ({
+      providers: [],
+      supported: true,
+      total: 12,
+      models: Array.from({ length: 12 }, (_, i) => ({
+        id: `item-${String(i).padStart(2, "0")}`,
+        name: `Model ${String(i).padStart(2, "0")}`,
+        contextWindow: 8192,
+      })),
+    }),
+    undefined,
+    undefined,
+    async () => ({
+      total: 12,
+      sessions: Array.from({ length: 12 }, (_, i) => ({
+        id: `item-${i}`,
+        title: `Session ${i}`,
+        modified: "2026-10-21T00:00:00Z",
+        messageCount: 2,
+      })),
+    }),
+  );
+  try {
+    await ui.type("/model");
+    await ui.key("Enter");
+    await ui.key("PageDown");
+    expect(ui.element.querySelector(".action.selected")?.textContent).toContain(
+      "Model 08",
+    );
+    await ui.key("PageDown");
+    expect(ui.element.querySelector(".action.selected")?.textContent).toContain(
+      "Model 11",
+    );
+    await ui.key("PageUp");
+    expect(ui.element.querySelector(".action.selected")?.textContent).toContain(
+      "Model 03",
+    );
+    await ui.key("Escape");
+    await ui.type("/resume");
+    await ui.key("Enter");
+    expect(
+      ui.element.querySelector('[aria-current="true"]')?.textContent,
+    ).toContain("Session 0");
+    await ui.key("PageDown");
+    expect(ui.element.querySelector(".action.selected")?.textContent).toContain(
+      "Session 8",
+    );
+    await ui.type("Session 11");
+    expect(ui.element.textContent).toContain("1 / 12 个会话");
+    await ui.key("PageDown");
+    expect(ui.element.querySelector(".action.selected")?.textContent).toContain(
+      "Session 11",
+    );
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("activity details close locally with Escape, retain expansion on updates, and pause following", async () => {
+  const value = state("ask-result");
+  value.model.thinkingOutput = "Reasoning summary\n\nMore details";
+  value.model.output = "Partial answer";
+  value.model.toolCalls = [
+    {
+      type: "tool_execution_start",
+      id: "read",
+      name: "read",
+      text: '{"path":"fixture.txt"}',
+    },
+  ];
+  const ui = await mount(value);
+  try {
+    expect(ui.element.querySelector(".follow-answer")).toBeNull();
+    const details =
+      ui.element.querySelector<HTMLDetailsElement>(".thinking-row")!;
+    await act(async () => {
+      details.open = true;
+      details.dispatchEvent(new dom.Event("toggle") as unknown as Event);
+    });
+    expect(ui.element.querySelector(".follow-answer")).not.toBeNull();
+    await ui.render({
+      ...value,
+      model: {
+        ...value.model,
+        thinkingOutput: "Reasoning summary\n\nUpdated details",
+      },
+    });
+    expect(details.open).toBe(true);
+    const summary = details.querySelector("summary")!;
+    for (const isComposing of [true, false]) {
+      await act(async () =>
+        summary.dispatchEvent(
+          new dom.KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            isComposing,
+          }) as unknown as Event,
+        ),
+      );
+      expect(details.open).toBe(isComposing);
+    }
+    expect(document.activeElement).toBe(summary);
+    expect(ui.calls).toHaveLength(0);
+    const tool = ui.element.querySelector<HTMLDetailsElement>(".tool-row")!;
+    expect(tool.textContent).toContain("调用已停止，暂无结果。");
+    await act(async () => {
+      tool.open = true;
+      tool.querySelector("pre")!.dispatchEvent(
+        new dom.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+        }) as unknown as Event,
+      );
+    });
+    expect(tool.open).toBe(false);
+    expect(document.activeElement).toBe(tool.querySelector("summary"));
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("partial answer errors remain visible and answer copy is directly available", async () => {
+  const value = state("ask-result");
+  value.model.output = "Preserved partial answer";
+  value.model.phase = "error";
+  value.model.message = "连接中断，请重试";
+  const ui = await mount(value);
+  try {
+    expect(ui.element.querySelector(".answer-response")?.textContent).toContain(
+      value.model.output,
+    );
+    expect(ui.element.querySelector(".answer-error")?.textContent).toBe(
+      value.model.message,
+    );
+    await ui.click("复制回答");
+    expect(ui.calls).toEqual([
+      { command: "copy_text", args: { text: value.model.output } },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("answer polling preserves code and table nodes, focus and horizontal scroll", async () => {
+  const value = state("ask-result");
+  value.model.output =
+    "```text\nwide code\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |";
+  const ui = await mount(value);
+  try {
+    const pre = ui.element.querySelector<HTMLPreElement>(".answer-prose pre")!;
+    const table = ui.element.querySelector<HTMLDivElement>(".answer-table")!;
+    pre.focus();
+    pre.scrollLeft = 30;
+    table.scrollLeft = 20;
+    await ui.render({
+      ...value,
+      model: { ...value.model, reportedTokens: 20 },
+    });
+    expect(ui.element.querySelector(".answer-prose pre")).toBe(pre);
+    expect(ui.element.querySelector(".answer-table")).toBe(table);
+    expect(document.activeElement).toBe(pre);
+    expect(pre.scrollLeft).toBe(30);
+    expect(table.scrollLeft).toBe(20);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("restored activity includes complete past turns and ignores stale session responses", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "restored";
+  value.model.sessionReady = true;
+  value.model.messages = [
+    { role: "assistant", content: "short preview", truncated: true },
+  ];
+  value.model.messageCount = 4;
+  const turns = [
+    {
+      id: "first",
+      question: "Earlier",
+      output: "Complete older answer",
+      thinkingOutput: "Earlier reasoning",
+      toolCalls: [],
+    },
+    {
+      id: "last",
+      question: "Latest",
+      output: "Answer",
+      thinkingOutput: "Complete persisted reasoning",
+      toolCalls: [
+        {
+          type: "tool_execution_start",
+          id: "tool",
+          name: "read",
+          text: '{"path":"fixture.txt"}',
+        },
+        {
+          type: "tool_execution_end",
+          id: "tool",
+          name: "read",
+          text: "Full result tail",
+          isError: false,
+        },
+      ],
+    },
+  ];
+  let resolve!: (value: { turns: typeof turns }) => void;
+  let requested = 0;
+  const load: LoadActivity = async () => {
+    requested++;
+    if (requested === 1) return { turns };
+    return new Promise((r) => {
+      resolve = r;
+    });
+  };
+  const ui = await mount(value, catalog, undefined, undefined, undefined, load);
+  try {
+    expect(ui.element.querySelector(".thinking-row")?.textContent).toContain(
+      "Complete persisted reasoning",
+    );
+    expect(ui.element.querySelector(".tool-body")?.textContent).toContain(
+      "Full result tail",
+    );
+    await ui.click("会话记录 · 4");
+    expect(ui.element.querySelectorAll(".history-turn")).toHaveLength(2);
+    expect(ui.element.textContent).toContain("Complete older answer");
+    expect(ui.element.textContent).toContain("Earlier reasoning");
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, modelRevision: 2 },
+      model: { ...value.model, sessionId: "next", revision: 2 },
+    });
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, modelRevision: 3 },
+      model: {
+        ...value.model,
+        sessionId: null,
+        sessionReady: false,
+        revision: 3,
+      },
+    });
+    await act(async () => resolve({ turns }));
+    expect(ui.element.querySelector(".thinking-row")).toBeNull();
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("persisted activity failures are retryable without replaying tools", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "retry";
+  value.model.sessionReady = true;
+  let count = 0;
+  const load: LoadActivity = async () => {
+    if (!count++) throw new Error("unavailable");
+    return {
+      turns: [
+        {
+          id: "turn",
+          question: "Q",
+          output: "A",
+          thinkingOutput: "Restored",
+          toolCalls: [],
+        },
+      ],
+    };
+  };
+  const ui = await mount(value, catalog, undefined, undefined, undefined, load);
+  try {
+    expect(ui.element.textContent).toContain("完整过程加载失败");
+    await ui.click("重试加载完整过程");
+    expect(ui.element.textContent).not.toContain("完整过程加载失败");
+    expect(ui.element.querySelector(".thinking-row")?.textContent).toContain(
+      "Restored",
+    );
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("activity loader joins chunks, rejects mixed versions and honors cancellation", async () => {
+  const { loadActivity } = await import("../apps/desktop/src/api");
+  const json = JSON.stringify({
+    turns: [
+      {
+        id: "u",
+        question: "中文🛋️",
+        output: "",
+        thinkingOutput: "完整思考",
+        toolCalls: [],
+      },
+    ],
+  });
+  const abort = new AbortController();
+  let calls = 0;
+  const invoke = async <T>(
+    _command: string,
+    args?: Record<string, unknown>,
+  ): Promise<T> => {
+    calls++;
+    const request = args!.request as { offset: number; version: string | null };
+    if (request.offset) expect(request.version).toBe("version");
+    const end = Math.min(json.length, request.offset + 7);
+    return {
+      chunk: json.slice(request.offset, end),
+      next: end < json.length ? end : null,
+      version: "version",
+    } as T;
+  };
+  expect(await loadActivity("id", abort.signal, invoke)).toEqual(
+    JSON.parse(json),
+  );
+  expect(calls).toBeGreaterThan(2);
+  let page = 0;
+  await expect(
+    loadActivity(
+      "id",
+      abort.signal,
+      async <T>() =>
+        ({ chunk: "x", next: ++page, version: page === 1 ? "a" : "b" }) as T,
+    ),
+  ).rejects.toThrow("invalid_activity_page");
+  abort.abort();
+  const before = calls;
+  await expect(loadActivity("id", abort.signal, invoke)).rejects.toThrow();
+  expect(calls).toBe(before);
+});
+
+test("code controls preserve exact text and survive polling; table copy uses quoted TSV", async () => {
+  const value = state("ask-result");
+  const code = "\tconst 中文 = 1;  \n".repeat(20);
+  value.model.output =
+    "```ts\n" + code + '```\n\n| A | B |\n|---|---|\n| 中文 | say "yes" |';
+  let fail = true;
+  const ui = await mount(value, catalog, async () => !fail);
+  try {
+    await ui.click("自动换行");
+    await ui.click("展开全部");
+    await ui.render({
+      ...value,
+      model: { ...value.model, reportedTokens: 10 },
+    });
+    expect(ui.element.querySelector(".code-block")?.className).toContain(
+      "is-wrapped is-expanded",
+    );
+    await ui.click("复制代码");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "copy_text",
+      args: { text: code },
+    });
+    expect(ui.element.textContent).toContain("复制失败，请重试");
+    fail = false;
+    await ui.click("复制代码");
+    expect(
+      ui.element.querySelector('[aria-label="复制代码"]')?.textContent,
+    ).toBe("已复制");
+    await ui.click("复制表格");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "copy_text",
+      args: { text: 'A\tB\n中文\t"say ""yes"""' },
+    });
+    await ui.click("展开表格");
+    expect(ui.element.querySelector(".table-block")?.className).toContain(
+      "is-expanded",
+    );
+  } finally {
+    await ui.close();
+  }
+});
+
+test("restored answer copies full content beyond snapshot preview", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "full-copy";
+  value.model.sessionReady = true;
+  value.model.output = "preview";
+  const output = "完整内容".repeat(3000) + "END";
+  const ui = await mount(
+    value,
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    async () => ({
+      turns: [
+        {
+          id: "turn",
+          question: "Q",
+          output,
+          thinkingOutput: "",
+          toolCalls: [],
+        },
+      ],
+    }),
+  );
+  try {
+    expect(ui.element.querySelector(".answer-response")?.textContent).toContain(
+      output,
+    );
+    await ui.click("复制回答");
+    expect(ui.calls).toEqual([
+      { command: "copy_text", args: { text: output } },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("completed answer polling cannot pull expanded content to the bottom", async () => {
+  const value = state("ask-result");
+  value.model.output = "```text\n" + "line\n".repeat(20) + "```";
+  const ui = await mount(value);
+  try {
+    const answer = ui.element.querySelector<HTMLDivElement>(".answer")!;
+    Object.defineProperties(answer, {
+      scrollHeight: { value: 500, configurable: true },
+      clientHeight: { value: 400 },
+    });
+    answer.scrollTop = 100;
+    await act(async () =>
+      answer.dispatchEvent(new dom.Event("scroll") as unknown as Event),
+    );
+    await ui.click("展开全部");
+    Object.defineProperty(answer, "scrollHeight", { value: 2000 });
+    await ui.render({ ...value, model: { ...value.model, toolCalls: [] } });
+    expect(answer.scrollTop).toBe(100);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("syntax tokens preserve multiline source and fall back for unknown or oversized code", () => {
+  const source = '/* first\n second */\nconst 中文 = "<script>";\n';
+  const highlighted = codeTokens(source, "typescript");
+  expect(highlighted.highlighted).toBe(true);
+  expect(highlighted.lines[1]![0]!.classes).toContain("hljs-comment");
+  expect(
+    highlighted.lines
+      .map((line) => line.map((token) => token.value).join(""))
+      .join("\n") + "\n",
+  ).toBe(source);
+  expect(codeTokens(source, "unknown-language").highlighted).toBe(false);
+  const large = "a".repeat(100001);
+  expect(codeTokens(large, "js").lines[0]![0]!.value).toBe(large);
+  expect(codeTokens(large, "js").highlighted).toBe(false);
+});
+
+test("line numbers do not alter source and selected code copies without decoration", async () => {
+  const value = state("ask-result");
+  const source = 'const value = "中文";  \n\t// second line\n';
+  value.model.output = "```ts\n" + source + "```";
+  const ui = await mount(value);
+  try {
+    const code = ui.element.querySelector(".highlighted-code")!;
+    expect(code.textContent).toBe(source);
+    expect(code.querySelectorAll(".code-line")).toHaveLength(2);
+    expect(code.querySelector(".hljs-keyword")?.textContent).toBe("const");
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    const selection = document.getSelection()!;
+    await act(async () => {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await act(async () =>
+      document.dispatchEvent(
+        new dom.Event("selectionchange") as unknown as Event,
+      ),
+    );
+    await ui.render({
+      ...value,
+      model: { ...value.model, reportedTokens: 12 },
+    });
+    expect(selection.toString()).toBe(source);
+    const clipboard = new Map<string, string>();
+    const copyEvent = new dom.Event("copy", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      value: {
+        setData: (type: string, text: string) => clipboard.set(type, text),
+      },
+    });
+    await act(async () => code.dispatchEvent(copyEvent as unknown as Event));
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(clipboard.get("text/plain")).toBe(source);
+    await ui.click("复制选中内容");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "copy_text",
+      args: { text: source },
+    });
+    await ui.click("行号");
+    expect(code.className).not.toContain("has-line-numbers");
+    await ui.click("复制代码");
+    expect(ui.calls.at(-1)).toEqual({
+      command: "copy_text",
+      args: { text: source },
+    });
+    await act(async () => selection.removeAllRanges());
+    await act(async () =>
+      document.dispatchEvent(
+        new dom.Event("selectionchange") as unknown as Event,
+      ),
+    );
+    expect(ui.element.querySelector(".selection-actions")).toBeNull();
+  } finally {
+    await ui.close();
+  }
+});
+
+test("collapsing a long code block reveals the same block", async () => {
+  const value = state("ask-result");
+  value.model.output = "```text\n" + "line\n".repeat(30) + "```";
+  const ui = await mount(value);
+  try {
+    const block = ui.element.querySelector<HTMLElement>(".code-block")!;
+    let revealed = false;
+    block.scrollIntoView = () => {
+      revealed = true;
+    };
+    await ui.click("展开全部");
+    expect(revealed).toBe(false);
+    await ui.click("限制高度");
+    expect(revealed).toBe(true);
+    expect(block.className).not.toContain("is-expanded");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("answer search matches phrases across syntax spans and ignores code controls", async () => {
+  const value = state("ask-result");
+  value.model.output =
+    "```js\nconst answer = 42;\n```\n\nThe answer is 42.\n\n| Name | Value |\n|---|---|\n| answer | 42 |";
+  const ui = await mount(value);
+  try {
+    const root = ui.element.querySelector<HTMLElement>(".answer")!;
+    expect(findAnswerMatches(root, "answer")).toHaveLength(3);
+    expect(findAnswerMatches(root, "const answer")[0]?.range.toString()).toBe(
+      "const answer",
+    );
+    expect(findAnswerMatches(root, "复制代码")).toHaveLength(0);
+    expect(findAnswerMatches(root, ".*")).toHaveLength(0);
+    await ui.click("搜索回答");
+    await ui.type("answer", '[aria-label="搜索回答内容"]');
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("1 / 3");
+    await ui.click("下一个匹配");
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("2 / 3");
+    await ui.type("missing", '[aria-label="搜索回答内容"]');
+    expect(
+      ui.element.querySelector('.answer-search [role="status"]')?.textContent,
+    ).toBe("无匹配");
+    const input = ui.element.querySelector('[aria-label="搜索回答内容"]')!;
+    await act(async () =>
+      input.dispatchEvent(
+        new dom.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+        }) as unknown as Event,
+      ),
+    );
+    expect(ui.element.querySelector(".answer-search")).toBeNull();
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("code jump validates source lines, marks target and closes locally", async () => {
+  const value = state("ask-result");
+  value.model.output = "```text\n" + "line\n".repeat(50) + "```";
+  const ui = await mount(value);
+  try {
+    await ui.click("跳行");
+    await ui.type("51", '[aria-label="跳转到代码行"]');
+    await ui.click("前往");
+    expect(ui.element.textContent).toContain("请输入 1–50 的行号");
+    await ui.type("42", '[aria-label="跳转到代码行"]');
+    const composing = new dom.KeyboardEvent("keydown", {
+      key: "Enter",
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () =>
+      ui.element
+        .querySelector('[aria-label="跳转到代码行"]')!
+        .dispatchEvent(composing as unknown as Event),
+    );
+    expect(composing.defaultPrevented).toBe(true);
+    expect(ui.element.querySelector(".is-target-line")).toBeNull();
+    await ui.click("前往");
+    expect(
+      ui.element.querySelector(".is-target-line")?.getAttribute("data-line"),
+    ).toBe("42");
+    await ui.click("关闭跳行");
+    expect(ui.element.querySelector(".code-jump")).toBeNull();
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("reading positions and code options survive remount without leaking across sessions", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "reading-regression";
+  value.model.output = "```text\n" + "line\n".repeat(60) + "```";
+  let ui = await mount(value);
+  try {
+    await ui.click("自动换行");
+    const answer = ui.element.querySelector<HTMLElement>(".answer")!;
+    const pre = ui.element.querySelector<HTMLElement>(".code-block pre")!;
+    answer.scrollTop = 240;
+    pre.scrollTop = 120;
+    pre.scrollLeft = 30;
+    await act(async () => {
+      answer.dispatchEvent(new dom.Event("scroll") as unknown as Event);
+      pre.dispatchEvent(new dom.Event("scroll") as unknown as Event);
+    });
+    await ui.close();
+    ui = await mount(value);
+    expect(ui.element.querySelector<HTMLElement>(".answer")!.scrollTop).toBe(
+      240,
+    );
+    expect(
+      ui.element.querySelector<HTMLElement>(".code-block pre")!.scrollTop,
+    ).toBe(120);
+    expect(
+      ui.element.querySelector<HTMLElement>(".code-block pre")!.scrollLeft,
+    ).toBe(30);
+    expect(ui.element.querySelector(".code-block")?.className).toContain(
+      "is-wrapped",
+    );
+    await ui.render({
+      ...value,
+      model: { ...value.model, sessionId: "another-reading-session" },
+    });
+    expect(ui.element.querySelector<HTMLElement>(".answer")!.scrollTop).toBe(0);
+    expect(ui.element.querySelector(".code-block")?.className).not.toContain(
+      "is-wrapped",
+    );
+  } finally {
+    await ui.close();
+  }
+});
+
+test("explicit search navigation wins over deferred reading restoration in closed details", async () => {
+  saveReading("deferred-reading-test", { top: 120, left: 0 });
+  function Probe() {
+    const ref = React.useRef<HTMLPreElement>(null);
+    useReadingPosition(ref, "deferred-reading-test");
+    return React.createElement(
+      "details",
+      null,
+      React.createElement("summary", null, "open"),
+      React.createElement(
+        "pre",
+        { ref },
+        React.createElement("span", null, "target"),
+      ),
+    );
+  }
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(React.createElement(Probe)));
+  try {
+    const details = container.querySelector("details")!;
+    const pre = container.querySelector("pre")!;
+    await act(async () => {
+      details.open = true;
+      pre.querySelector("span")!.dispatchEvent(
+        new dom.Event("reading-navigation", {
+          bubbles: true,
+        }) as unknown as Event,
+      );
+      pre.scrollTop = 42;
+      details.dispatchEvent(new dom.Event("toggle") as unknown as Event);
+    });
+    expect(pre.scrollTop).toBe(42);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test("history browsing cannot replace the current answer code position", async () => {
+  const value = state("ask-result");
+  value.model.sessionId = "separate-reading";
+  value.model.sessionReady = true;
+  const output = "```text\n" + "line\n".repeat(60) + "```";
+  const ui = await mount(
+    value,
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    async () => ({
+      turns: [
+        {
+          id: "turn",
+          question: "Q",
+          output,
+          thinkingOutput: "",
+          toolCalls: [],
+        },
+      ],
+    }),
+  );
+  try {
+    const current = ui.element.querySelector<HTMLElement>(".code-block pre")!;
+    current.scrollTop = 120;
+    await act(async () =>
+      current.dispatchEvent(new dom.Event("scroll") as unknown as Event),
+    );
+    await ui.click("会话记录 · 0");
+    const history = ui.element.querySelector<HTMLElement>(".code-block pre")!;
+    expect(history.scrollTop).toBe(0);
+    history.scrollTop = 30;
+    await act(async () =>
+      history.dispatchEvent(new dom.Event("scroll") as unknown as Event),
+    );
+    await ui.click("当前回答");
+    expect(
+      ui.element.querySelector<HTMLElement>(".code-block pre")!.scrollTop,
+    ).toBe(120);
+  } finally {
+    await ui.close();
   }
 });

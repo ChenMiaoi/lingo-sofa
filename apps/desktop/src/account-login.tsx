@@ -1,3 +1,4 @@
+import { dragWindow } from "./window-drag";
 import React, { useEffect, useRef, useState } from "react";
 import {
   errorMessage,
@@ -205,7 +206,7 @@ export function AccountLogin({
   };
   return (
     <main className="launcher account-login">
-      <header className="command-header" data-tauri-drag-region>
+      <header className="command-header" onMouseDown={dragWindow}>
         <span className="model-picker-prefix">/login</span>
         {!state || (state.prompt && !state.prompt.browser) ? (
           <input

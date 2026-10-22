@@ -74,6 +74,9 @@ pub struct DesktopView {
     pub operation: String,
 }
 impl DesktopView {
+    fn always_on_top(&self, pinned: bool) -> bool {
+        pinned || matches!(self.mode, Mode::Idle | Mode::Menu | Mode::Translation)
+    }
     fn navigate(&mut self, mode: Mode) {
         if self.capture_pending {
             self.epoch += 1;
@@ -718,6 +721,12 @@ impl Shell {
     pub fn position(&self, app: &tauri::AppHandle) {
         self.position_window(app, true);
     }
+    pub fn apply_pinning(&self, app: &tauri::AppHandle) {
+        if let Some(window) = app.get_webview_window("main") {
+            let pinned = app.state::<Service>().state().settings.pinned;
+            let _ = window.set_always_on_top(self.view.lock().unwrap().always_on_top(pinned));
+        }
+    }
     fn position_window(&self, app: &tauri::AppHandle, activate: bool) {
         let Some(window) = app.get_webview_window("main") else {
             return;
@@ -779,8 +788,7 @@ impl Shell {
                 let _ = window.set_effects(None);
             }
             let _ = window.set_focusable(false);
-            let _ =
-                window.set_always_on_top(!focus || app.state::<Service>().state().settings.pinned);
+            self.apply_pinning(app);
         }
         let _ = window.set_size(tauri::PhysicalSize::new(r.width as u32, r.height as u32));
         let _ = window.set_position(tauri::PhysicalPosition::new(r.x as i32, r.y as i32));
@@ -796,6 +804,30 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pinning_respects_focusable_modes_and_keeps_transient_overlays_visible() {
+        let shell = super::Shell::new("fixture-helper".into());
+        let mut view = shell.view.lock().unwrap();
+        for mode in [
+            super::Mode::Input,
+            super::Mode::Ask,
+            super::Mode::AskResult,
+            super::Mode::Settings,
+            super::Mode::TranslationDetail,
+        ] {
+            view.mode = mode;
+            assert!(!view.always_on_top(false));
+            assert!(view.always_on_top(true));
+        }
+        for mode in [
+            super::Mode::Idle,
+            super::Mode::Menu,
+            super::Mode::Translation,
+        ] {
+            view.mode = mode;
+            assert!(view.always_on_top(false));
+        }
+    }
     use super::*;
 
     #[test]

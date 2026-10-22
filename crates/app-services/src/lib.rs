@@ -29,6 +29,11 @@ struct SessionPreferences {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SessionRequest {
+    Activity {
+        id: String,
+        offset: usize,
+        version: Option<String>,
+    },
     List {
         offset: usize,
     },
@@ -401,7 +406,9 @@ impl Service {
         request: SessionRequest,
     ) -> Result<serde_json::Value, &'static str> {
         match &request {
-            SessionRequest::Resume { id } | SessionRequest::Decision { id, .. }
+            SessionRequest::Resume { id }
+            | SessionRequest::Decision { id, .. }
+            | SessionRequest::Activity { id, .. }
                 if id.is_empty()
                     || id.len() > 64
                     || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') =>
@@ -548,6 +555,22 @@ fn serve(
                     Command::Session { request, reply } => {
                         let result = (|| -> Result<serde_json::Value, &'static str> {
                             match request {
+                                SessionRequest::Activity {
+                                    id,
+                                    offset,
+                                    version,
+                                } => {
+                                    if session.as_deref() != Some(id.as_str()) {
+                                        return Err("session_not_found");
+                                    }
+                                    if current.is_some() {
+                                        return Err("task_running");
+                                    }
+                                    host.request(
+                                        "session.activity",
+                                        json!({"sessionId":id,"offset":offset,"version":version}),
+                                    )
+                                }
                                 SessionRequest::List { offset } => {
                                     host.request("session.list", json!({"offset":offset}))
                                 }

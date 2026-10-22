@@ -1,3 +1,4 @@
+import { dragWindow } from "./window-drag";
 import React, { useLayoutEffect, useRef } from "react";
 import type { Perform } from "./view";
 
@@ -57,9 +58,9 @@ export function TranslationReading({
       className={`reading${detail ? " reading-detail" : ""}${error ? " has-error" : ""}`}
     >
       {detail && (
-        <header className="reading-heading" data-tauri-drag-region>
-          <strong data-tauri-drag-region>完整译文</strong>
-          <span data-tauri-drag-region>滚动阅读 · Esc 返回</span>
+        <header className="reading-heading" onMouseDown={dragWindow}>
+          <strong>完整译文</strong>
+          <span>滚动阅读 · Esc 返回</span>
         </header>
       )}
       <section

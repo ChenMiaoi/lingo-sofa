@@ -1,9 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod clipboard_text;
+mod external_links;
 mod ocr;
 mod shell;
 mod shortcuts;
 mod subscription;
 mod updates;
+mod window_drag;
 use lingo_sofa_app_services::{
     LoginRequest, ModelSelection, Service, SessionRequest, Settings, SettingsPatch,
     TranslationDisplay,
@@ -29,6 +32,11 @@ fn allowed(window: &tauri::WebviewWindow) -> Result<(), String> {
         return Err("window_not_allowed".into());
     }
     Ok(())
+}
+#[tauri::command]
+fn drag_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    allowed(&window)?;
+    window_drag::start(&window)
 }
 #[tauri::command]
 fn desktop_state(
@@ -345,6 +353,8 @@ fn compact_session(
 #[tauri::command]
 async fn save_settings(
     window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<'_, Shell>,
     service: tauri::State<'_, Service>,
     settings: Settings,
 ) -> Result<(), String> {
@@ -353,11 +363,15 @@ async fn save_settings(
     tauri::async_runtime::spawn_blocking(move || service.settings(settings))
         .await
         .map_err(|_| "service_unavailable".to_string())?
-        .map_err(String::from)
+        .map_err(String::from)?;
+    shell.apply_pinning(&app);
+    Ok(())
 }
 #[tauri::command]
 async fn patch_settings(
     window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    shell: tauri::State<'_, Shell>,
     service: tauri::State<'_, Service>,
     patch: SettingsPatch,
 ) -> Result<(), String> {
@@ -366,7 +380,9 @@ async fn patch_settings(
     tauri::async_runtime::spawn_blocking(move || service.patch_settings(patch))
         .await
         .map_err(|_| "service_unavailable".to_string())?
-        .map_err(String::from)
+        .map_err(String::from)?;
+    shell.apply_pinning(&app);
+    Ok(())
 }
 #[tauri::command]
 fn copy_result(
@@ -388,6 +404,18 @@ fn copy_result(
     app.clipboard()
         .write_text(text)
         .map_err(|_| "clipboard_unavailable".into())
+}
+#[tauri::command]
+fn copy_text(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    text: String,
+) -> Result<(), String> {
+    allowed(&window)?;
+    clipboard_text::validate(&text).map_err(String::from)?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "clipboard_write_failed".into())
 }
 #[tauri::command]
 fn collapse(
@@ -552,6 +580,7 @@ fn main() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            drag_window,
             desktop_state,
             check_updates,
             download_update,
@@ -572,6 +601,7 @@ fn main() {
             model_catalog,
             subscription_login,
             open_login_url,
+            external_links::open_external_url,
             subscription::open_login_browser,
             save_provider,
             select_model,
@@ -581,6 +611,7 @@ fn main() {
             patch_settings,
             save_shortcuts,
             copy_result,
+            copy_text,
             collapse
         ])
         .setup(|app| {

@@ -20,6 +20,7 @@ import {
   displayMetadata,
 } from "./session-history";
 import { ToolApprovals } from "./tool-approval";
+import { activityChunk } from "./session-activity";
 import type {
   OAuthProvider as AIProvider,
   AuthCredential,
@@ -754,6 +755,17 @@ export async function runWorker(options: WorkerOptions) {
           frame.payload.approved,
         );
         return {};
+      }
+      case "session.activity": {
+        const entry = sessionEntry(frame.payload);
+        if (entry.busy) throw new Error("session_busy");
+        return activityChunk(
+          entry.session.sessionManager,
+          Number(frame.payload.offset ?? 0),
+          typeof frame.payload.version === "string"
+            ? frame.payload.version
+            : undefined,
+        );
       }
       case "session.snapshot": {
         const entry = sessionEntry(frame.payload);

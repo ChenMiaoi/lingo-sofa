@@ -1,3 +1,4 @@
+import { dragWindow } from "./window-drag";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { formatShortcut } from "./keyboard";
 import { Settings, type SettingsPage } from "./settings";
@@ -27,6 +28,8 @@ import {
   type RequestLogin,
   loadSessions as defaultLoadSessions,
   type LoadSessions,
+  loadActivity as defaultLoadActivity,
+  type LoadActivity,
 } from "./api";
 export type Perform = (
   command: string,
@@ -108,6 +111,7 @@ export function Desktop({
   loadModelCatalog = defaultLoadModelCatalog,
   requestLogin = subscriptionLogin,
   loadSessions = defaultLoadSessions,
+  loadActivity = defaultLoadActivity,
 }: {
   state: DesktopState;
   notice?: string;
@@ -115,6 +119,7 @@ export function Desktop({
   loadModelCatalog?: LoadModelCatalog;
   requestLogin?: RequestLogin;
   loadSessions?: LoadSessions;
+  loadActivity?: LoadActivity;
 }) {
   const { desktop: d, model } = state;
   const mode = d.mode;
@@ -141,7 +146,7 @@ export function Desktop({
     epoch: d.epoch,
     revision: d.modelRevision,
   });
-  const queryInput = useRef<HTMLInputElement>(null);
+  const queryInput = useRef<HTMLTextAreaElement>(null);
   const draftInput = useRef<HTMLTextAreaElement>(null);
   const busy =
     model.phase === "preparing" ||
@@ -429,6 +434,19 @@ export function Desktop({
     draft.style.height = "auto";
     draft.style.height = `${Math.min(Math.max(draft.scrollHeight, 30), 74)}px`;
   }, [input, isInput]);
+  useLayoutEffect(() => {
+    const field = queryInput.current;
+    if (!field || (mode !== "ask" && mode !== "ask-result")) return;
+    const resize = () => {
+      field.style.height = "0px";
+      field.style.height = `${Math.min(Math.max(field.scrollHeight, 24), 120)}px`;
+    };
+    resize();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    if (field.parentElement) observer?.observe(field.parentElement);
+    return () => observer?.disconnect();
+  }, [query, mode, modelSearch, sessionSearch, loginEntry]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
       if (
@@ -448,8 +466,8 @@ export function Desktop({
         return;
       }
       if (mode === "ask-result") {
-        void perform("cancel_task");
-        go("ask");
+        if (busy) void perform("cancel_task");
+        else go("ask");
       } else if (mode === "translation" || mode === "menu") {
         void perform("collapse");
       } else if (mode !== "idle") {
@@ -462,6 +480,7 @@ export function Desktop({
     mode,
     perform,
     commandMode,
+    busy,
     isInput,
     modelSearch,
     loginEntry,
@@ -488,6 +507,7 @@ export function Desktop({
     return (
       <SessionPicker
         search={sessionSearch}
+        currentId={model.sessionId}
         load={loadSessions}
         perform={perform}
         onClose={(applied) => {
@@ -678,10 +698,42 @@ export function Desktop({
         }}
       />
     );
+  const commandMenu = (
+    <section ref={commandList} className="action-list" aria-label="应用命令">
+      <div className="list-caption">
+        <span>应用命令</span>
+        <span>Enter 执行</span>
+      </div>
+      {commands.map((command, index) => (
+        <button
+          key={command.command}
+          className={`action ${index === selected ? "selected" : ""}`}
+          onMouseEnter={() => setSelected(index)}
+          onClick={() => commandChoice(index)}
+        >
+          <span className="action-icon">
+            <Icon name={command.command === "/ask" ? "chat" : "settings"} />
+          </span>
+          <span className="action-copy">
+            <strong>
+              {command.command} · {command.label}
+            </strong>
+            <small>{command.detail}</small>
+          </span>
+          {index === selected && <span className="enter-key">↵</span>}
+        </button>
+      ))}
+      {!commands.length && (
+        <p className="quiet-status">
+          未找到命令，输入 / 查看命令；// 提交斜杠正文。
+        </p>
+      )}
+    </section>
+  );
   const composer = (
     <header
-      className={`command-header${isInput ? " draft-header" : ""}`}
-      data-tauri-drag-region
+      className={`command-header ${isInput ? "draft-header" : "query-header"}`}
+      onMouseDown={dragWindow}
     >
       {mode === "ask-result" ? (
         <span className="composer-prompt" aria-hidden="true">
@@ -732,8 +784,10 @@ export function Desktop({
           }}
         />
       ) : (
-        <input
+        <textarea
           ref={queryInput}
+          rows={1}
+          aria-describedby={mode === "ask-result" ? "followup-hint" : undefined}
           aria-label="Ask 问题或动作"
           placeholder={
             mode === "ask-result"
@@ -743,10 +797,11 @@ export function Desktop({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (isImeKey(e.nativeEvent) || (commandMode && e.shiftKey)) return;
+            if (isImeKey(e.nativeEvent) || e.shiftKey) return;
             if (completeCommandInput(e)) return;
             if (
-              (mode === "ask" || commandMode) &&
+              ((mode === "ask" && (!query.includes("\n") || e.altKey)) ||
+                commandMode) &&
               (e.key === "ArrowDown" || e.key === "ArrowUp")
             ) {
               e.preventDefault();
@@ -780,6 +835,28 @@ export function Desktop({
           }}
         />
       )}
+      {mode === "ask-result" && (
+        <button
+          className="send-question"
+          aria-label={commandMode ? "执行命令" : busy ? "停止生成" : "发送追问"}
+          title={
+            busy && !commandMode
+              ? "停止生成 · Esc"
+              : "Enter 发送 · Shift+Enter 换行"
+          }
+          disabled={!busy && !query.trim()}
+          onClick={() => {
+            if (commandMode) execute();
+            else if (busy) void perform("cancel_task");
+            else
+              void perform("ask_question", {
+                question: unescapeCommandText(query),
+              });
+          }}
+        >
+          {commandMode ? "执行" : busy ? "停止" : "发送"}
+        </button>
+      )}
       <button className="sofa-mark" aria-label="返回阅读" onClick={back}>
         <Icon name="sofa" />
       </button>
@@ -791,7 +868,7 @@ export function Desktop({
         className={`launcher${isInput ? " input-launcher" : ""}${mode === "ask-result" ? " result-launcher" : ""}`}
       >
         {mode !== "ask-result" && composer}
-        <div className="context-bar" data-tauri-drag-region>
+        <div className="context-bar" onMouseDown={dragWindow}>
           {isInput ? (
             <span className="input-label">
               {context?.kind === "ocr" ? "截图识别 · 请校对" : "独立输入"}
@@ -852,49 +929,14 @@ export function Desktop({
               state.updates.phase,
             ) && <span className="update-dot" aria-label="有可用更新" />}
           </button>
+          {sourceOpen && context && !isInput && (
+            <section className="source-peek" aria-label="本次原文" data-no-drag>
+              {context.text}
+            </section>
+          )}
         </div>
-        {sourceOpen && context && !isInput && (
-          <section className="source-peek" aria-label="本次原文">
-            {context.text}
-          </section>
-        )}
-        {commandMode ? (
-          <section
-            ref={commandList}
-            className="action-list"
-            aria-label="应用命令"
-          >
-            <div className="list-caption">
-              <span>应用命令</span>
-              <span>Enter 执行</span>
-            </div>
-            {commands.map((command, index) => (
-              <button
-                key={command.command}
-                className={`action ${index === selected ? "selected" : ""}`}
-                onMouseEnter={() => setSelected(index)}
-                onClick={() => commandChoice(index)}
-              >
-                <span className="action-icon">
-                  <Icon
-                    name={command.command === "/ask" ? "chat" : "settings"}
-                  />
-                </span>
-                <span className="action-copy">
-                  <strong>
-                    {command.command} · {command.label}
-                  </strong>
-                  <small>{command.detail}</small>
-                </span>
-                {index === selected && <span className="enter-key">↵</span>}
-              </button>
-            ))}
-            {!commands.length && (
-              <p className="quiet-status">
-                未找到命令，输入 / 查看命令；// 提交斜杠正文。
-              </p>
-            )}
-          </section>
+        {commandMode && mode !== "ask-result" ? (
+          commandMenu
         ) : mode === "ask" || isInput ? (
           <section className="action-list" aria-label="匹配动作">
             <div className="list-caption">
@@ -972,6 +1014,7 @@ export function Desktop({
             busy={busy}
             operation={d.operation}
             perform={perform}
+            loadActivity={loadActivity}
             onActions={() => {
               void perform("cancel_task");
               go("ask");
@@ -981,12 +1024,21 @@ export function Desktop({
         {mode === "ask-result" && (
           <>
             {" "}
-            {composer}
+            <div className="followup-composer">
+              {commandMode && commandMenu}
+              {composer}
+              <div className="composer-hint" id="followup-hint">
+                {commandMode
+                  ? "↑↓ 选择 · Tab 补全 · Enter 执行 · Esc 关闭"
+                  : busy
+                    ? "正在生成 · Esc 停止 · 可继续编辑草稿"
+                    : "Enter 发送 · Shift+Enter 换行 · / 命令"}
+              </div>
+            </div>
             <SessionStatus model={model} />{" "}
           </>
         )}
         {(mode !== "ask-result" ||
-          commandMode ||
           !!commandNotice ||
           !!message ||
           (current && model.phase === "error")) && (

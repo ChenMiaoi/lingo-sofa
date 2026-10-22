@@ -1,5 +1,6 @@
+import { dragWindow } from "./window-drag";
 import React, { useEffect, useRef, useState } from "react";
-import { formatShortcut } from "./keyboard";
+import { formatShortcut, listIndex } from "./keyboard";
 import { isImeKey, type DesktopState } from "./api";
 import { ModelProviders, type LoadModelCatalog } from "./model-providers";
 import { UpdateSettings, updateSummary } from "./updates";
@@ -37,13 +38,20 @@ export function Settings({
 }) {
   const { model } = state;
   const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [query, setQuery] = useState("");
+  const filterInput = useRef<HTMLInputElement>(null);
+  const visibleCategories = categories.filter((category) =>
+    `${category.title} ${category.detail}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
   const backButton = useRef<HTMLButtonElement>(null);
   const categoryButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const previousPage = useRef<SettingsPage>("home");
   const back = () => (page === "home" ? onBack() : setPage("home"));
   useEffect(() => {
     if (page === "home") {
-      const index = categories.findIndex(
+      const index = visibleCategories.findIndex(
         (category) => category.id === previousPage.current,
       );
       categoryButtons.current[Math.max(index, 0)]?.focus();
@@ -56,12 +64,15 @@ export function Settings({
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || isImeKey(event)) return;
       event.preventDefault();
-      if (page === "home") onBack();
+      if (page === "home" && query) {
+        setQuery("");
+        filterInput.current?.focus();
+      } else if (page === "home") onBack();
       else setPage("home");
     };
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
-  }, [page, onBack]);
+  }, [page, onBack, query]);
   const title =
     categories.find((category) => category.id === page)?.title ?? "设置";
   const values = {
@@ -71,8 +82,11 @@ export function Settings({
     shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/${state.shortcuts.macos ? 6 : 4} 已启用`,
   };
   return (
-    <main className="launcher settings-launcher">
-      <header className="command-header settings-header" data-tauri-drag-region>
+    <main className="launcher settings-launcher selection-page">
+      <header
+        className="command-header settings-header"
+        onMouseDown={dragWindow}
+      >
         <button
           ref={backButton}
           className="settings-back"
@@ -82,16 +96,39 @@ export function Settings({
           <span aria-hidden="true">←</span>
           {title}
         </button>
-        <span className="settings-brand" data-tauri-drag-region>
-          {page === "home" ? "LingoSofa" : "设置"}
+        <span className="settings-brand">
+          {page === "home" ? "/settings" : "设置"}
         </span>
       </header>
+      {page === "home" && (
+        <div className="settings-search">
+          <input
+            ref={filterInput}
+            aria-label="搜索设置"
+            placeholder="搜索设置名称或功能…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (isImeKey(event.nativeEvent)) return;
+              if (
+                (event.key === "ArrowDown" || event.key === "Enter") &&
+                visibleCategories.length
+              ) {
+                event.preventDefault();
+                if (event.key === "Enter") setPage(visibleCategories[0]!.id);
+                else categoryButtons.current[0]?.focus();
+              }
+            }}
+          />
+          <span>{visibleCategories.length} 项</span>
+        </div>
+      )}
       <nav
         className="settings-categories"
         aria-label="设置分类"
         hidden={page !== "home"}
       >
-        {categories.map((category, index) => (
+        {visibleCategories.map((category, index) => (
           <button
             key={category.id}
             ref={(element) => {
@@ -102,14 +139,14 @@ export function Settings({
             onClick={() => setPage(category.id)}
             onKeyDown={(event) => {
               if (isImeKey(event.nativeEvent)) return;
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              const next = listIndex(
+                event.key,
+                index,
+                visibleCategories.length,
+              );
+              if (next !== null) {
                 event.preventDefault();
-                categoryButtons.current[
-                  (index +
-                    (event.key === "ArrowDown" ? 1 : -1) +
-                    categories.length) %
-                    categories.length
-                ]?.focus();
+                categoryButtons.current[next]?.focus();
               }
             }}
           >
@@ -131,6 +168,9 @@ export function Settings({
             </span>
           </button>
         ))}
+        {!visibleCategories.length && (
+          <p className="quiet-status">没有匹配的设置，Esc 清除搜索。</p>
+        )}
       </nav>
       <section
         className="settings-form"
@@ -220,7 +260,13 @@ export function Settings({
               ? `↑↓ 选择 · ${formatShortcut("Enter", state.shortcuts.macos)} 打开`
               : "设置保存在本机")}
         </span>
-        <span>{page === "home" ? "Esc 返回导航" : "Esc 返回设置"}</span>
+        <span>
+          {page === "home"
+            ? query
+              ? "Esc 清除搜索"
+              : "Esc 返回导航"
+            : "Esc 返回设置"}
+        </span>
       </footer>
     </main>
   );

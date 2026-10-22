@@ -27,6 +27,23 @@ const message = (text: string) => ({
   stopReason: "stop" as const,
   timestamp: Date.now(),
 });
+
+test("restoring an unanswered followup never pairs it with an earlier answer", () => {
+  const messages = [
+    { role: "user", content: "First question", timestamp: 1 },
+    message("First answer"),
+    { role: "user", content: "Cancelled followup", timestamp: 2 },
+  ];
+  const session = {
+    messages,
+    getSessionStats: () => ({ tokens: {}, toolCalls: 0, cost: 0 }),
+  } as unknown as sdk.AgentSession;
+  expect(sessionSnapshot(session).question).toBe("Cancelled followup");
+  expect(sessionSnapshot(session).output).toBe("");
+  messages.push(message("Current partial answer"));
+  expect(sessionSnapshot(session).output).toBe("Current partial answer");
+  expect(sessionSnapshot(session).messages[1]?.content).toBe("First answer");
+});
 test("OMP transcripts retain old sessions, metadata and complete context across cold reopen", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lingo-history-"));
   try {
@@ -178,4 +195,91 @@ test("tool approvals are one-shot, scoped, deny on cancellation and never execut
   );
   approvals.decide("session", "ok", true);
   expect(await approved).toBe(true);
+});
+
+test("durable activity restores every turn and complete tool data through bounded chunks", async () => {
+  const { sessionActivity, activityChunk } =
+    await import("../apps/omp-worker/src/session-activity");
+  const directory = await mkdtemp(join(tmpdir(), "lingo-activity-"));
+  try {
+    const history = new SessionHistory(sdk, directory);
+    const manager = await history.create({
+      provider: "deepseek",
+      modelId: "deepseek-flash",
+    });
+    const id = manager.getSessionId();
+    const long = '思考🛋️\\"\n'.repeat(15000) + "COMPLETE_END";
+    manager.appendMessage({ role: "user", content: "First", timestamp: 1 });
+    manager.appendMessage({
+      ...message(""),
+      content: [
+        { type: "thinking", thinking: long },
+        {
+          type: "toolCall",
+          id: "tool-1",
+          name: "read",
+          arguments: { path: "synthetic.txt" },
+        },
+      ],
+      stopReason: "toolUse",
+    });
+    manager.appendMessage({
+      role: "toolResult",
+      toolCallId: "tool-1",
+      toolName: "read",
+      content: [{ type: "text", text: long }],
+      isError: true,
+      timestamp: 2,
+    });
+    manager.appendMessage(message("Final answer"));
+    manager.appendMessage({
+      role: "user",
+      content: "Interrupted second turn",
+      timestamp: 3,
+    });
+    manager.appendMessage({
+      ...message(""),
+      content: [
+        { type: "thinking", thinking: "Partial thought" },
+        {
+          type: "toolCall",
+          id: "tool-2",
+          name: "read",
+          arguments: { path: "unexecuted.txt" },
+        },
+      ],
+    });
+    await manager.flush();
+    await manager.close();
+    const restored = await history.open(id);
+    const activity = sessionActivity(restored);
+    expect(activity.turns).toHaveLength(2);
+    expect(activity.turns[0]!.thinkingOutput).toBe(long);
+    expect(activity.turns[0]!.toolCalls[1]!.text).toBe(long);
+    expect(activity.turns[0]!.toolCalls[1]!.isError).toBe(true);
+    expect(activity.turns[1]!.toolCalls).toHaveLength(1);
+    expect(activity.turns[1]!.output).toBe("");
+    let offset = 0;
+    let version: string | undefined;
+    const chunks: string[] = [];
+    for (;;) {
+      const page = activityChunk(restored, offset, version);
+      expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(26000);
+      chunks.push(page.chunk);
+      version = page.version;
+      if (page.next === null) break;
+      expect(page.next).toBeGreaterThan(offset);
+      offset = page.next;
+    }
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(JSON.parse(chunks.join(""))).toEqual(activity);
+    expect(() => activityChunk(restored, -1)).toThrow("invalid_page");
+    restored.appendMessage(message("Late completion"));
+    expect(() => activityChunk(restored, 0, version)).toThrow(
+      "session_activity_changed",
+    );
+    await restored.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

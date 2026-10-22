@@ -173,9 +173,10 @@ export function sessionSnapshot(session: SDK.AgentSession) {
       truncated: preview.truncated,
     };
   });
-  const assistant = session.messages
-    .slice()
-    .reverse()
+  const recent = session.messages.slice().reverse();
+  const userIndex = recent.findIndex((message) => message.role === "user");
+  const assistant = recent
+    .slice(0, userIndex < 0 ? undefined : userIndex)
     .find((message) => message.role === "assistant");
   const output =
     assistant?.content
@@ -184,10 +185,7 @@ export function sessionSnapshot(session: SDK.AgentSession) {
       .join("\n") ?? "";
   const stats = session.getSessionStats();
   const preview = displayText(output, 8000);
-  const user = session.messages
-    .slice()
-    .reverse()
-    .find((message) => message.role === "user");
+  const user = recent.find((message) => message.role === "user");
   const question = user
     ? typeof user.content === "string"
       ? user.content

@@ -675,5 +675,52 @@ fn tool_execution_waits_for_each_decision_and_records_reasoning_and_results() {
                 .is_err()
         );
     }
+    let session_id = service.state().session_id.clone().unwrap();
+    let read_activity = |service: &lingo_sofa_app_services::Service| {
+        let mut offset = 0;
+        let mut version = None;
+        let mut text = String::new();
+        loop {
+            let page = service
+                .session_request(SessionRequest::Activity {
+                    id: session_id.clone(),
+                    offset,
+                    version: version.clone(),
+                })
+                .unwrap();
+            text.push_str(page["chunk"].as_str().unwrap());
+            version = Some(page["version"].as_str().unwrap().to_owned());
+            match page["next"].as_u64() {
+                Some(next) => offset = next as usize,
+                None => break,
+            }
+        }
+        text
+    };
+    let before = read_activity(&service);
+    assert!(before.contains("Visible fixture reasoning"));
+    assert!(before.contains("REVIEW_END"));
     service.shutdown();
+    std::fs::remove_file(directory.path().join("approved-tool.txt")).unwrap();
+    let restored = start_options(directory.path(), &["--tool-fixture"]);
+    restored.session_request(SessionRequest::Restore).unwrap();
+    assert_eq!(read_activity(&restored), before);
+    assert!(!directory.path().join("approved-tool.txt").exists());
+    restored
+        .session_request(SessionRequest::Resume {
+            id: session_id.clone(),
+        })
+        .unwrap();
+    assert_eq!(read_activity(&restored), before);
+    assert!(!directory.path().join("approved-tool.txt").exists());
+    assert!(
+        restored
+            .session_request(SessionRequest::Activity {
+                id: "wrong-session".into(),
+                offset: 0,
+                version: None
+            })
+            .is_err()
+    );
+    restored.shutdown();
 }
