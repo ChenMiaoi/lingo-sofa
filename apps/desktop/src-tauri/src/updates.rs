@@ -374,6 +374,9 @@ mod metadata_tests {
                     Err(error) => panic!("metadata fixture connection failed: {error}"),
                 }
             };
+            // Windows accepted sockets inherit the listener's nonblocking mode.
+            // The fixture must wait for request bytes before sending its response.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
