@@ -2473,6 +2473,125 @@ test("OCR commands can override placement once without saving a preference", asy
   }
 });
 
+test("history search distinguishes no matches and clears the query back to focused history", async () => {
+  const queries: string[] = [];
+  const load: LoadSessions = async (_offset, query = "") => {
+    queries.push(query);
+    return query.trim()
+      ? { sessions: [], total: 0 }
+      : {
+          sessions: [
+            {
+              id: "recent",
+              title: "Recent history",
+              modified: "2026-10-21T00:00:00Z",
+              messageCount: 2,
+            },
+          ],
+          total: 1,
+        };
+  };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("Recent history");
+    await ui.type("  missing  ");
+    expect(ui.element.querySelector(".quiet-status")?.textContent).toContain(
+      "没有匹配的会话",
+    );
+    expect(ui.element.textContent).not.toContain("暂无历史会话");
+    const input = ui.element.querySelector<HTMLInputElement>(
+      '[aria-label="搜索会话"]',
+    )!;
+    const clear = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "清空搜索")!;
+    clear.focus();
+    expect(document.activeElement).toBe(clear);
+    await ui.click("清空搜索");
+    expect(input.value).toBe("");
+    expect(document.activeElement).toBe(input);
+    expect(ui.element.textContent).toContain("Recent history");
+    expect(ui.element.querySelector(".quiet-status")).toBeNull();
+    expect(queries).toEqual(["", "  missing  ", ""]);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("an empty history with an empty or whitespace-only query does not offer search recovery", async () => {
+  const load: LoadSessions = async () => ({ sessions: [], total: 0 });
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    for (const query of ["", "   "]) {
+      await ui.type(query);
+      expect(ui.element.querySelector(".quiet-status")?.textContent).toBe(
+        "暂无历史会话",
+      );
+      expect(ui.element.textContent).not.toContain("没有匹配的会话");
+      expect(ui.element.textContent).not.toContain("清空搜索");
+    }
+  } finally {
+    await ui.close();
+  }
+});
+
+test("history loading and failed queries do not claim empty results or retain the previous total", async () => {
+  let reject!: (error: Error) => void;
+  const pending = new Promise<Awaited<ReturnType<LoadSessions>>>(
+    (_resolve, fail) => {
+      reject = fail;
+    },
+  );
+  const load: LoadSessions = async (_offset, query) =>
+    query
+      ? pending
+      : {
+          sessions: [
+            {
+              id: "recent",
+              title: "Recent",
+              modified: "2026-10-21T00:00:00Z",
+              messageCount: 1,
+            },
+          ],
+          total: 123,
+        };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+      "123 个会话",
+    );
+    await ui.type("pending query");
+    expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+      "正在读取…",
+    );
+    expect(ui.element.querySelector(".quiet-status")).toBeNull();
+    expect(ui.element.textContent).not.toContain("加载更多会话");
+    await act(async () => {
+      reject(new Error("history unavailable"));
+      await Promise.resolve();
+    });
+    expect(ui.element.querySelector('[role="alert"]')?.textContent).toContain(
+      "会话历史未加载完整",
+    );
+    expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+      "读取未完成",
+    );
+    expect(ui.element.querySelector(".quiet-status")).toBeNull();
+    expect(ui.element.textContent).not.toContain("123");
+    expect(ui.element.textContent).not.toContain("清空搜索");
+    expect(ui.element.textContent).toContain("重新加载会话");
+  } finally {
+    await ui.close();
+  }
+});
+
 test("a startup restore timeout cannot mask a later native shortcut translation", async () => {
   const element = document.createElement("div");
   document.body.append(element);

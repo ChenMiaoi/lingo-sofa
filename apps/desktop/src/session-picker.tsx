@@ -41,6 +41,7 @@ export function SessionPicker({
     setLoading(true);
     setError("");
     setSessions([]);
+    setTotal(0);
     setSnapshot(undefined);
     setSelected(0);
     void (async () => {
@@ -160,9 +161,11 @@ export function SessionPicker({
           <span>
             {loading
               ? "正在读取…"
-              : query.trim()
-                ? `${choices.length} / ${total} 个会话`
-                : `${total} 个会话`}
+              : error
+                ? "读取未完成"
+                : query.trim()
+                  ? `${choices.length} / ${total} 个会话`
+                  : `${total} 个会话`}
           </span>
           <span>保存在本机</span>
         </div>
@@ -196,7 +199,21 @@ export function SessionPicker({
         ))}
         {!loading && !error && !choices.length && (
           <p className="quiet-status">
-            {sessions.length ? "没有匹配的会话" : "暂无历史会话"}
+            {query.trim() ? "没有匹配的会话" : "暂无历史会话"}
+            {query.trim() && (
+              <>
+                {" "}
+                <button
+                  disabled={saving}
+                  onClick={() => {
+                    setQuery("");
+                    input.current?.focus();
+                  }}
+                >
+                  清空搜索
+                </button>
+              </>
+            )}
           </p>
         )}
         {sessions.length < total && !error && (
