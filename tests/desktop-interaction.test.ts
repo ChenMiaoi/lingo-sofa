@@ -1721,6 +1721,346 @@ test("models settings manage separate provider credentials and apply a default w
   }
 });
 
+test("settings provider catalog failure survives model scope changes and clears after refresh", async () => {
+  const value = state("settings");
+  value.model.configuredProviders = ["deepseek", "openai"];
+  let providerLoads = 0;
+  const ui = await mount(value, async (provider) => {
+    if (!provider && ++providerLoads === 1)
+      throw new Error("synthetic provider directory failure");
+    return catalog(provider);
+  });
+  try {
+    await ui.click("模型与服务商");
+    expect(
+      ui.element.querySelector('.model-providers [role="status"]')?.textContent,
+    ).toContain("暂时无法完成操作");
+    await ui.click("openai · 已配置");
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#provider")?.value,
+    ).toBe("openai");
+    expect(
+      ui.element.querySelector('.model-providers [role="status"]')?.textContent,
+    ).toContain("服务商目录加载失败");
+    await ui.click("刷新列表");
+    expect(providerLoads).toBe(2);
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#provider")?.value,
+    ).toBe("openai");
+    expect(
+      ui.element.querySelector('.model-providers [role="status"]')?.textContent,
+    ).not.toContain("加载失败");
+    expect(ui.element.querySelectorAll("#provider option")).toHaveLength(3);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings model pagination retry clears its failure after successfully loading the missing page", async () => {
+  let failed = false;
+  const ui = await mount(state("settings"), async (provider, offset = 0) => {
+    if (!provider) return catalog();
+    if (offset === 1 && !failed) {
+      failed = true;
+      throw new Error("synthetic page failure");
+    }
+    return {
+      providers: [],
+      supported: true,
+      total: 2,
+      models: [
+        {
+          id: offset ? "last" : "first",
+          name: offset ? "Last" : "First",
+          contextWindow: 8192,
+        },
+      ],
+    };
+  });
+  try {
+    await ui.click("模型与服务商");
+    await ui.click("加载更多模型（1/2）");
+    expect(
+      ui.element.querySelector('.model-providers [role="status"]')?.textContent,
+    ).toContain("暂时无法完成操作");
+    await ui.click("重试模型列表");
+    expect(
+      ui.element.querySelectorAll('#default-model option[value="last"]'),
+    ).toHaveLength(1);
+    expect(
+      ui.element.querySelector('.model-providers [role="status"]')?.textContent,
+    ).toContain("2 个可选模型");
+    expect(
+      ui.element.querySelector('.model-providers [role="status"]')?.textContent,
+    ).not.toContain("暂时无法完成操作");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings model load-more guards synchronous duplicate clicks before pending state renders", async () => {
+  const page = Promise.withResolvers<ModelCatalog>();
+  let nextPageCalls = 0;
+  const ui = await mount(state("settings"), async (provider, offset = 0) => {
+    if (!provider) return catalog();
+    if (offset === 1) {
+      nextPageCalls += 1;
+      return page.promise;
+    }
+    return {
+      providers: [],
+      supported: true,
+      total: 2,
+      models: [{ id: "first", name: "First", contextWindow: 8192 }],
+    };
+  });
+  try {
+    await ui.click("模型与服务商");
+    const button = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>(
+        ".model-providers button",
+      ),
+    ].find((item) => item.textContent === "加载更多模型（1/2）")!;
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(nextPageCalls).toBe(1);
+    expect(button.disabled).toBe(true);
+    await act(async () =>
+      page.resolve({
+        providers: [],
+        supported: true,
+        total: 2,
+        models: [{ id: "last", name: "Last", contextWindow: 8192 }],
+      }),
+    );
+    expect(
+      ui.element.querySelectorAll('#default-model option[value="last"]'),
+    ).toHaveLength(1);
+  } finally {
+    page.resolve({ providers: [], models: [], total: 1 });
+    await ui.close();
+  }
+});
+
+test("settings provider-only retry preserves model options, selection and the unsaved synthetic key", async () => {
+  let providerCalls = 0;
+  let modelCalls = 0;
+  const ui = await mount(state("settings"), async (provider) => {
+    if (!provider) {
+      if (++providerCalls === 2) throw new Error("synthetic list failure");
+      return catalog();
+    }
+    modelCalls += 1;
+    return {
+      providers: [],
+      total: 2,
+      supported: true,
+      models: [
+        { id: "first", name: "First", contextWindow: 8192 },
+        { id: "chosen", name: "Chosen", contextWindow: 8192 },
+      ],
+    };
+  });
+  try {
+    await ui.click("模型与服务商");
+    await ui.select("chosen", "#default-model");
+    await ui.type("synthetic-unsaved-key", "#api-key");
+    await ui.click("刷新列表");
+    expect(ui.element.querySelector(".model-providers")?.textContent).toContain(
+      "服务商目录加载失败",
+    );
+    const before = modelCalls;
+    await ui.click("重试服务商列表");
+    expect(modelCalls).toBe(before);
+    expect(providerCalls).toBe(3);
+    expect(ui.element.querySelectorAll("#default-model option")).toHaveLength(
+      3,
+    );
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#default-model")?.value,
+    ).toBe("chosen");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")?.value).toBe(
+      "synthetic-unsaved-key",
+    );
+    expect(
+      ui.element.querySelector(".model-providers")?.textContent,
+    ).not.toContain("加载失败");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings provider and model failures recover independently without hiding the other failure", async () => {
+  let providerCalls = 0;
+  let modelCalls = 0;
+  const ui = await mount(state("settings"), async (provider) => {
+    if (!provider && ++providerCalls === 1)
+      throw new Error("synthetic provider failure");
+    if (provider && ++modelCalls === 1)
+      throw new Error("synthetic model failure");
+    return catalog(provider);
+  });
+  try {
+    await ui.click("模型与服务商");
+    const section = ui.element.querySelector(".model-providers")!;
+    expect(section.textContent).toContain("服务商目录加载失败");
+    expect(section.textContent).toContain("模型目录加载失败");
+    expect(section.textContent).not.toContain("0 个可选模型");
+    await ui.click("重试服务商列表");
+    expect(modelCalls).toBe(1);
+    expect(section.textContent).not.toContain("服务商目录加载失败");
+    expect(section.textContent).toContain("模型目录加载失败");
+    await ui.click("重试模型列表");
+    expect(providerCalls).toBe(2);
+    expect(modelCalls).toBe(2);
+    expect(section.textContent).not.toContain("加载失败");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("old settings model pages and their finally callbacks cannot affect a new scope or reopened page", async () => {
+  for (const hide of [false, true])
+    for (const reject of [false, true]) {
+      const old = Promise.withResolvers<ModelCatalog>();
+      const current = Promise.withResolvers<ModelCatalog>();
+      let pageCalls = 0;
+      const ui = await mount(
+        state("settings"),
+        async (provider, offset = 0) => {
+          if (!provider) return catalog();
+          if (offset === 1)
+            return ++pageCalls === 1 ? old.promise : current.promise;
+          return {
+            providers: [],
+            total: 2,
+            supported: true,
+            models: [{ id: "first", name: "First", contextWindow: 8192 }],
+          };
+        },
+      );
+      try {
+        await ui.click("模型与服务商");
+        await ui.click("加载更多模型（1/2）");
+        if (hide) {
+          await ui.click("返回设置");
+          await ui.click("模型与服务商");
+        } else await ui.select("openai", "#provider");
+        await ui.click("加载更多模型（1/2）");
+        const button = [
+          ...ui.element.querySelectorAll<HTMLButtonElement>(
+            ".model-providers button",
+          ),
+        ].find((item) => item.textContent === "加载更多模型（1/2）")!;
+        expect(button.disabled).toBe(true);
+        await act(async () => {
+          if (reject) old.reject(new Error("synthetic stale page failure"));
+          else
+            old.resolve({
+              providers: [],
+              total: 2,
+              models: [
+                { id: "stale-last", name: "Stale", contextWindow: 8192 },
+              ],
+            });
+        });
+        expect(button.disabled).toBe(true);
+        expect(
+          ui.element.querySelector('#default-model option[value="stale-last"]'),
+        ).toBeNull();
+        expect(
+          ui.element.querySelector(".model-providers")?.textContent,
+        ).not.toContain("加载失败");
+        await act(async () =>
+          current.resolve({
+            providers: [],
+            total: 2,
+            models: [{ id: "fresh-last", name: "Fresh", contextWindow: 8192 }],
+          }),
+        );
+        expect(pageCalls).toBe(2);
+        expect(
+          ui.element.querySelectorAll(
+            '#default-model option[value="fresh-last"]',
+          ),
+        ).toHaveLength(1);
+        expect(
+          ui.element.querySelector(".model-providers")?.textContent,
+        ).toContain("2 个可选模型");
+      } finally {
+        old.resolve({ providers: [], total: 1, models: [] });
+        current.resolve({ providers: [], total: 1, models: [] });
+        await ui.close();
+      }
+    }
+});
+
+test("settings first-page refresh failure retains drafts and options but must recover before pagination", async () => {
+  const offsets: number[] = [];
+  let firstPages = 0;
+  const ui = await mount(state("settings"), async (provider, offset = 0) => {
+    if (!provider) return catalog();
+    offsets.push(offset);
+    if (offset === 0 && ++firstPages === 2)
+      throw new Error("synthetic refreshed first-page failure");
+    return {
+      providers: [],
+      supported: true,
+      total: 2,
+      models: [
+        {
+          id: offset ? "last" : "first",
+          name: offset ? "Last" : "First",
+          contextWindow: 8192,
+        },
+      ],
+    };
+  });
+  try {
+    await ui.click("模型与服务商");
+    await ui.select("first", "#default-model");
+    await ui.type("synthetic-refresh-key", "#api-key");
+    await ui.click("刷新列表");
+    expect(
+      ui.element.querySelector('#default-model option[value="first"]'),
+    ).not.toBeNull();
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#default-model")?.value,
+    ).toBe("first");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")?.value).toBe(
+      "synthetic-refresh-key",
+    );
+    expect(ui.element.querySelector(".model-providers")?.textContent).toContain(
+      "目录尚未完整",
+    );
+    expect(
+      [...ui.element.querySelectorAll(".model-providers button")].some(
+        (button) => button.textContent?.includes("加载更多模型"),
+      ),
+    ).toBe(false);
+    expect(offsets).toEqual([0, 0]);
+    await ui.click("重试模型列表");
+    expect(offsets).toEqual([0, 0, 0]);
+    expect(
+      ui.element.querySelector(".model-providers")?.textContent,
+    ).not.toContain("加载失败");
+    await ui.click("加载更多模型（1/2）");
+    expect(offsets).toEqual([0, 0, 0, 1]);
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")?.value).toBe(
+      "synthetic-refresh-key",
+    );
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#default-model")?.value,
+    ).toBe("first");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
 test("late catalog responses never replace another provider's models", async () => {
   const deepseek = Promise.withResolvers<ModelCatalog>();
   const openai = Promise.withResolvers<ModelCatalog>();

@@ -35,30 +35,47 @@ export function ModelProviders({
   const [key, setKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
+  const [providerError, setProviderError] = useState("");
+  const [modelError, setModelError] = useState<{
+    message: string;
+    offset: number;
+  } | null>(null);
+  const [providerLoading, setProviderLoading] = useState(false);
+  const [providerRefresh, setProviderRefresh] = useState(0);
+  const [modelRefresh, setModelRefresh] = useState(0);
   const request = useRef(0);
+  const pendingPage = useRef<number | null>(null);
+  const modelScope = useRef<string | null>(null);
   useEffect(() => {
     if (!active) return;
     let disposed = false;
+    setProviderLoading(true);
+    setProviderError("");
     void loadCatalog()
       .then((catalog) => {
         if (!disposed) setProviders(catalog.providers);
       })
       .catch((error) => {
-        if (!disposed) setError(errorMessage(error));
+        if (!disposed) setProviderError(errorMessage(error));
+      })
+      .finally(() => {
+        if (!disposed) setProviderLoading(false);
       });
     return () => {
       disposed = true;
     };
-  }, [active, loadCatalog, refresh]);
+  }, [active, loadCatalog, providerRefresh]);
   useEffect(() => {
     if (!active) return;
     const id = ++request.current;
+    pendingPage.current = id;
     setLoading(true);
-    setError("");
-    setModels([]);
-    setTotal(0);
+    setModelError(null);
+    if (modelScope.current !== provider) {
+      modelScope.current = provider;
+      setModels([]);
+      setTotal(0);
+    }
     void loadCatalog(provider, 0)
       .then((catalog) => {
         if (id !== request.current) return;
@@ -66,15 +83,42 @@ export function ModelProviders({
         setTotal(catalog.total);
       })
       .catch((error) => {
-        if (id === request.current) setError(errorMessage(error));
+        if (id === request.current)
+          setModelError({ message: errorMessage(error), offset: 0 });
       })
       .finally(() => {
-        if (id === request.current) setLoading(false);
+        if (id === request.current) {
+          pendingPage.current = null;
+          setLoading(false);
+        }
       });
     return () => {
       request.current++;
     };
-  }, [active, provider, loadCatalog, refresh]);
+  }, [active, provider, loadCatalog, modelRefresh]);
+  const loadMore = async () => {
+    const id = request.current;
+    if (pendingPage.current === id || modelError?.offset === 0) return;
+    pendingPage.current = id;
+    const offset = models.length;
+    setLoading(true);
+    setModelError(null);
+    try {
+      const catalog = await loadCatalog(provider, offset);
+      if (id === request.current) {
+        setModels((previous) => [...previous, ...catalog.models]);
+        setTotal(catalog.total);
+      }
+    } catch (error) {
+      if (id === request.current)
+        setModelError({ message: errorMessage(error), offset });
+    } finally {
+      if (id === request.current) {
+        pendingPage.current = null;
+        setLoading(false);
+      }
+    }
+  };
   const chooseProvider = (value: string) => {
     setProvider(value);
     setKey("");
@@ -159,12 +203,30 @@ export function ModelProviders({
               ))}
             </select>
             <button
-              disabled={saving || loading}
-              onClick={() => setRefresh((value) => value + 1)}
+              disabled={saving || loading || providerLoading}
+              onClick={() => {
+                setProviderRefresh((value) => value + 1);
+                setModelRefresh((value) => value + 1);
+              }}
             >
               刷新列表
             </button>
           </div>
+          {providerLoading ? (
+            <p role="status">正在加载服务商目录…</p>
+          ) : (
+            providerError && (
+              <div>
+                <p role="status">服务商目录加载失败：{providerError}</p>
+                <button
+                  disabled={saving}
+                  onClick={() => setProviderRefresh((value) => value + 1)}
+                >
+                  重试服务商列表
+                </button>
+              </div>
+            )
+          )}
         </div>
       </div>
       <div className="model-setting-row">
@@ -223,27 +285,25 @@ export function ModelProviders({
               </option>
             ))}
           </select>
-          {models.length < total && (
-            <button
-              disabled={loading}
-              onClick={async () => {
-                const id = request.current;
-                setLoading(true);
-                try {
-                  const catalog = await loadCatalog(provider, models.length);
-                  if (id === request.current) {
-                    setModels((previous) => [...previous, ...catalog.models]);
-                    setTotal(catalog.total);
-                  }
-                } catch (error) {
-                  if (id === request.current) setError(errorMessage(error));
-                } finally {
-                  if (id === request.current) setLoading(false);
-                }
-              }}
-            >
+          {models.length < total && !modelError && (
+            <button disabled={loading} onClick={() => void loadMore()}>
               加载更多模型（{models.length}/{total}）
             </button>
+          )}
+          {modelError && (
+            <div>
+              <p role="status">模型目录加载失败：{modelError.message}</p>
+              <button
+                disabled={saving || loading}
+                onClick={() => {
+                  if (modelError.offset === 0)
+                    setModelRefresh((value) => value + 1);
+                  else void loadMore();
+                }}
+              >
+                重试模型列表
+              </button>
+            </div>
           )}
           <div className="model-buttons">
             <button
@@ -279,7 +339,11 @@ export function ModelProviders({
         切换默认模型会结束当前会话。后续翻译与提问将把文本发送至所选服务商。
       </p>
       <p role="status">
-        {error || (loading ? "正在加载模型目录…" : `${total} 个可选模型`)}
+        {loading || providerLoading
+          ? `目录加载中…已加载 ${models.length} 个模型`
+          : providerError || modelError
+            ? `目录尚未完整，已加载 ${models.length} 个模型`
+            : `${total} 个可选模型`}
       </p>
     </section>
   );
