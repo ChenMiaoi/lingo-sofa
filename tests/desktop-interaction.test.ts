@@ -3,6 +3,7 @@ import { Window } from "happy-dom";
 import React, { act } from "react";
 import { Desktop, type Perform } from "../apps/desktop/src/view";
 import { App } from "../apps/desktop/src/app";
+import { AccountLogin } from "../apps/desktop/src/account-login";
 import {
   saveReading,
   useReadingPosition,
@@ -7713,5 +7714,512 @@ test("settings notices have one owner on the shortcut page", async () => {
   } finally {
     await act(async () => root.unmount());
     element.remove();
+  }
+});
+
+test("login status failure offers a guarded retry and resumes completion", async () => {
+  let statuses = 0;
+  let release: (() => void) | undefined;
+  const request: RequestLogin = async (entry) => {
+    if (entry.action === "providers") return { providers: [] };
+    if (entry.action === "status") {
+      if (++statuses === 1) throw new Error("STATUS_TEMPORARY_FAILURE");
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { attempt: "recover", provider: "synthetic", phase: "complete" };
+    }
+    return { attempt: "recover", provider: "synthetic", phase: "waiting" };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    await act(async () => {
+      await Bun.sleep(160);
+    });
+    expect(ui.element.textContent).toContain(
+      errorMessage("STATUS_TEMPORARY_FAILURE"),
+    );
+    await ui.click("重试授权状态");
+    await ui.click("重试授权状态");
+    await act(async () => {
+      await Bun.sleep(15);
+    });
+    expect(statuses).toBe(2);
+    release?.();
+    await act(async () => {});
+    expect(ui.element.querySelector(".account-login")).toBeNull();
+    expect(ui.element.querySelector(".model-picker")).not.toBeNull();
+  } finally {
+    release?.();
+    await ui.close();
+  }
+});
+
+test("login browser retry clears its own error and guards repeated opens", async () => {
+  let opens = 0;
+  let release: (() => void) | undefined;
+  const request: RequestLogin = async (entry) =>
+    entry.action === "providers"
+      ? { providers: [] }
+      : {
+          attempt: "browser-retry",
+          provider: "synthetic",
+          phase: "waiting",
+          url: "https://example.invalid/authorize",
+        };
+  const ui = await mount(
+    state("input"),
+    catalog,
+    async (command) => {
+      if (command !== "open_login_url") return true;
+      if (++opens === 1) return false;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return true;
+    },
+    request,
+  );
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("浏览器未打开");
+    await ui.click("打开授权页面");
+    await ui.click("正在打开…");
+    expect(opens).toBe(2);
+    release?.();
+    await act(async () => {});
+    expect(ui.element.textContent).not.toContain("浏览器未打开");
+  } finally {
+    release?.();
+    await ui.close();
+  }
+});
+
+for (const from of ["start", "input"] as const) {
+  test(`login ${from} immediate completion returns to model selection without polling`, async () => {
+    let statuses = 0;
+    const request: RequestLogin = async (entry) => {
+      if (entry.action === "providers") return { providers: [] };
+      if (entry.action === "status") statuses++;
+      return {
+        attempt: "instant",
+        provider: "synthetic",
+        phase:
+          from === "start" || entry.action === "input" ? "complete" : "prompt",
+        prompt: {
+          id: 1,
+          message: "Synthetic authorization code",
+          secret: true,
+          allowEmpty: false,
+        },
+      };
+    };
+    const ui = await mount(state("input"), catalog, undefined, request);
+    try {
+      await ui.type("/login synthetic");
+      await ui.key("Enter");
+      if (from === "input") {
+        await ui.type("SYNTHETIC_CODE");
+        await ui.key("Enter");
+      }
+      expect(!!ui.element.querySelector(".account-login")).toBe(false);
+      expect(!!ui.element.querySelector(".model-picker")).toBe(true);
+      expect(statuses).toBe(0);
+    } finally {
+      await ui.close();
+    }
+  });
+}
+
+test("login failed prompt submission preserves the secret draft for an explicit retry", async () => {
+  let inputs = 0;
+  const request: RequestLogin = async (entry) => {
+    if (entry.action === "providers") return { providers: [] };
+    if (entry.action === "input" && ++inputs === 1)
+      throw new Error("input failed");
+    return {
+      attempt: "draft",
+      provider: "synthetic",
+      phase: entry.action === "input" ? "complete" : "prompt",
+      prompt: {
+        id: 1,
+        message:
+          "Paste the authorization code supplied by this synthetic provider.",
+        secret: true,
+        allowEmpty: false,
+      },
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    await ui.type("SYNTHETIC_SECRET");
+    await ui.key("Enter");
+    const input = ui.element.querySelector<HTMLInputElement>(
+      '[aria-label="登录授权输入"]',
+    )!;
+    expect(input.type).toBe("password");
+    expect(input.value).toBe("SYNTHETIC_SECRET");
+    expect(ui.element.textContent).not.toContain("SYNTHETIC_SECRET");
+    await ui.click("提交授权");
+    expect(inputs).toBe(2);
+    expect(!!ui.element.querySelector(".model-picker")).toBe(true);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("a stale status failure cannot stop polling a newer authorization prompt", async () => {
+  let statuses = 0;
+  let rejectStatus: ((reason: Error) => void) | undefined;
+  const prompt = (id: number) => ({
+    attempt: "prompt-race",
+    provider: "synthetic",
+    phase: "prompt" as const,
+    prompt: { id, message: `Prompt ${id}`, secret: true, allowEmpty: false },
+  });
+  const request: RequestLogin = async (entry) => {
+    if (entry.action === "providers") return { providers: [] };
+    if (entry.action === "input") return prompt(2);
+    if (entry.action === "status") {
+      statuses++;
+      if (statuses === 1)
+        return new Promise((_, reject) => {
+          rejectStatus = reject;
+        });
+      return prompt(2);
+    }
+    return prompt(1);
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    await act(async () => {
+      await Bun.sleep(150);
+    });
+    await ui.type("CODE");
+    await ui.key("Enter");
+    await act(async () => {
+      rejectStatus?.(new Error("OLD_STATUS_ERROR"));
+      await Bun.sleep(580);
+    });
+    expect(ui.element.querySelector(".login-prompt")?.textContent).toBe(
+      "Prompt 2",
+    );
+    expect(ui.element.querySelector(".login-recovery")).toBeNull();
+    expect(statuses).toBeGreaterThanOrEqual(2);
+  } finally {
+    rejectStatus?.(new Error("cleanup"));
+    await ui.close();
+  }
+});
+
+test("new browser prompts open while an older open is pending and ignore its late failure", async () => {
+  const releases: ((value: boolean) => void)[] = [];
+  let statuses = 0;
+  const prompt = (id: number) => ({
+    attempt: "window-race",
+    provider: "synthetic",
+    phase: "prompt" as const,
+    prompt: {
+      id,
+      message: `Browser ${id}`,
+      secret: true,
+      allowEmpty: false,
+      browser: {
+        url: "https://example.invalid",
+        cookieNames: ["secret-cookie"],
+      },
+    },
+  });
+  const request: RequestLogin = async (entry) =>
+    entry.action === "providers"
+      ? { providers: [] }
+      : prompt(entry.action === "status" ? ++statuses + 1 : 1);
+  const ui = await mount(
+    state("input"),
+    catalog,
+    async () => new Promise<boolean>((resolve) => releases.push(resolve)),
+    request,
+  );
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    await act(async () => {
+      await Bun.sleep(160);
+    });
+    expect(releases.length).toBe(2);
+    await act(async () => {
+      releases[0]!(false);
+    });
+    expect(ui.element.querySelector(".login-error")).toBeNull();
+    expect(ui.element.querySelector<HTMLInputElement>("input")).toBeNull();
+    expect(ui.element.textContent).not.toContain("secret-cookie");
+    expect(ui.element.textContent).toContain("正在打开…");
+    await act(async () => {
+      releases[1]!(true);
+    });
+    expect(ui.element.textContent).toContain("打开独立登录窗口");
+  } finally {
+    releases.forEach((release) => release(true));
+    await ui.close();
+  }
+});
+
+for (const pending of ["start", "status", "open"] as const) {
+  test(`Escape fences a late login ${pending} result`, async () => {
+    let release:
+      | ((value: {
+          attempt: string;
+          provider: string;
+          phase: "complete";
+        }) => void)
+      | undefined;
+    let finishOpen: ((value: boolean) => void) | undefined;
+    const actions: string[] = [];
+    const request: RequestLogin = async (entry) => {
+      actions.push(entry.action);
+      if (entry.action === "providers") return { providers: [] };
+      if (entry.action === pending)
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      return {
+        attempt: "late",
+        provider: "synthetic",
+        phase: "waiting",
+        url: pending === "open" ? "https://example.invalid" : undefined,
+      };
+    };
+    const ui = await mount(
+      state("input"),
+      catalog,
+      pending === "open"
+        ? async () =>
+            new Promise<boolean>((resolve) => {
+              finishOpen = resolve;
+            })
+        : undefined,
+      request,
+    );
+    try {
+      await ui.type("/login synthetic");
+      await ui.key("Enter");
+      if (pending === "status")
+        await act(async () => {
+          await Bun.sleep(160);
+        });
+      await ui.key("Escape");
+      await act(async () => {
+        release?.({
+          attempt: "late",
+          provider: "synthetic",
+          phase: "complete",
+        });
+        finishOpen?.(false);
+      });
+      expect(!!ui.element.querySelector(".account-login")).toBe(false);
+      expect(!!ui.element.querySelector(".model-picker")).toBe(false);
+      expect(
+        ui.element.querySelector<HTMLInputElement>("input,textarea")?.value,
+      ).toBe("/login synthetic");
+      if (pending === "start") expect(actions).toContain("cancel");
+    } finally {
+      finishOpen?.(true);
+      await ui.close();
+    }
+  });
+}
+
+test("model no-match search clears to the focused first model without applying changes", async () => {
+  const value = state("input");
+  value.model.configuredProviders = ["deepseek"];
+  const ui = await mount(value);
+  try {
+    await ui.type("/model");
+    await ui.key("Enter");
+    await ui.type("NOT_A_MODEL");
+    expect(ui.element.textContent).toContain("没有匹配的模型");
+    await ui.click("清空搜索");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("搜索模型");
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索模型"]')
+        ?.value,
+    ).toBe("");
+    expect(!!ui.element.querySelector(".action.selected")).toBe(true);
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("replacing a login request fences the old attempt and completes the current attempt exactly once", async () => {
+  let release:
+    | ((value: {
+        attempt: string;
+        provider: string;
+        phase: "complete";
+      }) => void)
+    | undefined;
+  const completed: string[] = [];
+  const oldRequest: RequestLogin = async (entry) => {
+    if (entry.action === "providers") return { providers: [] };
+    if (entry.action === "status")
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    return {
+      attempt: "old-attempt",
+      provider: "old-provider",
+      phase: "waiting",
+    };
+  };
+  const newRequest: RequestLogin = async (entry) =>
+    entry.action === "providers"
+      ? { providers: [] }
+      : { attempt: "new-attempt", provider: "new-provider", phase: "complete" };
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const render = async (request: RequestLogin) =>
+    act(async () =>
+      root.render(
+        React.createElement(AccountLogin, {
+          provider: "synthetic",
+          request,
+          perform: async () => true,
+          onClose: () => {},
+          onComplete: (provider) => completed.push(provider),
+        }),
+      ),
+    );
+  try {
+    await render(oldRequest);
+    await act(async () => {
+      await Bun.sleep(160);
+    });
+    await render(newRequest);
+    expect(completed).toEqual(["new-provider"]);
+    await act(async () => {
+      release?.({
+        attempt: "old-attempt",
+        provider: "old-provider",
+        phase: "complete",
+      });
+    });
+    await render(newRequest);
+    expect(completed).toEqual(["new-provider"]);
+    expect(element.textContent).toContain("授权完成");
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("a late URL open failure cannot overwrite a newer private-window open", async () => {
+  let failUrl: ((value: boolean) => void) | undefined;
+  const request: RequestLogin = async (entry) =>
+    entry.action === "providers"
+      ? { providers: [] }
+      : {
+          attempt: "url-to-window",
+          provider: "synthetic",
+          phase: entry.action === "status" ? "prompt" : "waiting",
+          url: "https://example.invalid",
+          prompt:
+            entry.action === "status"
+              ? {
+                  id: 2,
+                  message: "Private sign-in",
+                  secret: true,
+                  allowEmpty: false,
+                  browser: { url: "https://example.invalid", cookieNames: [] },
+                }
+              : undefined,
+        };
+  const ui = await mount(
+    state("input"),
+    catalog,
+    async (command) =>
+      command === "open_login_url"
+        ? new Promise<boolean>((resolve) => {
+            failUrl = resolve;
+          })
+        : true,
+    request,
+  );
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    await act(async () => {
+      await Bun.sleep(160);
+    });
+    expect(ui.calls.map((call) => call.command)).toEqual([
+      "open_login_url",
+      "open_login_browser",
+    ]);
+    await act(async () => {
+      failUrl?.(false);
+    });
+    expect(ui.element.querySelector(".login-error")).toBeNull();
+  } finally {
+    failUrl?.(true);
+    await ui.close();
+  }
+});
+
+test("narrow login and model footers keep their sole error visible and wrappable", async () => {
+  const style = document.createElement("style");
+  style.textContent = await Bun.file(
+    new URL("../apps/desktop/src/style.css", import.meta.url),
+  ).text();
+  document.head.append(style);
+  dom.happyDOM.setWindowSize({ width: 360, height: 480 });
+  try {
+    for (const command of ["/login synthetic", "/model"]) {
+      const value = state("input");
+      value.model.configuredProviders = ["deepseek"];
+      const ui = await mount(
+        value,
+        async (provider) => ({
+          ...(await catalog(provider)),
+          models: provider
+            ? [{ id: "new-model", name: "Test model", contextWindow: 8192 }]
+            : [],
+        }),
+        async () => false,
+        async (entry) => {
+          if (entry.action === "providers") return { providers: [] };
+          throw new Error("synthetic failure");
+        },
+      );
+      try {
+        await ui.type(command);
+        await ui.key("Enter");
+        if (command === "/model")
+          await act(async () =>
+            ui.element.querySelector<HTMLButtonElement>(".action")!.click(),
+          );
+        const footer = ui.element.querySelector<HTMLElement>(
+          ".launcher-footer > span",
+        )!;
+        expect(footer.textContent).toContain(
+          command === "/model" ? "切换失败" : "暂时无法完成",
+        );
+        const computed = window.getComputedStyle(footer);
+        expect(computed.display).not.toBe("none");
+        expect(computed.whiteSpace).toBe("normal");
+      } finally {
+        await ui.close();
+      }
+    }
+  } finally {
+    style.remove();
+    dom.happyDOM.setWindowSize({ width: 1024, height: 768 });
   }
 });

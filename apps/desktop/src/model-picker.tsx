@@ -445,13 +445,26 @@ export function ModelPicker({
           ))
         )}
         {!credentialFor && !count && !catalogError && !reloading && (
-          <p className="quiet-status">
-            {loading
-              ? "正在加载模型目录…"
-              : browsingProviders
-                ? "没有匹配的服务商。"
-                : "没有匹配的模型。"}
-          </p>
+          <div className="quiet-status">
+            <p>
+              {loading
+                ? "正在加载模型目录…"
+                : browsingProviders
+                  ? "没有匹配的服务商。"
+                  : "没有匹配的模型。"}
+            </p>
+            {!loading && query.trim() && (
+              <button
+                onClick={() => {
+                  setQuery("");
+                  setSelected(0);
+                  input.current?.focus();
+                }}
+              >
+                清空搜索
+              </button>
+            )}
+          </div>
         )}
       </section>
       <footer className="launcher-footer">

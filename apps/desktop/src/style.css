@@ -523,11 +523,58 @@ kbd {
   max-height: 96px;
   overflow-y: auto;
 }
-.launcher-footer > span:last-child {
+.launcher-footer > span:last-child:not(:first-child) {
   color: var(--text-muted);
   white-space: nowrap;
   font-size: 11px;
 }
+.login-attempt {
+  padding: 18px 8px;
+  overflow-wrap: anywhere;
+}
+.login-attempt h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+}
+.login-attempt p {
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.login-attempt .login-instructions,
+.login-attempt .login-prompt {
+  white-space: pre-wrap;
+  color: var(--text);
+}
+.login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.login-actions button,
+.login-recovery button {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 12px;
+}
+.login-recovery {
+  padding: 12px 0;
+  margin-bottom: 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.login-recovery span {
+  margin-left: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.login-attempt .login-error {
+  color: #e0b7a8;
+}
+
 .quiet-status {
   font-size: 11px;
   color: var(--text-secondary);
@@ -913,7 +960,7 @@ kbd {
   .answer-tools {
     gap: 10px;
   }
-  .launcher-footer > span:last-child {
+  .launcher-footer > span:last-child:not(:first-child) {
     display: none;
   }
   .annotation p {
@@ -976,7 +1023,7 @@ kbd {
   font-size: 11px;
   color: var(--text-secondary);
 }
-.input-launcher .launcher-footer > span:last-child {
+.input-launcher .launcher-footer > span:last-child:not(:first-child) {
   font-size: 11px;
 }
 
@@ -2232,7 +2279,7 @@ details[open] > summary > .activity-chevron {
   border-top: 0;
   font-size: 11px;
 }
-.result-launcher > .launcher-footer > span:last-child {
+.result-launcher > .launcher-footer > span:last-child:not(:first-child) {
   display: none;
 }
 
