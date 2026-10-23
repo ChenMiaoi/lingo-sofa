@@ -848,8 +848,6 @@ impl Shell {
         let mut selected = false;
         #[cfg(windows)]
         let mut epoch = epoch;
-        #[cfg(not(windows))]
-        let epoch = epoch;
         let mut last_frame = std::time::Instant::now();
         let result = (|| {
             loop {
