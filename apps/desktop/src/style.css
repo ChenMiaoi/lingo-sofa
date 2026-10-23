@@ -626,9 +626,21 @@ kbd {
   border: 1px solid var(--line);
   border-radius: 5px;
   padding: 7px 9px;
-  background: #ffffff05;
+  background: #252525;
   color: var(--text);
   font-size: 12px;
+}
+.settings-form select {
+  color-scheme: dark;
+  max-width: 100%;
+}
+.settings-form option,
+.settings-form optgroup {
+  background: #252525;
+  color: #eeeeee;
+}
+.settings-form option:disabled {
+  color: #969696;
 }
 .settings-form button {
   border-radius: 5px;
@@ -650,31 +662,47 @@ kbd {
   color: var(--text-muted);
   font-size: 11px;
 }
+.model-providers {
+  padding: 8px 0;
+}
+.model-page-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 12px;
+}
 .default-model-summary {
-  display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
-  gap: 6px 12px;
-  padding-bottom: 16px;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
   font-size: 11px;
   color: var(--text-secondary);
 }
 .default-model-summary strong {
   color: var(--text);
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 500;
 }
-.default-model-summary small {
-  grid-column: 2;
-  font-size: 11px;
-  color: var(--text-muted);
+.default-model-summary > span,
+.model-page-heading > button {
+  flex-shrink: 0;
+}
+.model-page-heading > .text-button {
+  margin: 0;
+  padding: 5px 0;
 }
 .model-setting-row {
   display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
+  grid-template-columns: 84px minmax(0, 1fr);
   align-items: start;
   gap: 12px;
-  padding: 12px 0;
+  padding: 10px 0;
   border-top: 1px solid var(--line);
 }
 .settings-form .model-setting-row label {
@@ -694,23 +722,6 @@ kbd {
   font-size: 11px;
   color: var(--text-muted);
 }
-.configured-providers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-.settings-form .configured-providers button {
-  padding: 5px 8px;
-  border-color: transparent;
-  border-radius: 3px;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-.configured-providers [aria-pressed="true"] {
-  background: #ffffff12;
-  color: var(--text);
-}
 .provider-row {
   display: flex;
   gap: 8px;
@@ -722,7 +733,7 @@ kbd {
 .model-buttons {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 .key-row {
   display: flex;
@@ -731,6 +742,11 @@ kbd {
 .key-row input {
   flex: 1;
   width: 100%;
+}
+.provider-row > button,
+.key-row > button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .settings-form .text-button {
   padding: 4px 0;
@@ -750,7 +766,7 @@ kbd {
   margin: 0;
 }
 .settings-form select {
-  min-width: 150px;
+  min-width: 0;
 }
 .settings-form .check {
   flex-direction: row-reverse;
@@ -758,6 +774,81 @@ kbd {
 }
 .check input {
   accent-color: #b8b8b8;
+}
+.preferences-group .preference-row {
+  gap: 18px;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--line);
+}
+.preference-copy {
+  min-width: 0;
+}
+.settings-form .preference-copy label {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.settings-form .preference-copy p {
+  margin-top: 5px;
+  font-size: 12px;
+}
+.preferences-group select {
+  width: 132px;
+  flex-shrink: 0;
+}
+.preference-toggle input {
+  appearance: none;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid #ffffff25;
+  border-radius: 20px;
+  background: #ffffff10;
+  cursor: pointer;
+}
+.preference-toggle input::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #b5b5b5;
+}
+.preference-toggle input:checked {
+  background: #a2bba0;
+  border-color: #a2bba0;
+}
+.preference-toggle input:checked::before {
+  transform: translateX(14px);
+  background: #202520;
+}
+.preference-toggle input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 480px) {
+  .model-setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .settings-form .model-setting-row label {
+    margin: 0;
+  }
+  .model-page-heading {
+    gap: 10px;
+  }
+  .default-model-summary {
+    display: block;
+  }
+  .default-model-summary strong {
+    display: block;
+    margin-top: 4px;
+  }
+  .preferences-group select {
+    width: 116px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -892,17 +983,6 @@ kbd {
 @media (max-width: 480px) {
   .setting-current-value {
     max-width: 35%;
-  }
-  .model-setting-row,
-  .default-model-summary {
-    grid-template-columns: 80px minmax(0, 1fr);
-    gap: 8px;
-  }
-  .provider-row {
-    flex-wrap: wrap;
-  }
-  .provider-row select {
-    min-width: 100%;
   }
 }
 
@@ -1713,10 +1793,10 @@ details[open] > summary > .activity-chevron {
 }
 .usage-dashboard-breakdown dl {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px 18px;
-  font-size: 11px;
-  margin: 8px 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 22px;
+  font-size: 12px;
+  margin: 12px 0;
 }
 .usage-dashboard-breakdown dl > div {
   display: flex;
@@ -1725,10 +1805,14 @@ details[open] > summary > .activity-chevron {
 }
 .usage-dashboard-breakdown dd {
   margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 .settings-form .usage-dashboard-breakdown p {
-  font-size: 10px;
+  font-size: 12px;
   margin: 5px 0;
   color: var(--text-muted);
 }
@@ -1738,7 +1822,7 @@ details[open] > summary > .activity-chevron {
   border-top: 1px solid var(--line);
 }
 .usage-dashboard-notes > summary {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
 }

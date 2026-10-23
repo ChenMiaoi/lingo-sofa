@@ -266,6 +266,10 @@ export function AskAnswer({
   const turns = archive?.key === archiveKey ? archive.turns : null;
   const restored = !busy ? turns?.at(-1) : undefined;
   const answerText = restored?.output ?? model.output;
+  const failureNoticeShown =
+    current &&
+    !!model.message &&
+    ["error", "truncated", "incomplete"].includes(model.phase);
   const thinkingOutput = restored?.thinkingOutput ?? model.thinkingOutput;
   const tools = toolRows(restored?.toolCalls ?? model.toolCalls, busy);
   useEffect(() => {
@@ -526,10 +530,11 @@ export function AskAnswer({
                   text={answerText}
                   onInspect={inspectActivity}
                 />
-              ) : busy &&
-                (model.toolApprovals.length ||
-                  model.thinkingOutput ||
-                  tools.length) ? null : (
+              ) : (busy &&
+                  (model.toolApprovals.length ||
+                    model.thinkingOutput ||
+                    tools.length)) ||
+                failureNoticeShown ? null : (
                 <p className="answer-pending">
                   {current
                     ? busy
@@ -541,14 +546,12 @@ export function AskAnswer({
                 </p>
               )}
             </div>
-            {current &&
-              answerText &&
-              ["error", "truncated", "incomplete"].includes(model.phase) && (
-                <p className="answer-error" role="alert">
-                  {model.message}
-                </p>
-              )}
           </>
+        )}
+        {failureNoticeShown && (
+          <p className="answer-error" role="alert">
+            {model.message}
+          </p>
         )}
       </div>
       {!following && !history && !model.toolApprovals.length && (

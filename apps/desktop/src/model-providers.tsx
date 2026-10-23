@@ -147,31 +147,19 @@ export function ModelProviders({
       className="settings-group model-providers"
       aria-label="模型与服务商"
     >
-      <button onClick={() => onLogin()}>订阅账户登录</button>
-      <div className="default-model-summary">
-        <span>当前默认模型</span>
-        <strong>
-          {model.defaultModel.provider} / {model.defaultModel.modelId}
-        </strong>
-        <small>
-          {model.keyConfigured ? "已配置凭证" : "请为该服务商配置 API Key"}
-        </small>
-      </div>
-      {model.configuredProviders.length > 0 && (
-        <div className="configured-providers" aria-label="已配置服务商">
-          {model.configuredProviders.map((id) => (
-            <button
-              key={id}
-              aria-pressed={provider === id}
-              disabled={saving}
-              onClick={() => chooseProvider(id)}
-            >
-              {providers.find((entry) => entry.id === id)?.name ?? id}
-              {id === model.defaultModel.provider ? " · 默认" : " · 已配置"}
-            </button>
-          ))}
+      <div className="model-page-heading">
+        <div className="default-model-summary">
+          <span>当前默认</span>
+          <strong
+            title={`${model.defaultModel.provider} / ${model.defaultModel.modelId}`}
+          >
+            {model.defaultModel.provider} / {model.defaultModel.modelId}
+          </strong>
         </div>
-      )}
+        <button className="text-button" onClick={() => onLogin()}>
+          订阅账户登录
+        </button>
+      </div>
       <div className="model-setting-row">
         <label htmlFor="provider">服务商</label>
         <div className="setting-control">
@@ -182,9 +170,13 @@ export function ModelProviders({
               disabled={saving}
               onChange={(event) => chooseProvider(event.target.value)}
             >
-              {!providers.some((entry) => entry.id === provider) && (
-                <option value={provider}>{provider}</option>
-              )}
+              {[...new Set([provider, ...model.configuredProviders])]
+                .filter((id) => !providers.some((entry) => entry.id === id))
+                .map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
               {providers.map((entry) => (
                 <option
                   key={entry.id}
@@ -230,40 +222,6 @@ export function ModelProviders({
         </div>
       </div>
       <div className="model-setting-row">
-        <label htmlFor="api-key">API Key</label>
-        <div className="setting-control">
-          <div className="key-row">
-            <input
-              id="api-key"
-              type="password"
-              autoComplete="off"
-              placeholder="输入 API Key，仅加密保存在本机"
-              value={key}
-              disabled={saving || !canConfigure}
-              onChange={(event) => setKey(event.target.value)}
-            />
-            <button
-              disabled={!key.trim() || saving || !canConfigure}
-              onClick={() => void saveKey(key.trim())}
-            >
-              保存凭证
-            </button>
-          </div>
-          <div className="credential-actions">
-            <span>{configured ? "已加密保存" : "尚未配置"}</span>
-            {configured && (
-              <button
-                className="text-button"
-                disabled={saving}
-                onClick={() => void saveKey("")}
-              >
-                移除该服务商凭证
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="model-setting-row">
         <label htmlFor="default-model">默认模型</label>
         <div className="setting-control">
           <select
@@ -281,7 +239,9 @@ export function ModelProviders({
               )}
             {models.map((entry) => (
               <option key={entry.id} value={entry.id}>
-                {entry.name} · {entry.id}
+                {entry.name === entry.id
+                  ? entry.id
+                  : `${entry.name} · ${entry.id}`}
               </option>
             ))}
           </select>
@@ -328,6 +288,40 @@ export function ModelProviders({
             >
               设为默认模型
             </button>
+          </div>
+        </div>
+      </div>
+      <div className="model-setting-row">
+        <label htmlFor="api-key">API Key</label>
+        <div className="setting-control">
+          <div className="key-row">
+            <input
+              id="api-key"
+              type="password"
+              autoComplete="off"
+              placeholder="输入 API Key，仅加密保存在本机"
+              value={key}
+              disabled={saving || !canConfigure}
+              onChange={(event) => setKey(event.target.value)}
+            />
+            <button
+              disabled={!key.trim() || saving || !canConfigure}
+              onClick={() => void saveKey(key.trim())}
+            >
+              保存凭证
+            </button>
+          </div>
+          <div className="credential-actions">
+            <span>{configured ? "已加密保存" : "尚未配置"}</span>
+            {configured && (
+              <button
+                className="text-button"
+                disabled={saving}
+                onClick={() => void saveKey("")}
+              >
+                移除该服务商凭证
+              </button>
+            )}
           </div>
         </div>
       </div>

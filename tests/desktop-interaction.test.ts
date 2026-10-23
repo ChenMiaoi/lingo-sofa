@@ -12,6 +12,7 @@ import { codeTokens } from "../apps/desktop/src/highlighted-code";
 import { canDragWindow } from "../apps/desktop/src/window-drag";
 import {
   initialState,
+  errorMessage,
   type DesktopState,
   type ModelCatalog,
   type RequestLogin,
@@ -2073,7 +2074,7 @@ test("settings provider catalog failure survives model scope changes and clears 
     expect(
       ui.element.querySelector('.model-providers [role="status"]')?.textContent,
     ).toContain("暂时无法完成操作");
-    await ui.click("openai · 已配置");
+    await ui.select("openai", "#provider");
     expect(
       ui.element.querySelector<HTMLSelectElement>("#provider")?.value,
     ).toBe("openai");
@@ -3999,7 +4000,7 @@ test("Ask keeps the question above the answer and its actions menu supports keyb
       ...value,
       model: { ...value.model, phase: "error", message: "Request failed" },
     });
-    expect(ui.element.querySelector(".launcher-footer")?.textContent).toContain(
+    expect(ui.element.querySelector(".answer-error")?.textContent).toContain(
       "Request failed",
     );
   } finally {
@@ -4569,13 +4570,12 @@ test("automatic mouse selection is opt-in, hidden on macOS, and failed persisten
         expect(label).toBeUndefined();
         continue;
       }
-      expect(label?.querySelector<HTMLInputElement>("input")?.checked).toBe(
-        false,
-      );
+      const checkbox = ui.element.querySelector<HTMLInputElement>(
+        `#${label!.htmlFor}`,
+      )!;
+      expect(checkbox.checked).toBe(false);
       expect(ui.element.textContent).toContain("会调用模型");
-      await act(async () =>
-        label!.querySelector<HTMLInputElement>("input")!.click(),
-      );
+      await act(async () => checkbox.click());
       expect(ui.calls.at(-1)).toEqual({
         command: "patch_settings",
         args: { patch: { autoSelectionTranslation: true } },
@@ -4599,9 +4599,12 @@ test("automatic mouse selection is opt-in, hidden on macOS, and failed persisten
         .find((button) => button.getAttribute("aria-label") === "翻译偏好")!
         .click(),
     );
-    const checkbox = [...element.querySelectorAll("label")]
-      .find((label) => label.textContent?.includes("鼠标选中后自动翻译"))!
-      .querySelector<HTMLInputElement>("input")!;
+    const label = [...element.querySelectorAll("label")].find((label) =>
+      label.textContent?.includes("鼠标选中后自动翻译"),
+    )!;
+    const checkbox = element.querySelector<HTMLInputElement>(
+      `#${label.htmlFor}`,
+    )!;
     await act(async () => checkbox.click());
     expect(element.textContent).toContain("设置保存失败，原配置继续生效。");
     expect(checkbox.checked).toBe(false);
@@ -4635,9 +4638,12 @@ test("automatic selection toggle shows pending save and rejects duplicate change
         .find((button) => button.getAttribute("aria-label") === "翻译偏好")!
         .click(),
     );
-    const checkbox = [...element.querySelectorAll("label")]
-      .find((label) => label.textContent?.includes("鼠标选中后自动翻译"))!
-      .querySelector<HTMLInputElement>("input")!;
+    const label = [...element.querySelectorAll("label")].find((label) =>
+      label.textContent?.includes("鼠标选中后自动翻译"),
+    )!;
+    const checkbox = element.querySelector<HTMLInputElement>(
+      `#${label.htmlFor}`,
+    )!;
     await act(async () => checkbox.click());
     expect(checkbox.disabled).toBe(true);
     expect(element.textContent).toContain("保存中…");
@@ -7426,5 +7432,286 @@ test("reading coalesces layout feedback and fences stale frames on epoch change 
   } finally {
     if (ui.element.isConnected) await ui.close();
     scheduler.restore();
+  }
+});
+
+test("settings leave capture feedback in its reading scope and keep listener failures", async () => {
+  for (const code of [
+    "selection_unavailable",
+    "ocr_runtime_unavailable",
+    "正在读取选中文字…",
+    "accessibility_permission_required",
+  ]) {
+    const value = state("settings");
+    value.desktop.notice = code;
+    const ui = await mount(
+      value,
+      catalog,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => usageReport,
+    );
+    try {
+      for (const page of [
+        "模型与服务商",
+        "翻译偏好",
+        "用量与费用",
+        "快捷键",
+        "关于与更新",
+      ]) {
+        await ui.click(page);
+        expect(
+          ui.element.querySelector(".launcher-footer")?.textContent,
+        ).not.toContain(errorMessage(code));
+        await ui.click("返回设置");
+      }
+      await ui.render({
+        ...value,
+        desktop: { ...value.desktop, notice: "auto_selection_unavailable" },
+      });
+      expect(
+        ui.element.querySelector(".launcher-footer")?.textContent,
+      ).toContain("自动划词监听不可用");
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("settings saving errors remain visible when an old capture notice is present", async () => {
+  const value = state("settings");
+  value.desktop.notice = "selection_unavailable";
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const invoke = <T>(command: string): Promise<T> =>
+    command === "patch_settings"
+      ? Promise.reject("settings_write_failed")
+      : Promise.resolve((command === "desktop_state" ? value : undefined) as T);
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    await act(async () =>
+      element
+        .querySelector<HTMLButtonElement>('[aria-label="翻译偏好"]')!
+        .click(),
+    );
+    await act(async () =>
+      element.querySelector<HTMLInputElement>("#pin-window")!.click(),
+    );
+    expect(element.querySelector(".launcher-footer")?.textContent).toContain(
+      "设置保存失败，原配置继续生效。",
+    );
+    expect(element.textContent).not.toContain("未能定位选区");
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("Ask terminal errors appear once even with no question or answer and remain visible in history", async () => {
+  for (const phase of ["error", "truncated", "incomplete"] as const) {
+    const value = state("ask-result");
+    value.model.phase = phase;
+    value.model.output = "";
+    value.model.question = "";
+    value.model.message = errorMessage("selection_unavailable");
+    value.desktop.notice = "selection_unavailable";
+    value.model.messages = [
+      { role: "user", content: "Earlier question", truncated: false },
+    ];
+    value.model.messageCount = 1;
+    const ui = await mount(value);
+    try {
+      expect(ui.element.textContent?.split(value.model.message)).toHaveLength(
+        2,
+      );
+      expect(ui.element.querySelector(".answer-error")?.textContent).toBe(
+        value.model.message,
+      );
+      const history = [
+        ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+      ].find((b) => b.textContent?.includes("会话记录"));
+      expect(history).toBeDefined();
+      await act(async () => history!.click());
+      expect(ui.element.querySelector(".answer-error")?.textContent).toBe(
+        value.model.message,
+      );
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("a separate Ask operation error and runtime repair action remain available", async () => {
+  const value = state("ask-result");
+  value.model.phase = "error";
+  value.model.message = "MODEL_ERROR";
+  value.desktop.notice = "clipboard_write_failed";
+  const ui = await mount(value);
+  try {
+    expect(ui.element.querySelector(".answer-error")?.textContent).toBe(
+      "MODEL_ERROR",
+    );
+    expect(ui.element.querySelector(".launcher-footer")?.textContent).toContain(
+      "复制失败",
+    );
+    const message = errorMessage("ocr_runtime_unavailable");
+    await ui.render({
+      ...value,
+      desktop: { ...value.desktop, notice: "ocr_runtime_unavailable" },
+      model: { ...value.model, message },
+    });
+    expect(ui.element.textContent?.split(message)).toHaveLength(2);
+    await ui.click("下载官方 x64 运行库");
+    expect(ui.calls.at(-1)?.command).toBe("open_external_url");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("translation failure feedback is not duplicated over missing retained or identical text", async () => {
+  const message = errorMessage("selection_unavailable");
+  for (const translation of ["", "RETAINED_TRANSLATION", message]) {
+    const value = state("ask-result");
+    value.desktop.mode = "translation";
+    value.desktop.operation = "translate";
+    value.desktop.translation = translation;
+    value.desktop.notice = "selection_unavailable";
+    value.model.phase = "error";
+    value.model.message = message;
+    const ui = await mount(value);
+    try {
+      expect(ui.element.textContent?.split(message)).toHaveLength(2);
+      if (translation)
+        expect(
+          ui.element.querySelector('[aria-label="译文"]')?.textContent,
+        ).toBe(translation);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("model settings compact identity without removing configured choices or key drafts", async () => {
+  const value = state("settings");
+  value.model.configuredProviders = ["deepseek", "openai"];
+  const ui = await mount(value, async (provider) =>
+    provider
+      ? {
+          providers: [],
+          models: [
+            { id: "same-id", name: "same-id", contextWindow: 8192 },
+            { id: "other-id", name: "Friendly name", contextWindow: 8192 },
+          ],
+          total: 2,
+          supported: true,
+        }
+      : await catalog(),
+  );
+  try {
+    await ui.click("模型与服务商");
+    const options = [
+      ...ui.element.querySelectorAll<HTMLOptionElement>(
+        "#default-model option",
+      ),
+    ].map((o) => o.textContent);
+    expect(options).toContain("same-id");
+    expect(options).toContain("Friendly name · other-id");
+    expect(ui.element.querySelector(".configured-providers")).toBeNull();
+    await ui.type("SYNTHETIC_KEY_DRAFT", "#api-key");
+    await ui.select("same-id", "#default-model");
+    expect(ui.element.querySelector<HTMLInputElement>("#api-key")?.value).toBe(
+      "SYNTHETIC_KEY_DRAFT",
+    );
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("usage details omit zero statuses and separate total token data from explanations", async () => {
+  const totals = {
+    ...usageTotals,
+    pending: 0,
+    partial: 0,
+    unknown: 0,
+    notDispatched: 0,
+    unpriced: 0,
+  };
+  const report = modelUsageReport([
+    { provider: "synthetic", model: "model", totals },
+  ]);
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => report,
+  );
+  try {
+    await ui.click("用量与费用");
+    await ui.click("模型明细");
+    const row = ui.element.querySelector<HTMLDetailsElement>(
+      ".usage-dashboard-model-row",
+    )!;
+    await act(async () => row.querySelector("summary")!.click());
+    expect(row.textContent).not.toContain("待回报 0");
+    expect(row.textContent).not.toContain("未定价 0");
+    expect(row.textContent).toContain("缓存读取");
+    const notes = [
+      ...ui.element.querySelectorAll<HTMLDetailsElement>(
+        ".usage-dashboard-notes",
+      ),
+    ];
+    const explanation = notes.find(
+      (n) => n.querySelector("summary")?.textContent === "统计说明",
+    )!;
+    expect(explanation.querySelector(".usage-dashboard-breakdown")).toBeNull();
+    expect(explanation.textContent).toContain("未知不代表免费");
+    expect(
+      notes
+        .find((n) => n.querySelector("summary")?.textContent === "Token 明细")
+        ?.querySelector(".usage-dashboard-breakdown"),
+    ).not.toBeNull();
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings notices have one owner on the shortcut page", async () => {
+  const value = state("settings"),
+    message = "SHORTCUT_SAVE_ERROR";
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(Desktop, {
+          state: value,
+          notice: message,
+          perform: async () => true,
+          loadModelCatalog: catalog,
+        }),
+      ),
+    );
+    await act(async () =>
+      element
+        .querySelector<HTMLButtonElement>('[aria-label="快捷键"]')!
+        .click(),
+    );
+    expect(element.textContent?.split(message)).toHaveLength(2);
+    expect(element.querySelector(".launcher-footer")?.textContent).toContain(
+      message,
+    );
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
   }
 });

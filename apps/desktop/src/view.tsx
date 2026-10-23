@@ -645,8 +645,16 @@ export function Desktop({
     if (isInput) draftInput.current?.focus();
     else if (isAsk) queryInput.current?.focus();
   }, [modelSearch, isInput, isAsk, loginEntry, sessionSearch]);
+  const captureNotice =
+    d.notice.startsWith("selection_") ||
+    d.notice.startsWith("ocr_") ||
+    d.notice === "正在读取选中文字…" ||
+    d.notice === "accessibility_permission_required";
   const message =
-    notice || (d.notice ? errorMessage(d.notice, state.shortcuts.macos) : "");
+    notice ||
+    (d.notice && !(mode === "settings" && captureNotice)
+      ? errorMessage(d.notice, state.shortcuts.macos)
+      : "");
   const runtimeHelp = (text: string) =>
     text === errorMessage("ocr_runtime_unavailable") ? (
       <button
@@ -664,6 +672,27 @@ export function Desktop({
   const translation =
     d.translation ||
     (current && model.phase !== "running" ? model.message : "正在翻译…");
+  const readingText = d.translation || message || translation;
+  const translationStatus =
+    current &&
+    d.operation === "translate" &&
+    (busy ||
+      translationError ||
+      model.phase === "truncated" ||
+      model.phase === "incomplete")
+      ? translationError
+        ? model.message || "翻译未完成，请检查服务后重试。"
+        : busy
+          ? "译文仍在生成…"
+          : model.message
+      : "";
+  const answerNoticeShown =
+    mode === "ask-result" &&
+    current &&
+    ["error", "truncated", "incomplete"].includes(model.phase) &&
+    !!model.message;
+  const footerMessage =
+    answerNoticeShown && message === model.message ? "" : message;
   if (sessionSearch !== null)
     return (
       <SessionPicker
@@ -792,30 +821,23 @@ export function Desktop({
   if (mode === "translation" || mode === "translation-detail")
     return (
       <TranslationReading
-        text={d.translation || message || translation}
+        text={readingText}
         loading={!d.translation && busy}
         error={translationError}
         detail={mode === "translation-detail"}
         epoch={d.epoch}
         perform={perform}
       >
-        {message && d.translation && (
+        {message && d.translation && message !== readingText && (
           <p className="reading-status" role="status">
             {message}
           </p>
         )}
-        {current &&
-          d.operation === "translate" &&
-          (busy ||
-            translationError ||
-            model.phase === "truncated" ||
-            model.phase === "incomplete") && (
+        {translationStatus &&
+          translationStatus !== readingText &&
+          translationStatus !== message && (
             <p className="reading-status" role="status">
-              {translationError
-                ? model.message || "翻译未完成，请检查服务后重试。"
-                : busy
-                  ? "译文仍在生成…"
-                  : model.message}
+              {translationStatus}
             </p>
           )}
         <nav className="translation-actions" aria-label="译文操作">
@@ -1224,17 +1246,18 @@ export function Desktop({
         {(mode !== "ask-result" ||
           !!commandNotice ||
           !!submissionError ||
-          !!message ||
-          (current && model.phase === "error")) && (
+          !!footerMessage ||
+          !!runtimeHelp(message) ||
+          (current && model.phase === "error" && !answerNoticeShown)) && (
           <footer className="launcher-footer">
             <span>
               {(submitting ? "正在提交…" : "") ||
                 commandNotice ||
-                message ||
+                footerMessage ||
                 submissionError ||
                 (commandMode
                   ? `↑↓ 选择 · Tab 补全 · ${formatShortcut("Enter", state.shortcuts.macos)} 执行 · Esc 退出命令`
-                  : current && model.phase === "error"
+                  : current && model.phase === "error" && !answerNoticeShown
                     ? model.message
                     : isInput
                       ? `${formatShortcut("Enter", state.shortcuts.macos)} 执行 · ${formatShortcut("Shift+Enter", state.shortcuts.macos)} 换行 · ${formatShortcut("Alt+↑↓", state.shortcuts.macos)} 选择`

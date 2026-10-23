@@ -283,46 +283,57 @@ export function Settings({
         </div>
         <section
           hidden={page !== "preferences"}
-          className="settings-group"
-          aria-labelledby="preferences-heading"
+          className="settings-group preferences-group"
+          aria-label="翻译偏好"
         >
-          <h2 id="preferences-heading">翻译偏好</h2>
           {!state.shortcuts.macos && (
-            <>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={model.settings.autoSelectionTranslation}
-                  disabled={saving.has("autoSelectionTranslation")}
-                  aria-describedby={
-                    saving.has("autoSelectionTranslation")
-                      ? "automatic-saving"
-                      : undefined
-                  }
-                  onChange={(event) =>
-                    savePreference(
-                      "autoSelectionTranslation",
-                      event.target.checked,
-                    )
-                  }
-                />
-                鼠标选中后自动翻译
-              </label>
-              {saving.has("autoSelectionTranslation") && (
-                <p
-                  className="settings-help"
-                  id="automatic-saving"
-                  role="status"
-                  aria-label="鼠标选中后自动翻译保存中"
-                >
-                  保存中…
-                </p>
-              )}
-              <p className="settings-help">选中文字即翻译，会调用模型。</p>
-            </>
+            <div className="preference-row preference-toggle">
+              <div className="preference-copy">
+                <label htmlFor="automatic-selection">鼠标选中后自动翻译</label>
+                <p className="settings-help">选中文字即翻译，会调用模型。</p>
+                {saving.has("autoSelectionTranslation") && (
+                  <p
+                    className="settings-help"
+                    id="automatic-saving"
+                    role="status"
+                    aria-label="鼠标选中后自动翻译保存中"
+                  >
+                    保存中…
+                  </p>
+                )}
+              </div>
+              <input
+                id="automatic-selection"
+                type="checkbox"
+                checked={model.settings.autoSelectionTranslation}
+                disabled={saving.has("autoSelectionTranslation")}
+                aria-describedby={
+                  saving.has("autoSelectionTranslation")
+                    ? "automatic-saving"
+                    : undefined
+                }
+                onChange={(event) =>
+                  savePreference(
+                    "autoSelectionTranslation",
+                    event.target.checked,
+                  )
+                }
+              />
+            </div>
           )}
           <div className="preference-row">
-            <label htmlFor="translation-display">划词与 OCR 译文位置</label>
+            <div className="preference-copy">
+              <label htmlFor="translation-display">划词与 OCR 译文位置</label>
+              {saving.has("translationDisplay") && (
+                <p
+                  className="settings-help"
+                  id="translation-display-saving"
+                  role="status"
+                >
+                  译文位置保存中…
+                </p>
+              )}
+            </div>
             <select
               id="translation-display"
               value={model.settings.translationDisplay}
@@ -339,21 +350,19 @@ export function Settings({
                 )
               }
             >
-              <option value="below">原文下方 · 贴合显示</option>
-              <option value="panel">悬浮栏 · 集中面板</option>
+              <option value="below">原文下方</option>
+              <option value="panel">悬浮栏</option>
             </select>
           </div>
-          {saving.has("translationDisplay") && (
-            <p
-              className="settings-help"
-              id="translation-display-saving"
-              role="status"
-            >
-              译文位置保存中…
-            </p>
-          )}
           <div className="preference-row">
-            <label htmlFor="target">默认翻译语言</label>
+            <div className="preference-copy">
+              <label htmlFor="target">默认翻译语言</label>
+              {saving.has("target") && (
+                <p className="settings-help" id="target-saving" role="status">
+                  默认翻译语言保存中…
+                </p>
+              )}
+            </div>
             <select
               id="target"
               value={model.settings.target}
@@ -361,36 +370,39 @@ export function Settings({
               aria-describedby={
                 saving.has("target") ? "target-saving" : undefined
               }
-              onChange={(e) => savePreference("target", e.target.value)}
+              onChange={(event) => savePreference("target", event.target.value)}
             >
-              {["简体中文", "English", "日本語", "한국어"].map((l) => (
-                <option key={l}>{l}</option>
+              {["简体中文", "English", "日本語", "한국어"].map((language) => (
+                <option key={language}>{language}</option>
               ))}
             </select>
           </div>
-          {saving.has("target") && (
-            <p className="settings-help" id="target-saving" role="status">
-              默认翻译语言保存中…
-            </p>
-          )}
-          <label className="check">
+          <div className="preference-row preference-toggle">
+            <div className="preference-copy">
+              <label htmlFor="pin-window">Ask 与输入窗口保持置顶</label>
+              {saving.has("pinned") && (
+                <p
+                  className="settings-help"
+                  id="pin-window-saving"
+                  role="status"
+                >
+                  窗口置顶保存中…
+                </p>
+              )}
+            </div>
             <input
-              type="checkbox"
               id="pin-window"
+              type="checkbox"
               checked={model.settings.pinned}
               disabled={saving.has("pinned")}
               aria-describedby={
                 saving.has("pinned") ? "pin-window-saving" : undefined
               }
-              onChange={(e) => savePreference("pinned", e.target.checked)}
+              onChange={(event) =>
+                savePreference("pinned", event.target.checked)
+              }
             />
-            Ask 与输入窗口保持置顶
-          </label>
-          {saving.has("pinned") && (
-            <p className="settings-help" id="pin-window-saving" role="status">
-              窗口置顶保存中…
-            </p>
-          )}
+          </div>
         </section>
         <div hidden={page !== "updates"}>
           <UpdateSettings state={state} perform={perform} />
@@ -401,7 +413,7 @@ export function Settings({
             active={page === "shortcuts"}
             snapshot={state.shortcuts}
             display={model.settings.translationDisplay}
-            notice={notice}
+            notice=""
             perform={perform}
           />
         </div>

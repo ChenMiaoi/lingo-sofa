@@ -24,6 +24,12 @@ function moneyValue(amount: number) {
       });
 }
 function Breakdown({ totals }: { totals: UsageTotals }) {
+  const states = [
+    ["待回报", totals.pending],
+    ["部分回报", totals.partial],
+    ["用量未知", totals.unknown],
+    ["未发出", totals.notDispatched],
+  ].filter(([, value]) => Number(value) > 0);
   return (
     <div className="usage-dashboard-breakdown">
       <dl>
@@ -41,13 +47,10 @@ function Breakdown({ totals }: { totals: UsageTotals }) {
           </div>
         ))}
       </dl>
-      <p>
-        待回报 {totals.pending} · 部分 {totals.partial} · 未知 {totals.unknown}{" "}
-        · 未发出 {totals.notDispatched}
-      </p>
-      <p>
-        已定价 {totals.pricedCalls} 次 · 未定价 {totals.unpriced} 次
-      </p>
+      {states.length > 0 && (
+        <p>{states.map(([label, value]) => `${label} ${value}`).join(" · ")}</p>
+      )}
+      {totals.unpriced > 0 && <p>未定价 {totals.unpriced} 次</p>}
     </div>
   );
 }
@@ -386,10 +389,13 @@ export function UsageSettings({
             )}
           </div>
           <details className="usage-dashboard-notes">
+            <summary>Token 明细</summary>
+            <Breakdown totals={report.totals} />
+          </details>
+          <details className="usage-dashboard-notes">
             <summary>统计说明</summary>
             <p>调用含生成与压缩，未发出不计次。</p>
             <p>美元估算以账单为准，未知不代表免费；用量状态与未定价可重叠。</p>
-            <Breakdown totals={report.totals} />
           </details>
         </>
       )}
