@@ -262,6 +262,23 @@ test("macOS shortcut hints use native symbols while Windows keeps existing text"
   expect(errorMessage("shortcut_invalid_0", false)).toContain("Ctrl 或 Alt");
 });
 
+test("usage command aliases are case insensitive and available to suggestions and completion", () => {
+  for (const command of [
+    "/usage",
+    "/Usage",
+    "/USAGE",
+    "/settings usage",
+    "/settings Usage",
+  ]) {
+    expect(parseCommand(command)).toEqual({ kind: "settings", page: "usage" });
+  }
+  expect(parseCommand("/usage extra")?.kind).toBe("invalid");
+  expect(commandSuggestions("/Us").map((entry) => entry.command)).toEqual([
+    "/usage",
+  ]);
+  expect(completeCommand("/US", 0)).toEqual({ text: "/usage ", caret: 7 });
+});
+
 test("slash commands parse configuration locally and preserve nested model IDs", () => {
   expect(parseCommand("/model openrouter/anthropic/claude-test")).toEqual({
     kind: "model",

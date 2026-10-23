@@ -184,6 +184,7 @@ pub enum LoginRequest {
     },
 }
 enum Command {
+    UsageReport(SyncSender<serde_json::Value>),
     Session {
         request: SessionRequest,
         reply: SyncSender<Result<serde_json::Value, &'static str>>,
@@ -379,6 +380,13 @@ impl Service {
         result
             .recv_timeout(Duration::from_secs(30))
             .map_err(|_| "service_timeout")?
+    }
+    pub fn usage_report(&self) -> Result<serde_json::Value, &'static str> {
+        let (reply, result) = mpsc::sync_channel(1);
+        self.send(Command::UsageReport(reply))?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "service_timeout")
     }
     pub fn select_model(&self, model: ModelSelection) -> Result<(), &'static str> {
         models::validate_selection(&model)?;
@@ -838,6 +846,9 @@ fn serve(
                         v.task_id = None;
                         v.phase = "ready".into();
                         v.message = "选择一段文字，继续阅读。".into();
+                    }
+                    Command::UsageReport(reply) => {
+                        let _ = reply.send(json!(host.usage.report()));
                     }
                     Command::Catalog {
                         provider,

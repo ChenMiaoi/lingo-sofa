@@ -327,6 +327,18 @@ async fn open_login_url(
     .map_err(|_| "service_unavailable".to_string())?
 }
 #[tauri::command]
+async fn usage_report(
+    window: tauri::WebviewWindow,
+    service: tauri::State<'_, Service>,
+) -> Result<serde_json::Value, String> {
+    allowed(&window)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.usage_report())
+        .await
+        .map_err(|_| "service_unavailable".to_string())?
+        .map_err(String::from)
+}
+#[tauri::command]
 async fn model_catalog(
     window: tauri::WebviewWindow,
     service: tauri::State<'_, Service>,
@@ -635,6 +647,7 @@ fn main() {
             clear_context,
             new_session,
             model_catalog,
+            usage_report,
             subscription_login,
             open_login_url,
             external_links::open_external_url,

@@ -440,6 +440,29 @@ export interface ModelCatalog {
   total: number;
 }
 
+export interface UsageTotals {
+  calls: number;
+  pending: number;
+  reported: number;
+  partial: number;
+  unknown: number;
+  notDispatched: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  pricedCalls: number;
+  unpriced: number;
+  estimatedCost: number;
+}
+export interface UsageReport {
+  totals: UsageTotals;
+  models: Array<{ provider: string; model: string; totals: UsageTotals }>;
+}
+export type LoadUsageReport = () => Promise<UsageReport>;
+export const loadUsageReport: LoadUsageReport = () => call("usage_report");
+
 export function loadModelCatalog(
   provider?: string,
   offset = 0,

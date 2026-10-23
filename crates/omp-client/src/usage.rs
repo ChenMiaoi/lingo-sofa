@@ -1,9 +1,86 @@
 use crate::Result;
 use rusqlite::{Connection, params};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path};
 
 pub const MAX_ACTIVE: usize = 2;
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTotals {
+    pub calls: u64,
+    pub pending: u64,
+    pub reported: u64,
+    pub partial: u64,
+    pub unknown: u64,
+    pub not_dispatched: u64,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub total_tokens: u64,
+    pub priced_calls: u64,
+    pub unpriced: u64,
+    pub estimated_cost: f64,
+}
+impl UsageTotals {
+    fn update(&mut self, record: &Value, add: bool) {
+        macro_rules! count {
+            ($field:ident, $value:expr) => {
+                if add {
+                    self.$field += $value;
+                } else {
+                    self.$field -= $value;
+                }
+            };
+        }
+        if record["usageState"] == "not_dispatched" {
+            count!(not_dispatched, 1);
+            return;
+        }
+        count!(calls, 1);
+        match record["usageState"].as_str() {
+            Some("pending") => count!(pending, 1),
+            Some("reported") => count!(reported, 1),
+            Some("partial") => count!(partial, 1),
+            Some("unknown") => count!(unknown, 1),
+            _ => {}
+        }
+        for (field, bucket) in [
+            (&mut self.input, "input"),
+            (&mut self.output, "output"),
+            (&mut self.cache_read, "cacheRead"),
+            (&mut self.cache_write, "cacheWrite"),
+            (&mut self.total_tokens, "totalTokens"),
+        ] {
+            let value = record["usage"][bucket].as_u64().unwrap_or(0);
+            if add {
+                *field += value;
+            } else {
+                *field -= value;
+            }
+        }
+        if let Some(cost) = record["estimatedCost"].as_f64() {
+            count!(priced_calls, 1);
+            self.estimated_cost += if add { cost } else { -cost };
+        } else {
+            count!(unpriced, 1);
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsage {
+    pub provider: String,
+    pub model: String,
+    pub totals: UsageTotals,
+}
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct UsageReport {
+    pub totals: UsageTotals,
+    pub models: Vec<ModelUsage>,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct UsageSummary {
@@ -45,6 +122,8 @@ pub struct UsageLedger {
     records: BTreeMap<String, Value>,
     summary: UsageSummary,
     sessions: BTreeMap<String, UsageSummary>,
+    totals: UsageTotals,
+    models: BTreeMap<(String, String), UsageTotals>,
 }
 
 impl UsageLedger {
@@ -83,8 +162,16 @@ impl UsageLedger {
             records,
             summary: UsageSummary::default(),
             sessions: BTreeMap::new(),
+            totals: UsageTotals::default(),
+            models: BTreeMap::new(),
         };
         for record in ledger.records.values() {
+            ledger.totals.update(record, true);
+            ledger
+                .models
+                .entry(model_key(record)?)
+                .or_default()
+                .update(record, true);
             ledger.summary.update(record, true);
             ledger
                 .sessions
@@ -101,6 +188,11 @@ impl UsageLedger {
         // Autocommit + FULL synchronization: no acknowledgement before commit.
         self.db.execute("INSERT INTO calls(call_id, record) VALUES (?1, ?2) ON CONFLICT(call_id) DO UPDATE SET record=excluded.record", params![call_id, text]).map_err(|_| "ledger_write_failed")?;
         if let Some(previous) = self.records.get(call_id) {
+            self.totals.update(previous, false);
+            self.models
+                .get_mut(&model_key(previous)?)
+                .unwrap()
+                .update(previous, false);
             self.summary.update(previous, false);
             self.sessions
                 .get_mut(previous["sessionId"].as_str().unwrap())
@@ -108,6 +200,11 @@ impl UsageLedger {
                 .update(previous, false);
         }
         self.summary.update(&record, true);
+        self.totals.update(&record, true);
+        self.models
+            .entry(model_key(&record)?)
+            .or_default()
+            .update(&record, true);
         self.sessions
             .entry(record["sessionId"].as_str().unwrap().into())
             .or_default()
@@ -122,6 +219,21 @@ impl UsageLedger {
 
     pub fn summary(&self) -> UsageSummary {
         self.summary
+    }
+    // Clone aggregates only on explicit demand, never the raw per-call records.
+    pub fn report(&self) -> UsageReport {
+        UsageReport {
+            totals: self.totals.clone(),
+            models: self
+                .models
+                .iter()
+                .map(|((provider, model), totals)| ModelUsage {
+                    provider: provider.clone(),
+                    model: model.clone(),
+                    totals: totals.clone(),
+                })
+                .collect(),
+        }
     }
     pub fn session_summary(&self, id: &str) -> UsageSummary {
         self.sessions.get(id).copied().unwrap_or_default()
@@ -234,6 +346,13 @@ impl UsageLedger {
     }
 }
 
+fn model_key(record: &Value) -> Result<(String, String)> {
+    Ok((
+        record["provider"].as_str().ok_or("ledger_corrupt")?.into(),
+        record["model"].as_str().ok_or("ledger_corrupt")?.into(),
+    ))
+}
+
 fn scope(instance: &str, request_id: u64, event: &Value) -> Result<Value> {
     if event["requestId"].as_u64() != Some(request_id)
         || !matches!(event["purpose"].as_str(), Some("generation" | "compaction"))
@@ -292,6 +411,7 @@ mod tests {
         let before = ledger.summary();
         let before_session = ledger.session_summary("other");
         let before_records = ledger.records();
+        let before_report = ledger.report();
         ledger.db.execute_batch("CREATE TRIGGER reject_usage BEFORE UPDATE ON calls BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END;").unwrap();
         let mut completed = terminal("pending");
         completed["sessionId"] = json!("other");
@@ -302,6 +422,7 @@ mod tests {
         assert_eq!(ledger.summary(), before);
         assert_eq!(ledger.session_summary("other"), before_session);
         assert_eq!(ledger.records(), before_records);
+        assert_eq!(ledger.report(), before_report);
         ledger
             .db
             .execute_batch("DROP TRIGGER reject_usage")
@@ -313,6 +434,71 @@ mod tests {
         assert_eq!(ledger.summary().unknown, 1);
         assert_eq!(ledger.summary().estimated_cost, 0.125);
         assert_eq!(ledger.session_summary("missing").tokens, 0);
+    }
+    #[test]
+    fn model_report_groups_durable_calls_without_recounting_or_inventing_prices() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.sqlite");
+        let mut ledger = UsageLedger::open(&path).unwrap();
+        assert!(ledger.report().models.is_empty());
+        let mut priced = terminal("priced");
+        priced["pricingKnown"] = json!(true);
+        priced["estimatedCost"] = json!(0.000000001);
+        ledger.acquire("worker", 2, &call("priced")).unwrap();
+        ledger.complete("worker", 2, &priced).unwrap();
+        let once = ledger.report();
+        ledger.complete("worker", 2, &priced).unwrap();
+        assert_eq!(ledger.report(), once);
+        ledger.acquire("worker", 2, &call("partial")).unwrap();
+        let mut partial = terminal("partial");
+        partial["usageState"] = json!("partial");
+        ledger.complete("worker", 2, &partial).unwrap();
+        ledger.acquire("worker", 2, &call("unknown")).unwrap();
+        let mut unknown = terminal("unknown");
+        unknown["usageState"] = json!("unknown");
+        ledger.complete("worker", 2, &unknown).unwrap();
+        let mut other = call("pending");
+        other["provider"] = json!("other");
+        other["prompt"] = json!("PRIVATE_PROMPT");
+        other["apiKey"] = json!("PRIVATE_KEY");
+        ledger.acquire("worker", 2, &other).unwrap();
+        ledger.acquire("worker", 2, &call("cancelled")).unwrap();
+        assert!(!ledger.acquire("worker", 2, &call("blocked")).unwrap());
+        let mut cancelled = terminal("cancelled");
+        cancelled["usageState"] = json!("not_dispatched");
+        cancelled["stopReason"] = json!("cancelled_before_dispatch");
+        ledger.complete("worker", 2, &cancelled).unwrap();
+        let report = ledger.report();
+        assert_eq!(report.models.len(), 2);
+        assert_eq!(report.totals.calls, 4);
+        assert_eq!(report.totals.pending, 1);
+        assert_eq!(report.totals.partial, 1);
+        assert_eq!(report.totals.unknown, 1);
+        assert_eq!(report.totals.reported, 1);
+        assert_eq!(report.totals.not_dispatched, 2);
+        assert_eq!(report.totals.input, 20);
+        assert_eq!(report.totals.output, 4);
+        assert_eq!(report.totals.cache_read, 8);
+        assert_eq!(report.totals.cache_write, 0);
+        assert_eq!(report.totals.total_tokens, 32);
+        assert_eq!(report.totals.priced_calls, 1);
+        assert_eq!(report.totals.unpriced, 3);
+        assert_eq!(report.totals.estimated_cost, 0.000000001);
+        assert_eq!(report.models[0].provider, "other");
+        assert_eq!(report.models[0].totals.pending, 1);
+        assert_eq!(report.models[1].totals.calls, 3);
+        let serialized = serde_json::to_string(&report).unwrap();
+        for private in ["PRIVATE", "sessionId", "callId", "prompt", "apiKey"] {
+            assert!(!serialized.contains(private));
+        }
+        drop(ledger);
+        let ledger = UsageLedger::open(&path).unwrap();
+        let mut rebuilt = report;
+        rebuilt.totals.pending = 0;
+        rebuilt.totals.unknown += 1;
+        rebuilt.models[0].totals.pending = 0;
+        rebuilt.models[0].totals.unknown = 1;
+        assert_eq!(ledger.report(), rebuilt);
     }
     #[test]
     fn durable_terminal_is_idempotent_and_does_not_release_another_permit() {

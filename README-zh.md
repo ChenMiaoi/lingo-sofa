@@ -78,7 +78,7 @@ macOS 默认组合显示为 **⌥⇧Space**、**⌥⇧S**、**⌥⇧T**。自定
 
 Windows 与 macOS 均可从悬浮入口菜单选择“截图翻译”或执行 `/ocr`，框选后直接在区域下方翻译。Windows 快捷键为 Alt+Shift+O，macOS 为 ⌥⇧O；设置可切换集中面板，Ctrl+Alt+Shift+O（macOS 为 ⌃⌥⇧O）临时使用另一种布局。图片保持本地，识别文字会发送给默认翻译模型。Windows 使用随包 PP-OCRv5 mobile 与 ONNX Runtime CPU，需要 Microsoft Visual C++ 2015–2022 x64 运行库，限制单屏 400 万像素、最长边 4096；干净机与混合 DPI 验收仍待完成。详见 [Windows OCR](docs/windows-ocr.md) 和 [macOS 截图识别](docs/macos-ocr.md)。
 
-输入与 Ask 窗口中输入 `/` 可查看应用命令，使用方向键选择、Tab 补全命令、Enter 执行（例如 `/mo` → Tab → `/model `）。`/ask [问题]` 直接提问（独立输入创建新问题，Ask 中沿当前上下文追问；不带问题时准备输入），`/login` 打开订阅账户登录，`/settings` 打开设置，`/model` 在当前窗口打开可搜索的模型列表，方向键选择、Enter 切换、Esc 返回；`/model 搜索词` 可预先过滤，未配置时在同一浮层用键盘选择服务商、模型并输入 API Key，`/model deepseek/deepseek-flash` 设置默认模型，`/language en` 修改翻译语言，`/pin on` 或 `/pin off` 设置置顶，`/shortcuts` 打开快捷键页，`/new` 停止当前任务、清空原文与会话并回到空白输入（保留模型及其他设置）。导航与配置在本机处理，登录连接所选服务商授权接口；以 `//` 开头可提交斜杠正文。
+输入与 Ask 窗口中输入 `/` 可查看应用命令，使用方向键选择、Tab 补全命令、Enter 执行（例如 `/mo` → Tab → `/model `）。`/ask [问题]` 直接提问（独立输入创建新问题，Ask 中沿当前上下文追问；不带问题时准备输入），`/login` 打开订阅账户登录，`/settings` 打开设置，`/model` 在当前窗口打开可搜索的模型列表，方向键选择、Enter 切换、Esc 返回；`/model 搜索词` 可预先过滤，未配置时在同一浮层用键盘选择服务商、模型并输入 API Key，`/model deepseek/deepseek-flash` 设置默认模型，`/language en` 修改翻译语言，`/pin on` 或 `/pin off` 设置置顶，`/shortcuts` 打开快捷键页，`/usage` 打开用量与费用，`/new` 停止当前任务、清空原文与会话并回到空白输入（保留模型及其他设置）。导航与配置在本机处理，登录连接所选服务商授权接口；以 `//` 开头可提交斜杠正文。
 
 OMP 文件会话保留历史，重启后可继续。`/resume [搜索词]` 用方向键与 Enter 恢复，`/new` 保留旧会话。`/thinking high` 设置思考强度，`/tools on` 开启 Ask 工具，每次执行都需确认；界面显示 SDK 已知费用估算，订阅与缺失价格单列未知。详见[会话、思考与工具指南](docs/sessions.md)。
 

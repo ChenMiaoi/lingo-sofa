@@ -17,6 +17,9 @@ import {
   type RequestLogin,
   type LoadSessions,
   type LoadActivity,
+  type LoadUsageReport,
+  type UsageReport,
+  type UsageTotals,
 } from "../apps/desktop/src/api";
 
 const dom = new Window();
@@ -111,6 +114,7 @@ async function mount(
   loadSessions?: LoadSessions,
   loadActivity?: LoadActivity,
   onRecording?: Perform,
+  loadUsageReport?: LoadUsageReport,
 ) {
   const element = document.createElement("div");
   document.body.append(element);
@@ -143,6 +147,7 @@ async function mount(
           requestLogin: nextRequestLogin,
           loadSessions: nextLoadSessions,
           loadActivity,
+          loadUsageReport,
         }),
       ),
     );
@@ -2520,6 +2525,82 @@ test("slash navigation opens the requested settings subpage and returns through 
   }
 });
 
+test("usage command navigation preserves its draft and Ask context without sending a model request", async () => {
+  for (const mode of ["input", "ask", "ask-result"] as const) {
+    for (const command of ["/usage", "/Usage", "/USAGE", "/settings usage"]) {
+      const value = state(mode);
+      value.model.sessionId = "kept-session";
+      const ui = await mount(
+        value,
+        catalog,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => usageReport,
+      );
+      try {
+        await ui.type(command);
+        await ui.key("Enter");
+        expect(ui.calls).toEqual([
+          { command: "set_mode", args: { mode: "settings" } },
+        ]);
+        await ui.render({
+          ...value,
+          desktop: { ...value.desktop, mode: "settings" },
+        });
+        expect(
+          ui.element.querySelector(".usage-settings")!.closest("[hidden]"),
+        ).toBeNull();
+        await ui.key("Escape");
+        await ui.key("Escape");
+        expect(ui.calls.at(-1)?.command).toBe("back_reading");
+        await ui.render(value);
+        expect(
+          ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+        ).toBe(command);
+        expect(document.activeElement).toBe(
+          ui.element.querySelector("textarea"),
+        );
+        expect(ui.calls).toHaveLength(2);
+        if (mode !== "input") {
+          expect(ui.element.textContent).toContain(context.origin);
+          await ui.click("已选文字");
+          expect(
+            ui.element.querySelector('[aria-label="本次原文"]')!.textContent,
+          ).toBe(context.text);
+        }
+      } finally {
+        await ui.close();
+      }
+    }
+  }
+});
+
+test("usage appears in help and completes without executing until Enter", async () => {
+  const ui = await mount(state("input"));
+  try {
+    await ui.type("/help");
+    await ui.key("Enter");
+    expect(
+      ui.element.querySelector('[aria-label="应用命令"]')!.textContent,
+    ).toContain("/usage");
+    await ui.type("/Us");
+    await ui.key("Tab");
+    expect(
+      ui.element.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe("/usage ");
+    expect(ui.calls).toHaveLength(0);
+    await ui.key("Enter");
+    expect(ui.calls).toEqual([
+      { command: "set_mode", args: { mode: "settings" } },
+    ]);
+  } finally {
+    await ui.close();
+  }
+});
+
 test("command suggestions complete prefixes and escaped slash text follows normal submission", async () => {
   const value = state("input");
   const ui = await mount(value);
@@ -2528,7 +2609,7 @@ test("command suggestions complete prefixes and escaped slash text follows norma
     expect(ui.element.querySelector('[aria-label="应用命令"]')).not.toBeNull();
     expect(
       ui.element.querySelectorAll('[aria-label="应用命令"] .action'),
-    ).toHaveLength(12);
+    ).toHaveLength(13);
     await ui.key("ArrowDown");
     expect(ui.element.querySelector(".action.selected")!.textContent).toContain(
       "/model",
@@ -5444,6 +5525,397 @@ test("answer links open through the native boundary only after an explicit click
   }
 });
 
+const usageTotals: UsageTotals = {
+  calls: 3,
+  pending: 1,
+  reported: 1,
+  partial: 1,
+  unknown: 0,
+  notDispatched: 2,
+  input: 120,
+  output: 12,
+  cacheRead: 8,
+  cacheWrite: 2,
+  totalTokens: 142,
+  pricedCalls: 1,
+  unpriced: 2,
+  estimatedCost: 0.000000001,
+};
+const usageReport: UsageReport = modelUsageReport([
+  { provider: "synthetic-a", model: "same-model", totals: usageTotals },
+  {
+    provider: "synthetic-b",
+    model: "same-model",
+    totals: { ...usageTotals, pricedCalls: 0, estimatedCost: 0, unpriced: 3 },
+  },
+]);
+
+function modelUsageReport(models: UsageReport["models"]): UsageReport {
+  return {
+    models,
+    totals: Object.fromEntries(
+      Object.keys(usageTotals).map((key) => [
+        key,
+        models.reduce(
+          (sum, row) => sum + row.totals[key as keyof UsageTotals],
+          0,
+        ),
+      ]),
+    ) as unknown as UsageTotals,
+  };
+}
+
+test("settings usage opens lazily and keeps micro estimates, unknowns, filters and return focus on both platforms", async () => {
+  for (const macos of [false, true]) {
+    const value = state("settings");
+    value.shortcuts = { ...value.shortcuts, macos };
+    let reads = 0;
+    const ui = await mount(
+      value,
+      catalog,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        reads++;
+        return usageReport;
+      },
+    );
+    try {
+      expect(reads).toBe(0);
+      await ui.type("token", '[aria-label="搜索设置"]');
+      expect(
+        ui.element.querySelectorAll(".settings-categories .action"),
+      ).toHaveLength(1);
+      await ui.key("Enter");
+      expect(reads).toBe(1);
+      const overview = ui.element.querySelector<HTMLElement>(
+        "#usage-overview-panel",
+      )!;
+      expect(overview.hidden).toBe(false);
+      expect(overview.textContent).toContain("<0.00000001");
+      expect(overview.textContent).toContain("5 次费用未知");
+      expect(
+        [...overview.querySelectorAll(".usage-dashboard-identity small")].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(["synthetic-a", "synthetic-b"]);
+      expect(overview.textContent).toContain("部分用量未完整回报");
+      expect(
+        ui.element
+          .querySelector(".usage-dashboard-notes")!
+          .hasAttribute("open"),
+      ).toBe(false);
+      await ui.click("模型明细");
+      expect(overview.hidden).toBe(true);
+      expect(
+        ui.element.querySelectorAll(".usage-dashboard-model-row"),
+      ).toHaveLength(2);
+      expect(
+        ui.element.querySelector("#usage-models-panel")!.textContent,
+      ).toContain("未知");
+      await ui.type("synthetic-b", '[aria-label="筛选用量模型"]');
+      expect(
+        ui.element.querySelectorAll(".usage-dashboard-model-row"),
+      ).toHaveLength(1);
+      await ui.type("missing", '[aria-label="筛选用量模型"]');
+      expect(ui.element.textContent).toContain("没有匹配的模型");
+      await ui.click("清空");
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "筛选用量模型",
+      );
+      expect(
+        ui.element.querySelectorAll(".usage-dashboard-model-row"),
+      ).toHaveLength(2);
+      await ui.key("Escape");
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "用量与费用",
+      );
+      expect(
+        ui.element.querySelector<HTMLInputElement>('[aria-label="搜索设置"]')!
+          .value,
+      ).toBe("token");
+      await ui.render(value);
+      expect(reads).toBe(1);
+      expect(ui.calls).toHaveLength(0);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("usage distribution ranks real shares, groups other models and keeps colors across metrics", async () => {
+  const models = Array.from({ length: 7 }, (_, i) => ({
+    provider: "synthetic",
+    model: `model-${i}`,
+    totals: {
+      ...usageTotals,
+      totalTokens: (7 - i) * 10,
+      estimatedCost: (i + 1) / 1000000,
+    },
+  }));
+  const report = modelUsageReport(models);
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => report,
+  );
+  try {
+    await ui.click("用量与费用");
+    const legends = () => [
+      ...ui.element.querySelectorAll(".usage-dashboard-legend li"),
+    ];
+    const names = () =>
+      legends().map((row) => row.querySelector("strong")!.textContent);
+    const colors = () =>
+      new Map(
+        legends().map((row) => [
+          row.querySelector("strong")!.textContent,
+          row.querySelector<HTMLElement>(".usage-dashboard-dot")!.style
+            .background,
+        ]),
+      );
+    expect(names()).toEqual([
+      "model-0",
+      "model-1",
+      "model-2",
+      "model-3",
+      "model-4",
+      "其他 2 个模型",
+    ]);
+    expect(legends()[0]!.textContent).toContain("25.0%");
+    expect(legends()[5]!.textContent).toContain("10.7%");
+    expect(
+      ui.element.querySelectorAll(".usage-dashboard-stack > span"),
+    ).toHaveLength(6);
+    const widths = [
+      ...ui.element.querySelectorAll<HTMLElement>(
+        ".usage-dashboard-stack > span",
+      ),
+    ].map((span) => parseFloat(span.style.width));
+    expect(widths.reduce((sum, value) => sum + value, 0)).toBeCloseTo(100, 8);
+    const before = colors();
+    await ui.click("估算费用");
+    expect(names()).toEqual([
+      "model-6",
+      "model-5",
+      "model-4",
+      "model-3",
+      "model-2",
+      "其他 2 个模型",
+    ]);
+    for (const name of ["model-2", "model-3", "model-4"])
+      expect(colors().get(name)).toBe(before.get(name));
+    expect(ui.element.textContent).toContain("占比仅含已知估算");
+    await ui.click("模型明细");
+    expect(
+      ui.element.querySelectorAll(".usage-dashboard-model-row"),
+    ).toHaveLength(7);
+    const detail = ui.element.querySelector<HTMLDetailsElement>(
+      ".usage-dashboard-model-row",
+    )!;
+    expect(detail.open).toBe(false);
+    await act(async () => detail.querySelector("summary")!.click());
+    expect(detail.open).toBe(true);
+    expect(detail.textContent).toContain("缓存读取");
+    expect(detail.textContent).toContain("未发出 2");
+    await ui.type("model-6", '[aria-label="筛选用量模型"]');
+    expect(
+      ui.element.querySelectorAll(".usage-dashboard-model-row"),
+    ).toHaveLength(1);
+    await ui.click("概览");
+    expect(
+      ui.element.querySelector(".usage-dashboard-metrics")!.textContent,
+    ).toContain("280");
+    expect(names()).toHaveLength(6);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("usage overview distinguishes unknown and known zero costs and warns on priced partial usage", async () => {
+  for (const priced of [false, true]) {
+    const row = {
+      provider: "synthetic",
+      model: "long-model/".repeat(12),
+      totals: {
+        ...usageTotals,
+        totalTokens: priced ? 142 : 0,
+        estimatedCost: 0,
+        pending: priced ? 0 : 1,
+        partial: priced ? 1 : 0,
+        unknown: priced ? 0 : 2,
+        reported: priced ? 2 : 0,
+        pricedCalls: priced ? 3 : 0,
+        unpriced: priced ? 0 : 3,
+      },
+    };
+    const ui = await mount(
+      state("settings"),
+      catalog,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => modelUsageReport([row]),
+    );
+    try {
+      await ui.click("用量与费用");
+      const overview = ui.element.querySelector("#usage-overview-panel")!;
+      expect(overview.textContent).toContain("部分用量未完整回报");
+      expect(overview.textContent?.includes("3 次费用未知")).toBe(!priced);
+      expect(
+        ui.element.querySelectorAll(".usage-dashboard-stack"),
+      ).toHaveLength(priced ? 1 : 0);
+      await ui.click("估算费用");
+      expect(overview.textContent).toContain(
+        priced ? "已知估算为 0，暂无费用分布" : "暂无可估算费用",
+      );
+      expect(ui.element.querySelector(".usage-dashboard-stack")).toBeNull();
+      await ui.click("模型明细");
+      expect(
+        ui.element.querySelector(".usage-dashboard-model-row")!.textContent,
+      ).toContain(priced ? "0.00" : "未知");
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("usage tabs expose associated panels and support keyboard navigation", async () => {
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => usageReport,
+  );
+  try {
+    await ui.click("用量与费用");
+    const tabs = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ];
+    for (const tab of tabs) {
+      const panel = ui.element.querySelector(
+        `#${tab.getAttribute("aria-controls")}`,
+      )!;
+      expect(panel.getAttribute("role")).toBe("tabpanel");
+      expect(panel.getAttribute("aria-labelledby")).toBe(tab.id);
+    }
+    await act(async () => {
+      tabs[0]!.focus();
+      tabs[0]!.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+        }),
+      );
+    });
+    expect(document.activeElement).toBe(tabs[1]!);
+    expect(tabs[1]!.getAttribute("aria-selected")).toBe("true");
+    expect(
+      ui.element.querySelector<HTMLElement>("#usage-models-panel")!.hidden,
+    ).toBe(false);
+    await act(async () =>
+      tabs[1]!.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+      ),
+    );
+    expect(document.activeElement).toBe(tabs[0]!);
+    expect(
+      ui.element.querySelector<HTMLElement>("#usage-overview-panel")!.hidden,
+    ).toBe(false);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings usage retries errors and preserves prior model filter after refresh failure", async () => {
+  let reads = 0;
+  let finish!: (value: UsageReport) => void;
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => {
+      reads++;
+      if (reads === 1 || reads === 3) throw new Error("synthetic failure");
+      if (reads === 2) return usageReport;
+      return new Promise<UsageReport>((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  try {
+    await ui.click("用量与费用");
+    expect(ui.element.textContent).toContain("读取失败");
+    expect(ui.element.textContent).not.toContain("暂无本机调用记录");
+    await ui.click("重试读取");
+    await ui.click("模型明细");
+    await ui.type("synthetic-a", '[aria-label="筛选用量模型"]');
+    await ui.click("刷新");
+    expect(ui.element.textContent).toContain("刷新失败，保留上次数据");
+    expect(
+      ui.element.querySelectorAll(".usage-dashboard-model-row"),
+    ).toHaveLength(1);
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="筛选用量模型"]')!
+        .value,
+    ).toBe("synthetic-a");
+    await ui.click("重试读取");
+    expect(ui.element.textContent).toContain("正在刷新，保留上次数据");
+    await ui.click("读取中…");
+    expect(reads).toBe(4);
+    await act(async () => finish(usageReport));
+    expect(ui.element.textContent).not.toContain("刷新失败");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings usage ignores closed-page replies and shows a genuine empty ledger", async () => {
+  const finishes: Array<(value: UsageReport) => void> = [];
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => new Promise<UsageReport>((resolve) => finishes.push(resolve)),
+  );
+  try {
+    await ui.click("用量与费用");
+    expect(ui.element.textContent).toContain("正在读取用量");
+    await ui.key("Escape");
+    await ui.click("用量与费用");
+    await act(async () => finishes[0]!(usageReport));
+    expect(ui.element.querySelector(".usage-dashboard-metrics")).toBeNull();
+    expect(ui.element.textContent).toContain("正在读取用量");
+    await act(async () => finishes[1]!(modelUsageReport([])));
+    expect(ui.element.textContent).toContain("暂无本机调用记录");
+    expect(ui.element.querySelector(".usage-dashboard-stack")).toBeNull();
+  } finally {
+    await ui.close();
+  }
+});
+
 test("settings feature search finds visible controls and explains OCR matches", async () => {
   const value = state("settings");
   value.shortcuts = { ...value.shortcuts, ocr: true, macos: false };
@@ -5518,7 +5990,7 @@ test("settings feature search excludes unavailable controls and clears with inpu
     ).toBe("");
     expect(
       ui.element.querySelectorAll(".settings-categories .action"),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(ui.calls).toHaveLength(0);
   } finally {
     await ui.close();
@@ -5543,7 +6015,7 @@ test("settings search keeps its query across subpages and Escape clears before l
     await ui.key("Escape");
     expect(
       ui.element.querySelectorAll(".settings-categories .action"),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(ui.calls).toHaveLength(0);
     await ui.type("不存在", '[aria-label="搜索设置"]');
     await ui.key("Enter");

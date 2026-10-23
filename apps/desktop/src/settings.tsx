@@ -10,6 +10,11 @@ import { ModelProviders, type LoadModelCatalog } from "./model-providers";
 import { UpdateSettings, updateSummary } from "./updates";
 import { ShortcutSettings } from "./shortcuts";
 import type { Perform } from "./view";
+import {
+  loadUsageReport as defaultLoadUsageReport,
+  type LoadUsageReport,
+} from "./api";
+import { UsageSettings } from "./usage-settings";
 
 const categories = [
   { id: "models", title: "模型与服务商", detail: "配置多个服务商与默认模型" },
@@ -20,6 +25,11 @@ const categories = [
   },
   { id: "shortcuts", title: "快捷键", detail: "全局组合与启用状态" },
   { id: "updates", title: "关于与更新", detail: "版本信息与自动检查更新" },
+  {
+    id: "usage",
+    title: "用量与费用",
+    detail: "本机累计模型调用、token 与 USD 估算",
+  },
 ] as const;
 export type SettingsPage = "home" | (typeof categories)[number]["id"];
 
@@ -31,6 +41,7 @@ export function Settings({
   loadCatalog,
   initialPage = "home",
   onLogin,
+  loadUsageReport = defaultLoadUsageReport,
 }: {
   state: DesktopState;
   notice: string;
@@ -39,6 +50,7 @@ export function Settings({
   loadCatalog: LoadModelCatalog;
   initialPage?: SettingsPage;
   onLogin: (provider?: string) => void;
+  loadUsageReport?: LoadUsageReport;
 }) {
   const { model } = state;
   const [page, setPage] = useState<SettingsPage>(initialPage);
@@ -97,6 +109,9 @@ export function Settings({
       ...(state.shortcuts.ocr ? [{ label: "截图 OCR", terms: "框选" }] : []),
     ],
     updates: [{ label: "自动检查更新", terms: "版本" }],
+    usage: [
+      { label: "用量与费用", terms: "token tokens 开销 成本 USD 缓存 调用" },
+    ],
   };
   const search = query.trim().toLowerCase();
   const visibleCategories = categories.flatMap((category) => {
@@ -150,6 +165,7 @@ export function Settings({
     models: `${model.defaultModel.provider} / ${model.defaultModel.modelId}`,
     preferences: model.settings.target,
     shortcuts: `${state.shortcuts.registered.filter(Boolean).length}/${state.shortcuts.ocr ? 6 : 4} 已启用`,
+    usage: "本机记录",
   };
   return (
     <main className="launcher settings-launcher selection-page">
@@ -386,6 +402,7 @@ export function Settings({
         <div hidden={page !== "updates"}>
           <UpdateSettings state={state} perform={perform} />
         </div>
+        <UsageSettings active={page === "usage"} loadReport={loadUsageReport} />
         <div hidden={page !== "shortcuts"}>
           <ShortcutSettings
             active={page === "shortcuts"}

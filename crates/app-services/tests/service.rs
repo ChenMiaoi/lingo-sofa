@@ -146,6 +146,11 @@ fn desktop_service_streams_asks_compacts_cancels_and_recovers_persisted_state() 
     assert!(done.output.contains("沙发译文"));
     assert!(done.reported_tokens > 0);
     assert!(done.session_ready);
+    let usage = service.usage_report().unwrap();
+    assert_eq!(usage["totals"]["totalTokens"], done.reported_tokens);
+    assert_eq!(usage["totals"]["calls"], 1);
+    assert_eq!(usage["models"][0]["provider"], "deepseek");
+    assert!(usage.get("records").is_none());
     service
         .submit(2, "What is the project code?".into(), true)
         .unwrap();
@@ -175,6 +180,8 @@ fn desktop_service_streams_asks_compacts_cancels_and_recovers_persisted_state() 
         .submit(5, "A new independent question".into(), true)
         .unwrap();
     wait(&service, |v| v.revision == 5 && v.phase == "ready");
+    let final_usage = service.usage_report().unwrap();
+    assert!(final_usage["totals"]["calls"].as_u64().unwrap() >= 5);
     service.shutdown();
     let saved = std::fs::read(directory.path().join("credentials.sqlite")).unwrap();
     assert!(
@@ -190,6 +197,7 @@ fn desktop_service_streams_asks_compacts_cancels_and_recovers_persisted_state() 
     assert!(state.output.is_empty());
     assert!(!state.session_ready);
     assert!(state.unknown_calls > 0);
+    assert_eq!(restored.usage_report().unwrap(), final_usage);
     restored.save_key(String::new()).unwrap();
     wait(&restored, |v| !v.key_configured);
     restored.shutdown();

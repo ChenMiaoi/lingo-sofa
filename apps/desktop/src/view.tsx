@@ -31,6 +31,8 @@ import {
   type LoadSessions,
   loadActivity as defaultLoadActivity,
   type LoadActivity,
+  loadUsageReport as defaultLoadUsageReport,
+  type LoadUsageReport,
 } from "./api";
 export type Perform = (
   command: string,
@@ -139,6 +141,7 @@ export function Desktop({
   requestLogin = subscriptionLogin,
   loadSessions = defaultLoadSessions,
   loadActivity = defaultLoadActivity,
+  loadUsageReport = defaultLoadUsageReport,
 }: {
   state: DesktopState;
   notice?: string;
@@ -147,6 +150,7 @@ export function Desktop({
   requestLogin?: RequestLogin;
   loadSessions?: LoadSessions;
   loadActivity?: LoadActivity;
+  loadUsageReport?: LoadUsageReport;
 }) {
   const { desktop: d, model } = state;
   const mode = d.mode;
@@ -355,8 +359,10 @@ export function Desktop({
       return;
     }
     if (parsed.kind === "settings") {
-      if (isInput) setInput("");
-      else setQuery("");
+      if (parsed.page !== "usage") {
+        if (isInput) setInput("");
+        else setQuery("");
+      }
       openSettings(parsed.page);
       return;
     }
@@ -1250,6 +1256,7 @@ export function Desktop({
     );
   return (
     <Settings
+      loadUsageReport={loadUsageReport}
       state={state}
       notice={message}
       perform={perform}

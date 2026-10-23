@@ -5,7 +5,7 @@ export const slashCommands = [
   {
     command: "/settings",
     label: "打开设置",
-    detail: "/settings [models|preferences|shortcuts|updates]",
+    detail: "/settings [models|preferences|shortcuts|updates|usage]",
   },
   {
     command: "/model",
@@ -19,6 +19,7 @@ export const slashCommands = [
   },
   { command: "/pin", label: "修改窗口置顶", detail: "/pin [on|off]" },
   { command: "/shortcuts", label: "打开快捷键设置", detail: "/shortcuts" },
+  { command: "/usage", label: "用量与费用", detail: "/usage" },
   {
     command: "/login",
     label: "订阅账户登录",
@@ -126,15 +127,26 @@ export function parseCommand(text: string): ParsedCommand | null {
       return args.length === 1 && ["on", "off"].includes(args[0]!)
         ? { kind: "tools", enabled: args[0] === "on" }
         : invalid("/tools on|off（每次执行需确认）");
+    case "/usage":
+      return args.length
+        ? invalid("/usage")
+        : { kind: "settings", page: "usage" };
     case "/settings": {
-      const page = args[0] ?? "home";
+      const page = args[0]?.toLowerCase() ?? "home";
       if (
         args.length > 1 ||
-        !["home", "models", "preferences", "shortcuts", "updates"].includes(
-          page,
-        )
+        ![
+          "home",
+          "models",
+          "preferences",
+          "shortcuts",
+          "updates",
+          "usage",
+        ].includes(page)
       )
-        return invalid("/settings [models|preferences|shortcuts|updates]");
+        return invalid(
+          "/settings [models|preferences|shortcuts|updates|usage]",
+        );
       return { kind: "settings", page: page as SettingsPage };
     }
     case "/model": {
