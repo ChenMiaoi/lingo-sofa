@@ -5,11 +5,11 @@ import {
   type RuntimeTest,
 } from "../../scripts/runtime-report";
 import { testKeychain } from "./test-keychain";
-import { runtime } from "../../scripts/platform";
 import { resolve, join } from "node:path";
 import { mkdir, writeFile, readFile, copyFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { compile, root, cleanEnv, run } from "../../scripts/process";
+import { root, cleanEnv, run } from "../../scripts/process";
+import { prepareWorkerFixture } from "./worker-fixture";
 const started = performance.now();
 const threads = runtimeThreads(process.env.LINGOSOFA_TEST_THREADS);
 const packaged = process.argv.includes("--packaged");
@@ -23,19 +23,13 @@ for (const [name, variable] of [
   ["fault-worker", "FAULT"],
 ] as const) {
   const source = resolve(root, `tests/fixtures/${name}.ts`);
-  if (packaged) {
-    const program = join(output, `${name}${runtime.executableSuffix}`);
-    await compile(source, program);
-    env[`W0_${variable}_PROGRAM`] = program;
-    env[`W0_${variable}_ARGS`] = "[]";
-  } else {
-    env[`W0_${variable}_PROGRAM`] = process.execPath;
-    env[`W0_${variable}_ARGS`] = JSON.stringify([
-      "run",
-      "--no-env-file",
-      source,
-    ]);
-  }
+  const prepared = await prepareWorkerFixture(
+    source,
+    join(output, name),
+    packaged,
+  );
+  env[`W0_${variable}_PROGRAM`] = prepared.program;
+  env[`W0_${variable}_ARGS`] = JSON.stringify(prepared.args);
 }
 const workerPrepared = performance.now();
 const cargoPackages = [
