@@ -3,7 +3,41 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ocrManifest, validAsset } from "../scripts/ocr-assets";
+import {
+  ocrDictionaryBytes,
+  ocrManifest,
+  validAsset,
+} from "../scripts/ocr-assets";
+
+test("OCR dictionary YAML preserves character values and emits pinned CRLF bytes", () => {
+  const source = [
+    "PostProcess:",
+    "  character_dict:",
+    "    - 中",
+    "    - ' '",
+    "    - '\"'",
+    '    - "\'"',
+    "    - '\\'",
+  ].join("\n");
+  // UTF-8 中, space, both quote characters and backslash, each followed by CRLF.
+  const expected = Buffer.from("e4b8ad0d0a200d0a220d0a270d0a5c0d0a", "hex");
+  expect(ocrDictionaryBytes(source)).toEqual(expected);
+  expect(ocrDictionaryBytes(source.replaceAll("\n", "\r\n"))).toEqual(expected);
+});
+
+test("OCR dictionary conversion rejects missing or non-string character lists", () => {
+  for (const source of [
+    "null",
+    "{}",
+    "PostProcess: {}",
+    "PostProcess: { character_dict: [] }",
+    "PostProcess: { character_dict: text }",
+    "PostProcess: { character_dict: [字, 123] }",
+  ])
+    expect(() => ocrDictionaryBytes(source)).toThrow(
+      "Invalid official OCR dictionary",
+    );
+});
 
 test("OCR assets reject missing, truncated and same-size corrupt resources", async () => {
   const root = await mkdtemp(join(tmpdir(), "lingo-ocr-hash-"));

@@ -41,6 +41,20 @@ export async function validAsset(
       .digest("hex") === asset.sha256
   );
 }
+export function ocrDictionaryBytes(source: string): Buffer {
+  const parsed = Bun.YAML.parse(source) as {
+    PostProcess?: { character_dict?: unknown };
+  } | null;
+  const characters = parsed?.PostProcess?.character_dict;
+  if (
+    !Array.isArray(characters) ||
+    !characters.length ||
+    !characters.every((value) => typeof value === "string")
+  )
+    throw new Error("Invalid official OCR dictionary");
+  // The reviewed dictionary digest pins CRLF bytes, independently of host EOL.
+  return Buffer.from(characters.join("\r\n") + "\r\n", "utf8");
+}
 async function download(
   url: string,
   path: string,
@@ -78,16 +92,10 @@ export async function prepareWindowsOcr(): Promise<void> {
       } else if (asset.name === "characters.txt") {
         const config = join(cache, "recognition.yml");
         await download(ocrManifest.dictionarySource, config);
-        const parsed = Bun.YAML.parse(await readFile(config, "utf8")) as {
-          PostProcess?: { character_dict?: unknown };
-        };
-        const characters = parsed.PostProcess?.character_dict;
-        if (
-          !Array.isArray(characters) ||
-          !characters.every((value) => typeof value === "string")
-        )
-          throw new Error("Invalid official OCR dictionary");
-        await writeFile(cached, characters.join("\n") + "\n");
+        await writeFile(
+          cached,
+          ocrDictionaryBytes(await readFile(config, "utf8")),
+        );
       } else {
         const archive = join(cache, "onnxruntime-win-x64-1.31.0.zip");
         const archiveValid = await readFile(archive)
