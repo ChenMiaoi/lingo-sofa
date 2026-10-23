@@ -2334,7 +2334,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-app-services"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lingo-sofa-core",
  "lingo-sofa-omp-client",
@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2356,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lingo-sofa-app-services",
  "lingo-sofa-core",
@@ -2380,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-ocr-helper"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clipper2",
  "image",
@@ -2397,7 +2397,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-omp-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lingo-sofa-core",
  "ring",
@@ -2413,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-runtime-tests"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "lingo-sofa-omp-client",
  "rusqlite",
@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "lingo-sofa-selection-helper"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "core-foundation 0.10.1",
  "lingo-sofa-core",
