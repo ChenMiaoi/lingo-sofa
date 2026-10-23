@@ -264,7 +264,7 @@ export function Settings({
           </button>
         ))}
         {!visibleCategories.length && (
-          <p className="quiet-status">没有匹配的设置，可清空搜索或按 Esc。</p>
+          <p className="quiet-status">没有匹配的设置</p>
         )}
       </nav>
       <section
@@ -318,10 +318,7 @@ export function Settings({
                   保存中…
                 </p>
               )}
-              <p className="settings-help">
-                默认关闭。开启后，在其他应用中用鼠标选中文字并松开，即可自动翻译；会调用当前模型服务。正在处理任务或使用
-                Ask 时暂停，原有划词快捷键仍可使用。
-              </p>
+              <p className="settings-help">选中文字即翻译，会调用模型。</p>
             </>
           )}
           <div className="preference-row">
@@ -355,10 +352,6 @@ export function Settings({
               译文位置保存中…
             </p>
           )}
-          <p className="settings-help">
-            OCR
-            框选后直接翻译；空间不足时在区域上方显示。快捷键可临时使用另一种样式，不修改默认设置。
-          </p>
           <div className="preference-row">
             <label htmlFor="target">默认翻译语言</label>
             <select
@@ -418,7 +411,7 @@ export function Settings({
           {notice ||
             (page === "home"
               ? `↑↓ 选择 · ${formatShortcut("Enter", state.shortcuts.macos)} 打开`
-              : "设置保存在本机")}
+              : "")}
         </span>
         <span>
           {page === "home"

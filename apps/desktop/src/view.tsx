@@ -216,7 +216,7 @@ export function Desktop({
     {
       id: "question",
       label: "作为新问题提问",
-      detail: "直接提问，获取回答",
+      detail: "",
       tag: "提问",
       icon: "chat",
       question: "",
@@ -894,7 +894,9 @@ export function Desktop({
             <strong>
               {command.command} · {command.label}
             </strong>
-            <small>{command.detail}</small>
+            {command.detail !== command.command && (
+              <small>{command.detail}</small>
+            )}
           </span>
           {index === selected && <span className="enter-key">↵</span>}
         </button>
@@ -924,8 +926,8 @@ export function Desktop({
           aria-label="需要翻译的原文或新问题"
           placeholder={
             selected === 1 && !commandMode
-              ? "输入问题，Enter 提问；/ 打开命令…"
-              : "输入文字，翻译或提问；/ 打开命令…"
+              ? "输入问题 · / 命令"
+              : "输入原文或问题 · / 命令"
           }
           rows={1}
           value={input}
@@ -966,9 +968,7 @@ export function Desktop({
           aria-describedby={mode === "ask-result" ? "followup-hint" : undefined}
           aria-label="Ask 问题或动作"
           placeholder={
-            mode === "ask-result"
-              ? "继续追问，或 / 打开命令"
-              : "解释这段内容，或 / 打开命令"
+            mode === "ask-result" ? "继续追问…" : "围绕原文提问 · / 命令"
           }
           value={query}
           readOnly={submitting}
@@ -1132,13 +1132,7 @@ export function Desktop({
               <span>
                 {isInput ? "选择动作" : query ? "匹配动作" : "选择一个动作"}
               </span>
-              <span>
-                {isInput
-                  ? "仅在执行时发送文本"
-                  : context
-                    ? "保留当前原文"
-                    : "独立提问"}
-              </span>
+              <span>{!isInput && (context ? "本次原文" : "独立提问")}</span>
             </div>
             {visibleActions.map((action, index) => (
               <button
@@ -1162,7 +1156,7 @@ export function Desktop({
                 </span>
                 <span className="action-copy">
                   <strong>{action.label}</strong>
-                  <small>{action.detail}</small>
+                  {action.detail && <small>{action.detail}</small>}
                 </span>
                 <span className="action-tag">{action.tag}</span>
                 {index === selected && <span className="enter-key">↵</span>}
@@ -1186,7 +1180,7 @@ export function Desktop({
             )}
             {busy && (
               <p className="quiet-status">
-                模型仍在处理当前任务。
+                正在处理…
                 <button onClick={() => void perform("cancel_task")}>
                   停止
                 </button>
@@ -1220,7 +1214,7 @@ export function Desktop({
                   : commandMode
                     ? "↑↓ 选择 · Tab 补全 · Enter 执行 · Esc 关闭"
                     : busy
-                      ? "正在生成 · Esc 停止 · 可继续编辑草稿"
+                      ? "正在生成 · Esc 停止"
                       : "Enter 发送 · Shift+Enter 换行 · / 命令"}
               </div>
             </div>
@@ -1249,7 +1243,7 @@ export function Desktop({
                         : "")}
               {runtimeHelp(commandNotice || message)}
             </span>
-            <span>{isInput ? "Esc 收起" : "Ask 模式 · 主动展开"}</span>
+            <span>{isInput ? "Esc 收起" : "Ask"}</span>
           </footer>
         )}
       </main>

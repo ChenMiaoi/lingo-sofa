@@ -351,7 +351,7 @@ export function AccountLogin({
                 ? "授权未完成。原凭证已保留，可重新登录。"
                 : state.phase === "cancelled"
                   ? "登录已取消。"
-                  : "请在浏览器完成授权，完成后会自动返回模型选择。"}
+                  : "请在浏览器完成授权。"}
             </p>
             {state.instructions && <p>{state.instructions}</p>}
             {state.prompt && <p>{state.prompt.message}</p>}

@@ -243,10 +243,9 @@ export function ShortcutSettings({
       <h2>全局快捷键</h2>
       <p id="shortcut-help">
         {snapshot.macos
-          ? "点击输入框后按组合键，须包含 Command、Option 或 Control。"
-          : "点击输入框后按组合键，须包含 Ctrl 或 Alt。"}
-        支持 Shift、字母、数字、Space 和 F1–F24。Esc 取消，Tab
-        移至下一项；保存后生效。
+          ? "点击后按 Command、Option 或 Control 组合。"
+          : "点击后按 Ctrl 或 Alt 组合。"}
+        Esc 取消，保存后生效。
       </p>
       {fields
         .filter((_, index) => snapshot.ocr || index < 4)
@@ -486,13 +485,11 @@ export function ShortcutSettings({
           : "") ||
           notice ||
           feedback ||
-          (dirty
-            ? "修改尚未保存，原快捷键继续生效。"
-            : snapshot.message || "修改后保存，即时生效并在重启后保留。")}
+          (dirty ? "修改尚未保存，原快捷键继续生效。" : snapshot.message)}
       </p>
       {!suspended && snapshot.registered.includes(false) && (
         <p className="shortcut-warning">
-          未启用的组合可能被其他应用占用或由系统保留，请更换后保存。仍可使用边缘入口或托盘。
+          组合被占用或系统保留时，请更换后保存。也可用边缘入口或托盘。
         </p>
       )}
     </section>

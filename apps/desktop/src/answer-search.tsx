@@ -236,7 +236,7 @@ export function AnswerSearch({
           <input
             ref={input}
             aria-label="搜索回答内容"
-            placeholder="搜索正文、代码和表格"
+            placeholder="搜索回答…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />

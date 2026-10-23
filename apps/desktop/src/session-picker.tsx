@@ -202,7 +202,6 @@ export function SessionPicker({
                   ? `${choices.length} / ${total} 个会话`
                   : `${total} 个会话`}
           </span>
-          <span>保存在本机</span>
         </div>
         {choices.map((item, index) => (
           <button

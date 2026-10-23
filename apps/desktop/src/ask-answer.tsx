@@ -217,11 +217,7 @@ function Usage({ model }: { model: View }) {
             <span>当前已知估算</span>
             <strong>{dollars(model.sessionEstimatedCost, true)}</strong>
           </div>
-          {!!unknown && (
-            <p className="usage-note">
-              {unknown} 次费用未知，含订阅或缺失价格。
-            </p>
-          )}
+          {!!unknown && <p className="usage-note">{unknown} 次费用未知</p>}
           <div className="usage-lifetime">
             <span>累计 {compactNumber(model.reportedTokens)} tokens</span>
             <span>{dollars(model.estimatedCost, true)}</span>
@@ -232,9 +228,7 @@ function Usage({ model }: { model: View }) {
           {!!model.unknownCalls && (
             <p className="usage-note">{model.unknownCalls} 次用量不完整</p>
           )}
-          <p className="usage-note">
-            按模型目录价格估算，不代表账单或订阅剩余额度。
-          </p>
+          <p className="usage-note">估算仅供参考，不代表账单或订阅余额。</p>
         </div>
       )}
     </div>
@@ -541,7 +535,7 @@ export function AskAnswer({
                     ? busy
                       ? `${phase}…`
                       : model.question && model.phase !== "error"
-                        ? "本轮暂无可恢复的回答，可继续追问或查看会话记录。"
+                        ? "本轮无可恢复的回答。"
                         : model.message
                     : "正在准备回答…"}
                 </p>

@@ -601,7 +601,7 @@ test("accepted Ask clears the sent question, preserves a streaming follow-up dra
     ).toBe("");
     expect(
       ui.element.querySelector<HTMLTextAreaElement>("textarea")!.placeholder,
-    ).toBe("继续追问，或 / 打开命令");
+    ).toBe("继续追问…");
     await ui.key("Enter");
     expect(ui.calls).toHaveLength(1);
     await ui.type("Keep this follow-up draft.");
@@ -1087,7 +1087,7 @@ test("macOS settings edit Command and Option, preview symbols, save and restore 
       "已启用",
     );
     expect(ui.element.querySelector("#shortcut-help")!.textContent).toContain(
-      "点击输入框后按组合键",
+      "Command、Option 或 Control",
     );
     await ui.type("Command+Option+Q", "#shortcut-input");
     await ui.render({ ...value, shortcuts: { ...value.shortcuts } });
@@ -4572,7 +4572,7 @@ test("automatic mouse selection is opt-in, hidden on macOS, and failed persisten
       expect(label?.querySelector<HTMLInputElement>("input")?.checked).toBe(
         false,
       );
-      expect(ui.element.textContent).toContain("原有划词快捷键仍可使用");
+      expect(ui.element.textContent).toContain("会调用模型");
       await act(async () =>
         label!.querySelector<HTMLInputElement>("input")!.click(),
       );
@@ -5471,7 +5471,7 @@ test("restored unanswered questions show an answer-specific empty state", async 
   value.model.message = "选择文字，复制后翻译。";
   const ui = await mount(value);
   try {
-    expect(ui.element.textContent).toContain("本轮暂无可恢复的回答");
+    expect(ui.element.textContent).toContain("本轮无可恢复的回答");
     expect(ui.element.textContent).not.toContain("选择文字，复制后翻译。");
     value.model.phase = "error";
     value.model.message = "请求失败";

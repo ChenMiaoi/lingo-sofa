@@ -75,7 +75,7 @@ export function TranslationReading({
       {detail && (
         <header className="reading-heading" onMouseDown={dragWindow}>
           <strong>完整译文</strong>
-          <span>滚动阅读 · Esc 返回</span>
+          <span>Esc 返回</span>
         </header>
       )}
       <section

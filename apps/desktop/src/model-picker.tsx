@@ -249,7 +249,7 @@ export function ModelPicker({
             type="password"
             autoComplete="off"
             aria-label="服务商 API Key"
-            placeholder={`输入 ${credentialFor.provider} API Key，Enter 保存并切换`}
+            placeholder="API Key（本机加密）"
             value={key}
             disabled={saving}
             onChange={(event) => setKey(event.target.value)}
@@ -317,7 +317,7 @@ export function ModelPicker({
       <div className="context-bar">
         <span className="context-origin">
           {credentialFor
-            ? `为 ${credentialFor.provider}/${credentialFor.id} 配置凭证，仅加密保存在本机`
+            ? `${credentialFor.provider}/${credentialFor.id}`
             : `当前：${model.defaultModel.provider}/${model.defaultModel.modelId}`}
         </span>
       </div>
@@ -335,7 +335,7 @@ export function ModelPicker({
         <div className="list-caption">
           <span>
             {credentialFor
-              ? "输入凭证后直接切换"
+              ? "配置凭证"
               : browsingProviders
                 ? "选择服务商"
                 : (provider ?? "已配置服务商的模型")}
@@ -354,7 +354,7 @@ export function ModelPicker({
                 ? reloading
                   ? "正在重新加载目录…"
                   : "目录未完整，正在加载其余条目…"
-                : `${loadedCount ? "目录未完整，已加载的条目仍可使用。" : "目录加载失败。"} ${catalogError}`}
+                : `${loadedCount ? "目录未完整，已有条目可用。" : "目录加载失败。"} ${catalogError}`}
             </p>
             <button
               className="text-button"
@@ -375,8 +375,6 @@ export function ModelPicker({
         {credentialFor ? (
           <p className="quiet-status">
             {credentialFor.name} · {credentialFor.provider}/{credentialFor.id}
-            <br />
-            Enter 保存并切换 · Esc 返回模型列表
             {credentialProvider?.login &&
               credentialProvider.loginMethod !== "api-key" && (
                 <button onClick={() => onLogin(credentialProvider.login)}>
@@ -452,7 +450,7 @@ export function ModelPicker({
               ? "正在加载模型目录…"
               : browsingProviders
                 ? "没有匹配的服务商。"
-                : "没有匹配的模型，试试其他名称或服务商。"}
+                : "没有匹配的模型。"}
           </p>
         )}
       </section>
@@ -462,10 +460,10 @@ export function ModelPicker({
             (saving
               ? "正在切换模型…"
               : credentialFor
-                ? "凭证只用于所选服务商，不会发送给模型。"
+                ? "Enter 保存并切换 · Esc 返回"
                 : browsingProviders
                   ? "↑↓ 选择服务商 · Enter 查看模型 · Esc 返回"
-                  : "↑↓ 选择 · PgUp/PgDn 翻页 · Enter 切换 · Esc 返回；切换会结束当前会话")}
+                  : "Enter 切换 · Esc 返回；切换结束会话，文本发往所选服务商。")}
         </span>
       </footer>
     </main>

@@ -381,7 +381,7 @@ export const actions = [
   {
     id: "translate",
     label: "翻译成中文",
-    detail: "自动识别语言 · 保留原意",
+    detail: "",
     tag: "翻译",
     icon: "translate",
     keywords: "翻译 translate 中文",
@@ -390,7 +390,7 @@ export const actions = [
   {
     id: "polish",
     label: "润色这段英文",
-    detail: "让表达更自然、更简洁",
+    detail: "",
     tag: "改写",
     icon: "pen",
     keywords: "润色 polish rewrite 改写 英文",

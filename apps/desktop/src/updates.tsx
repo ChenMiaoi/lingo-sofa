@@ -123,10 +123,7 @@ export function UpdateSettings({
             />
             自动检查应用更新
           </label>
-          <p>
-            启动后检查，运行期间每 6
-            小时检查一次。发现更新后由你选择下载与安装。
-          </p>
+          <p>启动时及每 6 小时检查。</p>
         </div>
       </div>
       {update.notes && (

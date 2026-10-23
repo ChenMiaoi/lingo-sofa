@@ -331,13 +331,7 @@ export function ModelProviders({
           </div>
         </div>
       </div>
-      <p className="model-scope-note">
-        支持 API Key，以及 ChatGPT/Codex、Claude
-        订阅登录；其他认证方式和自定义地址暂未接入。
-      </p>
-      <p>
-        切换默认模型会结束当前会话。后续翻译与提问将把文本发送至所选服务商。
-      </p>
+      <p>切换将结束当前会话；文本发往所选服务商。</p>
       <p role="status">
         {loading || providerLoading
           ? `目录加载中…已加载 ${models.length} 个模型`
