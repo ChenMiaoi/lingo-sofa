@@ -2,7 +2,10 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 
 const [mode, log, pidFile] = process.argv.slice(2);
-if (mode === "startup-fail") process.exit(7);
+if (mode === "startup-fail") {
+  if (log) await new Promise((resolve) => setTimeout(resolve, Number(log)));
+  process.exit(7);
+}
 if (mode === "app-fail") process.exit(9);
 if (mode === "app") {
   appendFileSync(log!, "app\n");

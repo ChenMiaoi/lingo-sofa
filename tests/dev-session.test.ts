@@ -122,7 +122,7 @@ test("failed or stalled frontend startup never launches the desktop application"
           app: ["node", fixture, "app", log],
           cwd: directory,
           env: cleanEnv(),
-          startupTimeoutMs: mode === "stall" ? 500 : 5000,
+          ...(mode === "stall" ? { startupTimeoutMs: 500 } : {}),
         }),
       ).rejects.toThrow(
         mode === "stall" ? "timed out" : "Development server exited (7)",
@@ -132,7 +132,25 @@ test("failed or stalled frontend startup never launches the desktop application"
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-}, 15_000);
+}, 45_000);
+
+test("slow frontend startup preserves its failure status without launching the desktop application", async () => {
+  const directory = await temporaryDirectory();
+  try {
+    const log = join(directory, "delayed-failure.log");
+    await expect(
+      runDevelopment({
+        server: ["node", fixture, "startup-fail", "5500"],
+        app: ["node", fixture, "app", log],
+        cwd: directory,
+        env: cleanEnv(),
+      }),
+    ).rejects.toThrow("Development server exited (7)");
+    expect(await Bun.file(log).exists()).toBe(false);
+  } finally {
+    await removeTemporaryDirectory(directory);
+  }
+}, 45_000);
 
 test.skipIf(process.platform !== "win32")(
   "Windows dev children have no console window and are reaped when their supervisor is forcibly terminated",
