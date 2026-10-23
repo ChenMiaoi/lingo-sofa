@@ -1,5 +1,5 @@
-import React from "react";
-import type { DesktopState, UpdateSnapshot } from "./api";
+import React, { useEffect, useRef, useState } from "react";
+import { errorMessage, type DesktopState, type UpdateSnapshot } from "./api";
 import type { Perform } from "./view";
 
 export function updateSummary(update: UpdateSnapshot): string {
@@ -19,10 +19,25 @@ export function updateSummary(update: UpdateSnapshot): string {
 export function UpdateSettings({
   state,
   perform,
+  notice = "",
 }: {
   state: DesktopState;
   perform: Perform;
+  notice?: string;
 }) {
+  const [pendingAction, setPendingAction] = useState("");
+  const actionPending = useRef(false);
+  const [savingAuto, setSavingAuto] = useState(false);
+  const autoPending = useRef(false);
+  const [actionError, setActionError] = useState("");
+  const [autoError, setAutoError] = useState("");
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
   const update = state.updates;
   const working = ["checking", "downloading", "installing"].includes(
     update.phase,
@@ -55,80 +70,136 @@ export function UpdateSettings({
             : update.phase === "checking"
               ? "检查中…"
               : "检查更新";
+  const pendingLabels: Record<string, string> = {
+    check_updates: "检查中…",
+    download_update: "下载中…",
+    install_update: "安装中…",
+  };
+  const runAction = async () => {
+    if (
+      actionPending.current ||
+      working ||
+      (update.phase === "ready" && taskActive)
+    )
+      return;
+    actionPending.current = true;
+    setPendingAction(action);
+    setActionError("");
+    try {
+      const ok = await perform(action);
+      if (live.current && ok === false)
+        setActionError("更新操作未完成，请重试。");
+    } catch (reason) {
+      if (live.current) setActionError(errorMessage(reason));
+    } finally {
+      actionPending.current = false;
+      if (live.current) setPendingAction("");
+    }
+  };
+  const saveAuto = async (enabled: boolean) => {
+    if (autoPending.current) return;
+    autoPending.current = true;
+    setSavingAuto(true);
+    setAutoError("");
+    try {
+      const ok = await perform("set_auto_update", { enabled });
+      if (live.current && ok === false)
+        setAutoError("设置保存失败，原配置继续生效。");
+    } catch (reason) {
+      if (live.current) setAutoError(errorMessage(reason));
+    } finally {
+      autoPending.current = false;
+      if (live.current) setSavingAuto(false);
+    }
+  };
   const total = update.total && update.total > 0 ? update.total : undefined;
   return (
-    <section className="settings-group" aria-labelledby="updates-heading">
-      <h2 id="updates-heading">关于与更新</h2>
-      <div className="default-model-summary">
+    <section className="settings-group updates-group" aria-label="关于与更新">
+      <div className="update-version">
         <span>当前版本</span>
         <strong>LingoSofa {update.currentVersion || "…"}</strong>
       </div>
-      <div className="model-setting-row">
-        <label>应用更新</label>
-        <div className="setting-control">
-          <div className="update-actions">
-            <span role="status">{updateSummary(update)}</span>
-            <button
-              disabled={working || (update.phase === "ready" && taskActive)}
-              onClick={() => void perform(action)}
-            >
-              {label}
-            </button>
-          </div>
-          {update.phase === "downloading" && (
-            <>
-              <progress
-                aria-label="更新下载进度"
-                value={total ? Math.min(update.downloaded, total) : undefined}
-                max={total}
-              />
-              <p>
-                {(update.downloaded / 1024 / 1024).toFixed(1)} MB
-                {total
-                  ? ` / ${(total / 1024 / 1024).toFixed(1)} MB`
-                  : " · 正在接收"}
-              </p>
-            </>
-          )}
-          {update.lastChecked !== null && (
-            <p>
-              上次检查：{new Date(update.lastChecked * 1000).toLocaleString()}
-            </p>
-          )}
-          {update.error && (
-            <p role="alert">{errors[update.error] ?? "更新失败，请重试。"}</p>
-          )}
-          {update.phase === "ready" && (
-            <p>
-              {taskActive
-                ? "请等待当前任务结束后安装。"
-                : "安装会重启应用，请先保存输入草稿。"}
-            </p>
-          )}
-        </div>
+      <div className="update-actions">
+        <span role="status">
+          {pendingAction && !working
+            ? pendingLabels[pendingAction]
+            : updateSummary(update)}
+        </span>
+        <button
+          disabled={
+            !!pendingAction ||
+            working ||
+            (update.phase === "ready" && taskActive)
+          }
+          onClick={() => void runAction()}
+        >
+          {pendingAction ? pendingLabels[pendingAction] : label}
+        </button>
       </div>
-      <div className="model-setting-row">
-        <label htmlFor="auto-update">自动检查</label>
-        <div className="setting-control">
-          <label className="check">
-            <input
-              id="auto-update"
-              type="checkbox"
-              checked={update.autoCheck}
-              onChange={(event) =>
-                void perform("set_auto_update", {
-                  enabled: event.target.checked,
-                })
-              }
-            />
-            自动检查应用更新
-          </label>
-          <p>启动时及每 6 小时检查。</p>
+      {update.phase === "downloading" && (
+        <div className="update-download">
+          <progress
+            aria-label="更新下载进度"
+            value={total ? Math.min(update.downloaded, total) : undefined}
+            max={total}
+          />
+          <p>
+            {(update.downloaded / 1024 / 1024).toFixed(1)} MB
+            {total
+              ? ` / ${(total / 1024 / 1024).toFixed(1)} MB`
+              : " · 正在接收"}
+          </p>
         </div>
+      )}
+      {update.lastChecked !== null && (
+        <p className="update-checked">
+          上次检查：{new Date(update.lastChecked * 1000).toLocaleString()}
+        </p>
+      )}
+      {update.error && (
+        <p className="update-error" role="alert">
+          {errors[update.error] ?? "更新失败，请重试。"}
+        </p>
+      )}
+      {!notice && !update.error && actionError && (
+        <p className="update-error" role="alert">
+          {actionError}
+        </p>
+      )}
+      {update.phase === "ready" && (
+        <p className="update-restart">
+          {taskActive
+            ? "请等待当前任务结束后安装。"
+            : "安装会重启应用，请先保存输入草稿。"}
+        </p>
+      )}
+      <div className="preference-row preference-toggle update-preference">
+        <div className="preference-copy">
+          <label htmlFor="auto-update">自动检查更新</label>
+          <p id="auto-update-help">启动时及每 6 小时检查。</p>
+          {savingAuto && (
+            <p id="auto-update-saving" role="status">
+              自动检查保存中…
+            </p>
+          )}
+          {!notice && autoError && (
+            <p className="update-error" role="alert">
+              {autoError}
+            </p>
+          )}
+        </div>
+        <input
+          id="auto-update"
+          type="checkbox"
+          checked={update.autoCheck}
+          disabled={savingAuto}
+          aria-describedby={`auto-update-help${savingAuto ? " auto-update-saving" : ""}`}
+          onChange={(event) => void saveAuto(event.target.checked)}
+        />
       </div>
       {update.notes && (
         <div className="update-notes">
-          <h2>版本说明</h2>
+          <h3>版本说明</h3>
           <p>{update.notes}</p>
         </div>
       )}

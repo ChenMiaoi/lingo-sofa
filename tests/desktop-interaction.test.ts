@@ -8223,3 +8223,334 @@ test("narrow login and model footers keep their sole error visible and wrappable
     dom.happyDOM.setWindowSize({ width: 1024, height: 768 });
   }
 });
+
+for (const [phase, command] of [
+  ["idle", "check_updates"],
+  ["available", "download_update"],
+  ["ready", "install_update"],
+] as const) {
+  test(`update ${command} guards repeated dispatch while acknowledgement is pending`, async () => {
+    const value = state("settings");
+    value.updates = { ...value.updates, phase, availableVersion: "0.2.0" };
+    let release: (() => void) | undefined;
+    const ui = await mount(value, catalog, async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return true;
+    });
+    try {
+      await ui.click("关于与更新");
+      const button = ui.element.querySelector<HTMLButtonElement>(
+        ".update-actions button",
+      )!;
+      await act(async () => {
+        button.click();
+        button.click();
+      });
+      expect(ui.calls.filter((call) => call.command === command)).toHaveLength(
+        1,
+      );
+      expect(button.disabled).toBe(true);
+      release?.();
+      await act(async () => {});
+      expect(button.disabled).toBe(false);
+    } finally {
+      release?.();
+      await ui.close();
+    }
+  });
+}
+
+test("automatic update preference saves independently and guards repeated changes", async () => {
+  const value = state("settings");
+  let release: (() => void) | undefined;
+  const ui = await mount(value, catalog, async (command) => {
+    if (command === "set_auto_update")
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return true;
+  });
+  try {
+    await ui.click("关于与更新");
+    const checkbox =
+      ui.element.querySelector<HTMLInputElement>("#auto-update")!;
+    await act(async () => {
+      checkbox.click();
+      checkbox.click();
+    });
+    expect(
+      ui.calls.filter((call) => call.command === "set_auto_update"),
+    ).toHaveLength(1);
+    expect(checkbox.disabled).toBe(true);
+    expect(checkbox.checked).toBe(true);
+    expect(ui.element.textContent).toContain("自动检查保存中…");
+    await ui.click("检查更新");
+    expect(ui.calls.at(-1)?.command).toBe("check_updates");
+    release?.();
+    await act(async () => {});
+    expect(checkbox.disabled).toBe(false);
+  } finally {
+    release?.();
+    await ui.close();
+  }
+});
+
+for (const order of ["snapshot-first", "ack-first"] as const) {
+  test(`update action keeps pending across ${order} transitions`, async () => {
+    const value = state("settings");
+    let release: (() => void) | undefined;
+    const ui = await mount(value, catalog, async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return true;
+    });
+    try {
+      await ui.click("关于与更新");
+      await ui.click("检查更新");
+      const working = {
+        ...value,
+        updates: { ...value.updates, phase: "checking" as const },
+      };
+      const terminal = {
+        ...value,
+        updates: { ...value.updates, phase: "up-to-date" as const },
+      };
+      if (order === "snapshot-first") {
+        await ui.render(terminal);
+        expect(
+          ui.element.querySelector<HTMLButtonElement>(".update-actions button")
+            ?.disabled,
+        ).toBe(true);
+        await ui.click("检查中…");
+        expect(ui.calls).toHaveLength(1);
+        release?.();
+        await act(async () => {});
+      } else {
+        await ui.render(working);
+        release?.();
+        await act(async () => {});
+        expect(
+          ui.element.querySelector<HTMLButtonElement>(".update-actions button")
+            ?.disabled,
+        ).toBe(true);
+        await ui.click("检查中…");
+        expect(ui.calls).toHaveLength(1);
+        await ui.render(terminal);
+      }
+      expect(
+        ui.element.querySelector<HTMLButtonElement>(".update-actions button")
+          ?.disabled,
+      ).toBe(false);
+      expect(ui.element.textContent).toContain("已是最新版本");
+    } finally {
+      release?.();
+      await ui.close();
+    }
+  });
+}
+
+for (const failure of ["false", "reject"] as const) {
+  test(`update same-phase ${failure} failure is handled and permits an explicit retry`, async () => {
+    const value = state("settings");
+    value.updates = {
+      ...value.updates,
+      phase: "available",
+      availableVersion: "0.2.0",
+    };
+    let requests = 0;
+    const ui = await mount(value, catalog, async () => {
+      if (++requests === 1) {
+        if (failure === "reject") throw new Error("synthetic failure");
+        return false;
+      }
+      return true;
+    });
+    try {
+      await ui.click("关于与更新");
+      await ui.click("下载更新");
+      expect(!!ui.element.querySelector(".updates-group [role=alert]")).toBe(
+        true,
+      );
+      expect(
+        ui.element.querySelector<HTMLButtonElement>(".update-actions button")
+          ?.disabled,
+      ).toBe(false);
+      await ui.click("下载更新");
+      expect(requests).toBe(2);
+      expect(
+        ui.element.querySelector(".updates-group [role=alert]"),
+      ).toBeNull();
+    } finally {
+      await ui.close();
+    }
+  });
+
+  test(`automatic update ${failure} failure keeps the saved value and can retry independently`, async () => {
+    const value = state("settings");
+    let requests = 0;
+    const ui = await mount(value, catalog, async (command) => {
+      if (command === "set_auto_update" && ++requests === 1) {
+        if (failure === "reject") throw new Error("synthetic failure");
+        return false;
+      }
+      return true;
+    });
+    try {
+      await ui.click("关于与更新");
+      const checkbox =
+        ui.element.querySelector<HTMLInputElement>("#auto-update")!;
+      await act(async () => checkbox.click());
+      expect(checkbox.checked).toBe(true);
+      expect(checkbox.disabled).toBe(false);
+      expect(
+        !!ui.element.querySelector(".update-preference [role=alert]"),
+      ).toBe(true);
+      await act(async () => checkbox.click());
+      expect(requests).toBe(2);
+      expect(checkbox.checked).toBe(true);
+      await ui.render({
+        ...value,
+        updates: { ...value.updates, autoCheck: false },
+      });
+      expect(checkbox.checked).toBe(false);
+      expect(
+        ui.element.querySelector(".update-preference [role=alert]"),
+      ).toBeNull();
+    } finally {
+      await ui.close();
+    }
+  });
+}
+
+test("automatic update acknowledgement and action results finish independently", async () => {
+  const value = state("settings");
+  let finishAuto: (() => void) | undefined;
+  let finishAction: (() => void) | undefined;
+  const ui = await mount(value, catalog, async (command) => {
+    await new Promise<void>((resolve) => {
+      if (command === "set_auto_update") finishAuto = resolve;
+      else finishAction = resolve;
+    });
+    return true;
+  });
+  try {
+    await ui.click("关于与更新");
+    const checkbox =
+      ui.element.querySelector<HTMLInputElement>("#auto-update")!;
+    await act(async () => checkbox.click());
+    await ui.click("检查更新");
+    await ui.render({
+      ...value,
+      updates: { ...value.updates, autoCheck: false },
+    });
+    expect(checkbox.checked).toBe(false);
+    expect(checkbox.disabled).toBe(true);
+    finishAction?.();
+    await act(async () => {});
+    expect(
+      ui.element.querySelector<HTMLButtonElement>(".update-actions button")
+        ?.disabled,
+    ).toBe(false);
+    expect(checkbox.disabled).toBe(true);
+    finishAuto?.();
+    await act(async () => {});
+    expect(checkbox.disabled).toBe(false);
+  } finally {
+    finishAuto?.();
+    finishAction?.();
+    await ui.close();
+  }
+});
+
+test("App update errors have one owner instead of a second local fallback", async () => {
+  const value = state("settings");
+  const element = document.createElement("div");
+  document.body.append(element);
+  const root = createRoot(element);
+  const invoke = <T>(command: string): Promise<T> =>
+    command === "check_updates"
+      ? Promise.reject("synthetic update failure")
+      : Promise.resolve((command === "desktop_state" ? value : undefined) as T);
+  try {
+    await act(async () => root.render(React.createElement(App, { invoke })));
+    await act(async () =>
+      element
+        .querySelector<HTMLButtonElement>('[aria-label="关于与更新"]')!
+        .click(),
+    );
+    await act(async () =>
+      element
+        .querySelector<HTMLButtonElement>(".update-actions button")!
+        .click(),
+    );
+    expect(element.querySelector(".launcher-footer")?.textContent).toContain(
+      "暂时无法完成",
+    );
+    expect(
+      element.textContent?.split(errorMessage("synthetic update failure")),
+    ).toHaveLength(2);
+    expect(element.querySelector(".updates-group [role=alert]")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    element.remove();
+  }
+});
+
+test("late update and preference failures cannot affect a remounted settings page", async () => {
+  const value = state("settings");
+  const releases: ((value: boolean) => void)[] = [];
+  const ui = await mount(
+    value,
+    catalog,
+    async () => new Promise<boolean>((resolve) => releases.push(resolve)),
+  );
+  try {
+    await ui.click("关于与更新");
+    await ui.click("检查更新");
+    await act(async () =>
+      ui.element.querySelector<HTMLInputElement>("#auto-update")!.click(),
+    );
+    await ui.render(state("input"));
+    await ui.render(value);
+    await ui.click("关于与更新");
+    await act(async () => releases.forEach((release) => release(false)));
+    expect(ui.element.querySelector(".updates-group [role=alert]")).toBeNull();
+    expect(
+      ui.element.querySelector<HTMLButtonElement>(".update-actions button")
+        ?.disabled,
+    ).toBe(false);
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#auto-update")?.disabled,
+    ).toBe(false);
+  } finally {
+    releases.forEach((release) => release(true));
+    await ui.close();
+  }
+});
+
+test("update progress preserves indeterminate downloads and clamps known totals", async () => {
+  const value = state("settings");
+  value.updates = {
+    ...value.updates,
+    phase: "downloading",
+    downloaded: 200,
+    total: 100,
+  };
+  const ui = await mount(value);
+  try {
+    await ui.click("关于与更新");
+    let progress = ui.element.querySelector<HTMLProgressElement>("progress")!;
+    expect(progress.value).toBe(100);
+    expect(progress.max).toBe(100);
+    await ui.render({ ...value, updates: { ...value.updates, total: null } });
+    progress = ui.element.querySelector<HTMLProgressElement>("progress")!;
+    expect(progress.hasAttribute("value")).toBe(false);
+    expect(ui.element.textContent).toContain("正在接收");
+    expect(ui.element.textContent).not.toContain("NaN");
+  } finally {
+    await ui.close();
+  }
+});

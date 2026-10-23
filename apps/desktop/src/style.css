@@ -1111,6 +1111,51 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.update-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 20px;
+}
+.update-version > span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.update-version strong {
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.updates-group .update-actions > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.update-actions button {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+}
+.updates-group .update-checked,
+.updates-group .update-download p {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.update-preference {
+  padding: 18px 0;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.updates-group .update-error {
+  color: #e0b7a8;
+  font-size: 12px;
+}
+.update-notes h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
 .update-actions {
   display: flex;
   align-items: center;
@@ -1122,7 +1167,7 @@ kbd {
 .update-actions button {
   flex-shrink: 0;
 }
-.setting-control progress {
+.update-download progress {
   width: 100%;
   margin-top: 12px;
   accent-color: var(--text);
@@ -1132,6 +1177,8 @@ kbd {
   padding-top: 16px;
 }
 .update-notes p {
+  font-size: 13px;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

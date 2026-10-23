@@ -405,7 +405,7 @@ export function Settings({
           </div>
         </section>
         <div hidden={page !== "updates"}>
-          <UpdateSettings state={state} perform={perform} />
+          <UpdateSettings state={state} perform={perform} notice={notice} />
         </div>
         <UsageSettings active={page === "usage"} loadReport={loadUsageReport} />
         <div hidden={page !== "shortcuts"}>
