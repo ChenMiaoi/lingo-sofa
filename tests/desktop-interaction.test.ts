@@ -5266,6 +5266,87 @@ test("answer links open through the native boundary only after an explicit click
   }
 });
 
+test("settings feature search finds visible controls and explains OCR matches", async () => {
+  const value = state("settings");
+  value.shortcuts = { ...value.shortcuts, ocr: true, macos: false };
+  const ui = await mount(value);
+  try {
+    await ui.type(" OCR ", '[aria-label="搜索设置"]');
+    const rows = [
+      ...ui.element.querySelectorAll(".settings-categories .action"),
+    ];
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "翻译偏好",
+      "快捷键",
+    ]);
+    expect(rows[0]!.textContent).toContain("匹配：划词与 OCR 译文位置");
+    expect(rows[1]!.textContent).toContain("匹配：截图 OCR");
+    await ui.key("ArrowDown");
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+        }),
+      );
+    });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("快捷键");
+    await ui.click("快捷键");
+    await ui.key("Escape");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("快捷键");
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索设置"]')!
+        .value,
+    ).toBe(" OCR ");
+    for (const [query, category] of [
+      ["自动划词", "翻译偏好"],
+      ["自动翻译", "翻译偏好"],
+      ["API Key", "模型与服务商"],
+      ["订阅登录", "模型与服务商"],
+    ] as const) {
+      await ui.type(query, '[aria-label="搜索设置"]');
+      expect(
+        [...ui.element.querySelectorAll(".settings-categories .action")].map(
+          (row) => row.getAttribute("aria-label"),
+        ),
+      ).toEqual([category]);
+    }
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("settings feature search excludes unavailable controls and clears with input focus", async () => {
+  const value = state("settings");
+  value.shortcuts = { ...value.shortcuts, ocr: false, macos: true };
+  const ui = await mount(value);
+  try {
+    await ui.type("OCR", '[aria-label="搜索设置"]');
+    expect(
+      [...ui.element.querySelectorAll(".settings-categories .action")].map(
+        (row) => row.getAttribute("aria-label"),
+      ),
+    ).toEqual(["翻译偏好"]);
+    await ui.type("自动划词", '[aria-label="搜索设置"]');
+    expect(
+      ui.element.querySelectorAll(".settings-categories .action"),
+    ).toHaveLength(0);
+    await ui.click("清空搜索");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("搜索设置");
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索设置"]')!
+        .value,
+    ).toBe("");
+    expect(
+      ui.element.querySelectorAll(".settings-categories .action"),
+    ).toHaveLength(4);
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
 test("settings search keeps its query across subpages and Escape clears before leaving", async () => {
   const ui = await mount(state("settings"));
   try {

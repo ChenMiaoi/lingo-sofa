@@ -62,11 +62,49 @@ export function Settings({
     }).then(complete, complete);
   };
   const filterInput = useRef<HTMLInputElement>(null);
-  const visibleCategories = categories.filter((category) =>
-    `${category.title} ${category.detail}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
-  );
+  const searchFeatures = {
+    models: [
+      { label: "API Key", terms: "apikey 密钥 凭证" },
+      {
+        label: "订阅账户登录",
+        terms: "订阅登录 ChatGPT Codex Claude",
+      },
+      { label: "默认模型", terms: "" },
+    ],
+    preferences: [
+      { label: "默认翻译语言", terms: "" },
+      { label: "划词与 OCR 译文位置", terms: "框选 悬浮栏 原文下方" },
+      { label: "Ask 与输入窗口保持置顶", terms: "" },
+      ...(!state.shortcuts.macos
+        ? [{ label: "鼠标选中后自动翻译", terms: "自动划词" }]
+        : []),
+    ],
+    shortcuts: [
+      { label: "唤出输入面板", terms: "" },
+      { label: "翻译当前选区", terms: "" },
+      { label: "翻译剪贴板", terms: "" },
+      { label: "划词翻译", terms: "" },
+      ...(state.shortcuts.ocr ? [{ label: "截图 OCR", terms: "框选" }] : []),
+    ],
+    updates: [{ label: "自动检查更新", terms: "版本" }],
+  };
+  const search = query.trim().toLowerCase();
+  const visibleCategories = categories.flatMap((category) => {
+    const matches = search
+      ? searchFeatures[category.id].filter((feature) =>
+          `${feature.label} ${feature.terms}`.toLowerCase().includes(search),
+        )
+      : [];
+    return !search ||
+      matches.length ||
+      `${category.title} ${category.detail}`.toLowerCase().includes(search)
+      ? [{ ...category, matches }]
+      : [];
+  });
+  const clearSearch = () => {
+    setQuery("");
+    filterInput.current?.focus();
+  };
   const backButton = useRef<HTMLButtonElement>(null);
   const categoryButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const previousPage = useRef<SettingsPage>("home");
@@ -142,6 +180,11 @@ export function Settings({
               }
             }}
           />
+          {query && (
+            <button className="settings-search-clear" onClick={clearSearch}>
+              清空搜索
+            </button>
+          )}
           <span>{visibleCategories.length} 项</span>
         </div>
       )}
@@ -156,7 +199,7 @@ export function Settings({
             ref={(element) => {
               categoryButtons.current[index] = element;
             }}
-            className="action"
+            className={`action${category.matches.length ? " settings-search-result" : ""}`}
             aria-label={category.title}
             onClick={() => setPage(category.id)}
             onKeyDown={(event) => {
@@ -180,7 +223,11 @@ export function Settings({
                     state.updates.phase,
                   ) && <span className="update-dot" aria-label="有可用更新" />}
               </strong>
-              <small>{category.detail}</small>
+              <small>
+                {category.matches.length
+                  ? `匹配：${category.matches.map((feature) => feature.label).join("、")}`
+                  : category.detail}
+              </small>
             </span>
             <span className="setting-current-value" title={values[category.id]}>
               {values[category.id]}
@@ -191,7 +238,7 @@ export function Settings({
           </button>
         ))}
         {!visibleCategories.length && (
-          <p className="quiet-status">没有匹配的设置，Esc 清除搜索。</p>
+          <p className="quiet-status">没有匹配的设置，可清空搜索或按 Esc。</p>
         )}
       </nav>
       <section

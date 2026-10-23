@@ -954,6 +954,23 @@ kbd {
   color: var(--text);
   font-size: 13px;
 }
+.settings-search-clear {
+  flex-shrink: 0;
+  padding: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.settings-search > span {
+  white-space: nowrap;
+}
+.settings-categories .settings-search-result {
+  min-height: 58px;
+  height: auto;
+}
+.settings-search-result .action-copy small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .settings-categories .action:focus-visible {
   background: #ffffff0d;
 }
