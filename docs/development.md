@@ -42,7 +42,7 @@ macOS 使用与当前架构匹配的 Bun worker 和 OMP 原生模块。数据位
 
 源码和独立 worker 各执行完整的运行时测试集合，使用固定版本 Nextest，最多并行 2 项，每项运行于独立进程，不增加失败重试。脚本另外执行 Cargo 文档测试，以保留 rustdoc 覆盖。设置 `LINGOSOFA_TEST_THREADS=1` 可取得串行基线；只接受 `1` 或 `2`。测试 worker 的冷启动预算为 30 秒，和请求、模型任务及总执行期限分别计时；桌面应用保持 15 秒启动预算。测试编译完成后开始计算 360 秒执行期限。
 
-`.cache/runtime-tests/source.json`、`packaged.json` 记录每项测试的套件、名称、状态和耗时，以及 worker 准备、编译、执行和文档测试的分阶段耗时。脚本输出最慢 10 项测试，并保存 JUnit XML 和 Cargo 编译时间图。报告缺失、数量不符、重复结果、失败、非零退出或关键宿主崩溃测试未执行时不能判为通过。SDK 报告位于 `.cache/sdk-tests/`。
+`.cache/runtime-tests/source.json`、`packaged.json` 记录每项测试的套件、名称、状态和耗时，以及 worker 准备、编译、执行和文档测试的分阶段耗时。测试输出实时显示，同时保存为各模式的 `stdout.log`、`stderr.log`。脚本输出最慢 10 项测试，并保存 JUnit XML 和 Cargo 编译时间图。报告缺失、数量不符、重复结果、失败、非零退出或关键宿主崩溃测试未执行时不能判为通过。SDK 报告位于 `.cache/sdk-tests/`。
 
 比较性能时使用相同机器、相同测试集合和相同缓存条件，顺序运行对照组，记录重复测量及并发设置。测试执行时间不能直接代表整条 CI 的时间。
 
@@ -56,9 +56,11 @@ worker 和独立 SDK 探针共用 Bun 构建 API，支持 Windows 原生路径�
 
 ## CI
 
-CI 在 Windows x64、macOS 26 Apple Silicon 和 macOS 26 Intel 执行完整检查、两种 SDK 探针、独立 worker 运行时测试和原生打包。检查分成单独步骤，便于观察各阶段耗时；最后复用已有调试产物打包。
+CI 在 Windows x64、macOS 26 Apple Silicon 和 macOS 26 Intel 各运行两个独立 job：桌面 job 执行静态检查、前端测试、源码运行时与 SDK 探针、原生测试和打包；packaged job 执行独立程序的 SDK 探针与完整运行时测试。两个 job 均需成功，不共享生成的测试程序或桌面产物。桌面打包复用已检查的调试产物。
 
-Rust 缓存按 runner 标签区分，采用 action 默认的依赖缓存策略，不缓存工作区 crate。CI 摘要记录是否精确命中；false 仍可能恢复前缀匹配的部分缓存，应结合恢复日志和编译时间图判断。Nextest 单独安装固定版本的预编译工具。
+Rust 依赖缓存按 job 和 runner 标签隔离，不缓存工作区 crate；新增 job 首次运行需要建立自己的缓存。CI 摘要记录是否精确命中；false 仍可能恢复前缀匹配的部分缓存，应结合恢复日志和编译时间图判断。Bun 下载缓存按平台、版本和锁文件区分，安装仍验证冻结的锁文件。Windows OCR 下载缓存按资源清单与转换脚本区分，恢复后仍逐项校验字节与 SHA-256。Nextest 单独安装固定版本的预编译工具。
+
+所有分支 push 和 PR 继续触发检查；同一 ref 或 PR 的过时检查会取消，push 与 PR 双触发仍可能各运行一次。正式发布工作流保持串行、不取消正在进行的发布，完整检查与签名发布门槛不变。
 
 CI 上传 SDK/运行时 JSON、JUnit XML 和 Cargo 编译时间图供排查。运行报告、性能数据、产物哈希和生成的预览保留在 `.cache/` 或 CI artifacts，不提交到 `docs/`；提交或 PR 中说明检查结果与限制。
 

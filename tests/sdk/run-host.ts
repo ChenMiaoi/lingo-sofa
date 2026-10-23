@@ -10,6 +10,7 @@ import { mkdir, writeFile, readFile, copyFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { root, cleanEnv, run } from "../../scripts/process";
 import { prepareWorkerFixture } from "./worker-fixture";
+import { collectRuntimeOutput } from "../../scripts/runtime-output";
 const started = performance.now();
 const threads = runtimeThreads(process.env.LINGOSOFA_TEST_THREADS);
 const packaged = process.argv.includes("--packaged");
@@ -93,22 +94,20 @@ const timer = setTimeout(() => {
   process.stderr.write("Runtime test execution exceeded 360 seconds.\n");
   child.kill();
 }, 360000);
-let stdout: string;
-let stderr: string;
 let code: number | null;
 try {
-  [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+  code = await collectRuntimeOutput(
+    child,
+    process.stdout,
+    process.stderr,
+    join(output, `${profile}.stdout.log`),
+    join(output, `${profile}.stderr.log`),
+  );
 } finally {
   clearTimeout(timer);
   await keychain?.dispose();
 }
 const executed = performance.now();
-process.stdout.write(stdout);
-process.stderr.write(stderr);
 let tests: RuntimeTest[] = [];
 try {
   tests = parseRuntimeReport(await readFile(junit, "utf8"));
