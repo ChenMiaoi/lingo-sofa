@@ -180,7 +180,13 @@ interface CheckJob {
     "fail-fast": boolean;
     matrix: { include: { os: string; name: string }[] };
   };
-  steps: { run?: string; uses?: string; with?: Record<string, unknown> }[];
+  steps: {
+    name?: string;
+    if?: string;
+    run?: string;
+    uses?: string;
+    with?: Record<string, unknown>;
+  }[];
 }
 
 test("source and packaged CI jobs retain every platform and validation command", async () => {
@@ -207,6 +213,7 @@ test("source and packaged CI jobs retain every platform and validation command",
       "cargo build --locked -p lingo-sofa-desktop --timings",
       "npm run test:sdk",
       "npm run bundle -- --debug",
+      "npm.cmd run bundle -- --debug --config '${{ github.workspace }}/.github/tauri-windows-ci.json'",
     ],
     packaged: [
       "bun install --frozen-lockfile",
@@ -233,4 +240,64 @@ test("source and packaged CI jobs retain every platform and validation command",
       ],
     ).toBe(false);
   }
+});
+
+test("only Windows check bundles use ZLIB and packaged jobs never save the shared Bun cache", async () => {
+  const workflow = Bun.YAML.parse(
+    await Bun.file(
+      new URL("../.github/workflows/check.yml", import.meta.url),
+    ).text(),
+  ) as { jobs: Record<string, CheckJob> };
+  const steps = workflow.jobs.desktop!.steps;
+  expect(
+    steps.find((step) => step.run === "npm run bundle -- --debug")?.if,
+  ).toBe("runner.os != 'Windows'");
+  expect(
+    steps.find((step) => step.name === "Build Windows debug installer"),
+  ).toMatchObject({
+    if: "runner.os == 'Windows'",
+    run: "npm.cmd run bundle -- --debug --config '${{ github.workspace }}/.github/tauri-windows-ci.json'",
+  });
+  expect(
+    await Bun.file(
+      new URL("../.github/tauri-windows-ci.json", import.meta.url),
+    ).json(),
+  ).toEqual({
+    $schema: "https://schema.tauri.app/config/2",
+    bundle: { windows: { nsis: { compression: "zlib" } } },
+  });
+  const release = await Bun.file(
+    new URL("../.github/workflows/release.yml", import.meta.url),
+  ).text();
+  expect(release).not.toContain("tauri-windows-ci.json");
+  const releaseWorkflow = Bun.YAML.parse(release) as {
+    jobs: Record<string, { steps: CheckJob["steps"] }>;
+  };
+  expect(
+    releaseWorkflow.jobs.build!.steps.find(
+      (step) => step.uses === "tauri-apps/tauri-action@v1",
+    )?.with?.args,
+  ).toBe("--config src-tauri/tauri.release.conf.json");
+  for (const file of ["tauri.conf.json", "tauri.release.conf.json"]) {
+    const config = (await Bun.file(
+      new URL(`../apps/desktop/src-tauri/${file}`, import.meta.url),
+    ).json()) as { bundle: { windows?: { nsis?: { compression?: string } } } };
+    expect(config.bundle.windows?.nsis?.compression ?? "lzma").toBe("lzma");
+  }
+  const shared = steps.find((step) => step.name === "Cache Bun downloads")!;
+  const packaged = workflow.jobs.packaged!.steps;
+  const restored = packaged.find(
+    (step) => step.name === "Restore Bun downloads",
+  )!;
+  expect(shared.uses).toBe("actions/cache@v4");
+  expect(restored.uses).toBe("actions/cache/restore@v4");
+  expect(restored.with).toEqual(shared.with);
+  expect(
+    packaged.some((step) =>
+      ["actions/cache@v4", "actions/cache/save@v4"].includes(step.uses ?? ""),
+    ),
+  ).toBe(false);
+  expect(
+    packaged.some((step) => step.run === "bun install --frozen-lockfile"),
+  ).toBe(true);
 });
