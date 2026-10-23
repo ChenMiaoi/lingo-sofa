@@ -28,18 +28,23 @@ export function SessionPicker({
   const [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [restoreError, setRestoreError] = useState("");
   const [reload, setReload] = useState(0);
   const [snapshot, setSnapshot] = useState<string>();
   const generation = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
+  const loadPending = useRef(false);
   useEffect(() => {
     let disposed = false;
-    generation.current++;
+    const version = ++generation.current;
+    loadPending.current = true;
+    pending.current = false;
+    setSaving(false);
     input.current?.focus();
     setLoading(true);
-    setError("");
+    setLoadError("");
     setSessions([]);
     setTotal(0);
     setSnapshot(undefined);
@@ -47,14 +52,18 @@ export function SessionPicker({
     void (async () => {
       try {
         const value = await load(0, query);
-        if (disposed) return;
+        if (disposed || version !== generation.current) return;
         setSessions(value.sessions);
         setTotal(value.total);
         setSnapshot(value.snapshot);
       } catch {
-        if (!disposed) setError("会话历史未加载完整，请重试。");
+        if (!disposed && version === generation.current)
+          setLoadError("会话历史未加载完整，请重试。");
       } finally {
-        if (!disposed) setLoading(false);
+        if (!disposed && version === generation.current) {
+          loadPending.current = false;
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -62,6 +71,9 @@ export function SessionPicker({
       generation.current++;
     };
   }, [load, reload, query]);
+  useEffect(() => {
+    setRestoreError("");
+  }, [load, query]);
   const choices = sessions;
   useEffect(() => {
     setSelected(0);
@@ -73,10 +85,11 @@ export function SessionPicker({
       ?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
   const more = async () => {
-    if (loading || saving) return;
+    if (loadPending.current || pending.current) return;
     const version = generation.current;
+    loadPending.current = true;
     setLoading(true);
-    setError("");
+    setLoadError("");
     try {
       const value = await load(sessions.length, query, snapshot);
       if (version !== generation.current) return;
@@ -91,28 +104,48 @@ export function SessionPicker({
       setTotal(value.total);
     } catch {
       if (version === generation.current)
-        setError("会话历史未加载完整，请重试。");
+        setLoadError("会话历史未加载完整，请重试。");
     } finally {
-      if (version === generation.current) setLoading(false);
+      if (version === generation.current) {
+        loadPending.current = false;
+        setLoading(false);
+      }
     }
   };
   const choose = async (item?: SessionInfo) => {
     if (!item || pending.current) return;
     pending.current = true;
+    const version = generation.current;
     setSaving(true);
-    setError("");
+    setRestoreError("");
     try {
       const applied = await perform("session_request", {
         request: { action: "resume", id: item.id },
       });
+      if (version !== generation.current) return;
       if (applied !== false) onClose(true);
-      else setError("恢复失败，请检查模型凭证与会话文件后重试。");
+      else setRestoreError("恢复失败，请检查模型凭证与会话文件后重试。");
     } catch (error) {
-      setError(errorMessage(error));
+      if (version === generation.current) setRestoreError(errorMessage(error));
     } finally {
-      pending.current = false;
-      setSaving(false);
+      if (version === generation.current) {
+        pending.current = false;
+        setSaving(false);
+      }
     }
+  };
+  const reloadFirstPage = () => {
+    if (loadPending.current || pending.current) return;
+    loadPending.current = true;
+    generation.current++;
+    setLoading(true);
+    setLoadError("");
+    setReload((value) => value + 1);
+  };
+  const close = () => {
+    if (pending.current) return;
+    generation.current++;
+    onClose();
   };
   return (
     <main
@@ -123,7 +156,7 @@ export function SessionPicker({
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          if (!saving) onClose();
+          close();
         }
       }}
     >
@@ -135,7 +168,13 @@ export function SessionPicker({
           placeholder="搜索标题或会话 ID…"
           value={query}
           disabled={saving}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            if (event.target.value === query) return;
+            generation.current++;
+            loadPending.current = true;
+            setLoading(true);
+            setQuery(event.target.value);
+          }}
           onKeyDown={(event) => {
             if (isImeKey(event.nativeEvent) || event.shiftKey) return;
             const next = listIndex(event.key, selected, choices.length);
@@ -148,11 +187,7 @@ export function SessionPicker({
             }
           }}
         />
-        <button
-          onClick={() => onClose()}
-          disabled={saving}
-          aria-label="返回会话"
-        >
+        <button onClick={close} disabled={saving} aria-label="返回会话">
           返回
         </button>
       </header>
@@ -161,7 +196,7 @@ export function SessionPicker({
           <span>
             {loading
               ? "正在读取…"
-              : error
+              : loadError
                 ? "读取未完成"
                 : query.trim()
                   ? `${choices.length} / ${total} 个会话`
@@ -197,7 +232,7 @@ export function SessionPicker({
             )}
           </button>
         ))}
-        {!loading && !error && !choices.length && (
+        {!loading && !loadError && !choices.length && (
           <p className="quiet-status">
             {query.trim() ? "没有匹配的会话" : "暂无历史会话"}
             {query.trim() && (
@@ -216,27 +251,37 @@ export function SessionPicker({
             )}
           </p>
         )}
-        {sessions.length < total && !error && (
+        {sessions.length < total && !loadError && (
           <button disabled={loading || saving} onClick={() => void more()}>
             加载更多会话
           </button>
         )}
-        {error && (
-          <button
-            disabled={loading || saving}
-            onClick={() => setReload((value) => value + 1)}
-          >
-            重新加载会话
-          </button>
+        {loadError && (
+          <>
+            {sessions.length > 0 && (
+              <button disabled={loading || saving} onClick={() => void more()}>
+                重试加载更多会话
+              </button>
+            )}
+            <button disabled={loading || saving} onClick={reloadFirstPage}>
+              重新加载会话
+            </button>
+          </>
         )}
       </section>
       <footer className="launcher-footer">
-        <span role={error ? "alert" : undefined}>
-          {error ||
+        <div
+          role={loadError || restoreError ? "alert" : undefined}
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {loadError && <div>{loadError}</div>}
+          {restoreError && <div>{restoreError}</div>}
+          {!loadError &&
+            !restoreError &&
             (saving
               ? "正在恢复…"
               : "↑↓ 选择 · PgUp/PgDn 翻页 · Enter 恢复 · Esc 返回")}
-        </span>
+        </div>
       </footer>
     </main>
   );

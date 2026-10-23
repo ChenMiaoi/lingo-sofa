@@ -132,6 +132,7 @@ async function mount(
   const render = async (
     value: DesktopState,
     nextRequestLogin = requestLogin,
+    nextLoadSessions = loadSessions,
   ) => {
     await act(async () =>
       root.render(
@@ -140,7 +141,7 @@ async function mount(
           perform,
           loadModelCatalog: loadCatalog,
           requestLogin: nextRequestLogin,
-          loadSessions,
+          loadSessions: nextLoadSessions,
           loadActivity,
         }),
       ),
@@ -4716,6 +4717,399 @@ test("history loading and failed queries do not claim empty results or retain th
     expect(ui.element.textContent).not.toContain("123");
     expect(ui.element.textContent).not.toContain("清空搜索");
     expect(ui.element.textContent).toContain("重新加载会话");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("failed session restoration leaves the successfully loaded directory and paging available", async () => {
+  const load: LoadSessions = async () => ({
+    sessions: [
+      {
+        id: "synthetic-one",
+        title: "Synthetic first",
+        modified: "2026-10-21T00:00:00Z",
+        messageCount: 2,
+      },
+    ],
+    total: 2,
+    snapshot: "synthetic-stable",
+  });
+  const ui = await mount(
+    state("input"),
+    catalog,
+    async () => false,
+    undefined,
+    load,
+  );
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(ui.element.textContent).toContain("恢复失败");
+    expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+      "2 个会话",
+    );
+    expect(ui.element.textContent).not.toContain("读取未完成");
+    expect(
+      [...ui.element.querySelectorAll("button")].some(
+        (button) => button.textContent === "加载更多会话",
+      ),
+    ).toBe(true);
+    expect(
+      [...ui.element.querySelectorAll("button")].some(
+        (button) => button.textContent === "重新加载会话",
+      ),
+    ).toBe(false);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("failed session paging retries the same snapshot without resetting rows selection or scroll", async () => {
+  const requests: Array<
+    [number | undefined, string | undefined, string | undefined]
+  > = [];
+  let failed = false;
+  const item = (id: string) => ({
+    id,
+    title: id,
+    modified: "2026-10-21T00:00:00Z",
+    messageCount: 2,
+  });
+  const load: LoadSessions = async (offset, query, snapshot) => {
+    requests.push([offset, query, snapshot]);
+    if (offset && !failed) {
+      failed = true;
+      throw new Error("synthetic page failure");
+    }
+    return {
+      sessions: offset
+        ? [item("Synthetic third")]
+        : [item("Synthetic first"), item("Synthetic second")],
+      total: 3,
+      snapshot: "synthetic-stable",
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume retained");
+    await ui.key("Enter");
+    await ui.key("ArrowDown");
+    const list = ui.element.querySelector<HTMLElement>(
+      '[aria-label="历史会话列表"]',
+    )!;
+    list.scrollTop = 400;
+    await ui.click("加载更多会话");
+    const retry =
+      [...list.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "重试加载更多会话",
+      ) ||
+      [...list.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "重新加载会话",
+      )!;
+    await act(async () => retry.click());
+    expect(requests).toEqual([
+      [0, "retained", undefined],
+      [2, "retained", "synthetic-stable"],
+      [2, "retained", "synthetic-stable"],
+    ]);
+    expect(list.querySelectorAll(".action")).toHaveLength(3);
+    expect(list.querySelector(".action.selected strong")?.textContent).toBe(
+      "Synthetic second",
+    );
+    expect(list.scrollTop).toBe(400);
+    expect(
+      ui.element.querySelector<HTMLInputElement>('[aria-label="搜索会话"]')
+        ?.value,
+    ).toBe("retained");
+    expect(ui.element.textContent).not.toContain("会话历史未加载完整");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("session load and restoration errors coexist and page recovery retains restoration feedback", async () => {
+  let fail = true;
+  const item = (id: string) => ({
+    id,
+    title: id,
+    modified: "2026-10-21T00:00:00Z",
+    messageCount: 2,
+  });
+  const load: LoadSessions = async (offset) => {
+    if (offset && fail) throw new Error("synthetic page failure");
+    return {
+      sessions: [item(offset ? "Synthetic next" : "Synthetic first")],
+      total: 2,
+      snapshot: "stable",
+    };
+  };
+  const ui = await mount(
+    state("input"),
+    catalog,
+    async () => false,
+    undefined,
+    load,
+  );
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    await ui.click("加载更多会话");
+    await ui.key("Enter");
+    const footer = ui.element.querySelector(".launcher-footer")!;
+    expect(footer.textContent).toContain("会话历史未加载完整");
+    expect(footer.textContent).toContain("恢复失败");
+    expect(
+      [...ui.element.querySelectorAll("button")].some(
+        (button) => button.textContent === "重试加载更多会话",
+      ),
+    ).toBe(true);
+    fail = false;
+    await ui.click("重试加载更多会话");
+    expect(footer.textContent).not.toContain("会话历史未加载完整");
+    expect(footer.textContent).toContain("恢复失败");
+    expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+      "2 个会话",
+    );
+    await ui.type("different query");
+    expect(footer.textContent).not.toContain("恢复失败");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("session snapshot expiry retains an explicit first-page refresh escape", async () => {
+  let firstPages = 0;
+  const requests: Array<[number | undefined, string | undefined]> = [];
+  const item = (id: string) => ({
+    id,
+    title: id,
+    modified: "2026-10-21T00:00:00Z",
+    messageCount: 2,
+  });
+  const load: LoadSessions = async (offset, _query, snapshot) => {
+    requests.push([offset, snapshot]);
+    if (!offset)
+      return {
+        sessions: [
+          item(++firstPages === 1 ? "Old snapshot" : "Fresh snapshot"),
+        ],
+        total: 2,
+        snapshot: firstPages === 1 ? "old" : "new",
+      };
+    if (snapshot === "old") throw new Error("history_changed");
+    return { sessions: [item("Fresh next")], total: 2, snapshot: "new" };
+  };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    await ui.click("加载更多会话");
+    await ui.click("重试加载更多会话");
+    expect(ui.element.textContent).toContain("会话历史未加载完整");
+    await ui.click("重新加载会话");
+    expect(ui.element.querySelector("strong")?.textContent).toBe(
+      "Fresh snapshot",
+    );
+    await ui.click("加载更多会话");
+    expect(requests).toEqual([
+      [0, undefined],
+      [1, "old"],
+      [1, "old"],
+      [0, undefined],
+      [1, "new"],
+    ]);
+    expect(ui.element.textContent).not.toContain("会话历史未加载完整");
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(2);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("session page loading and retry each reject synchronous duplicate clicks", async () => {
+  const pages = [
+    Promise.withResolvers<Awaited<ReturnType<LoadSessions>>>(),
+    Promise.withResolvers<Awaited<ReturnType<LoadSessions>>>(),
+  ];
+  let pageCalls = 0;
+  const item = {
+    id: "first",
+    title: "First synthetic session",
+    modified: "2026-10-21T00:00:00Z",
+    messageCount: 2,
+  };
+  const load: LoadSessions = async (offset) =>
+    offset
+      ? pages[pageCalls++]!.promise
+      : { sessions: [item], total: 2, snapshot: "stable" };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    const more = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "加载更多会话")!;
+    await act(async () => {
+      more.click();
+      more.click();
+    });
+    expect(pageCalls).toBe(1);
+    await act(async () => pages[0]!.reject("synthetic page failure"));
+    const retry = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "重试加载更多会话")!;
+    await act(async () => {
+      retry.click();
+      retry.click();
+    });
+    expect(pageCalls).toBe(2);
+    await act(async () =>
+      pages[1]!.resolve({
+        sessions: [{ ...item, id: "next" }],
+        total: 2,
+        snapshot: "stable",
+      }),
+    );
+    expect(ui.element.querySelectorAll(".action")).toHaveLength(2);
+  } finally {
+    await act(async () =>
+      pages.forEach((page) => page.resolve({ sessions: [], total: 0 })),
+    );
+    await ui.close();
+  }
+});
+
+test("first-page session retry remains independently recoverable and rejects duplicate refresh", async () => {
+  const retry = Promise.withResolvers<Awaited<ReturnType<LoadSessions>>>();
+  let calls = 0;
+  const load: LoadSessions = async () => {
+    if (++calls === 1) throw new Error("synthetic first-page failure");
+    return retry.promise;
+  };
+  const ui = await mount(state("input"), catalog, undefined, undefined, load);
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    expect(ui.element.textContent).not.toContain("重试加载更多会话");
+    const button = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "重新加载会话")!;
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(calls).toBe(2);
+    await act(async () =>
+      retry.resolve({ sessions: [], total: 0, snapshot: "fresh" }),
+    );
+    expect(ui.element.textContent).toContain("暂无历史会话");
+    expect(ui.element.textContent).not.toContain("会话历史未加载完整");
+  } finally {
+    await act(async () => retry.resolve({ sessions: [], total: 0 }));
+    await ui.close();
+  }
+});
+
+for (const scope of ["query", "loader", "close"] as const) {
+  test(`session paging ignores stale results and finally after ${scope} changes`, async () => {
+    const oldPage = Promise.withResolvers<Awaited<ReturnType<LoadSessions>>>();
+    const current = Promise.withResolvers<Awaited<ReturnType<LoadSessions>>>();
+    const item = (id: string) => ({
+      id,
+      title: id,
+      modified: "2026-10-21T00:00:00Z",
+      messageCount: 2,
+    });
+    let firstPages = 0;
+    const load: LoadSessions = async (offset, query) => {
+      if (offset) return oldPage.promise;
+      if (query === "new" || ++firstPages > 1) return current.promise;
+      return { sessions: [item("Original")], total: 2, snapshot: "old" };
+    };
+    const value = state("input");
+    const ui = await mount(value, catalog, undefined, undefined, load);
+    try {
+      await ui.type("/resume");
+      await ui.key("Enter");
+      await ui.click("加载更多会话");
+      if (scope === "query") await ui.type("new");
+      else if (scope === "loader")
+        await ui.render(value, undefined, () => current.promise);
+      else {
+        await ui.click("返回会话");
+        await ui.key("Enter");
+      }
+      await act(async () =>
+        oldPage.resolve({
+          sessions: [item("Stale page")],
+          total: 2,
+          snapshot: "old",
+        }),
+      );
+      expect(ui.element.querySelector(".list-caption")?.textContent).toContain(
+        "正在读取",
+      );
+      expect(ui.element.textContent).not.toContain("Stale page");
+      expect(ui.element.textContent).not.toContain("会话历史未加载完整");
+      await act(async () =>
+        current.resolve({
+          sessions: [item("Current directory")],
+          total: 1,
+          snapshot: "new",
+        }),
+      );
+      expect(ui.element.querySelector("strong")?.textContent).toBe(
+        "Current directory",
+      );
+      expect(ui.element.querySelectorAll(".action")).toHaveLength(1);
+    } finally {
+      await act(async () => {
+        oldPage.resolve({ sessions: [], total: 0 });
+        current.resolve({ sessions: [], total: 0 });
+      });
+      await ui.close();
+    }
+  });
+}
+
+test("a thrown session restore leaves the loaded catalog available for retry", async () => {
+  const load: LoadSessions = async () => ({
+    sessions: [
+      {
+        id: "synthetic",
+        title: "Synthetic session",
+        modified: "2026-10-21T00:00:00Z",
+        messageCount: 2,
+      },
+    ],
+    total: 2,
+    snapshot: "stable",
+  });
+  const ui = await mount(
+    state("input"),
+    catalog,
+    async () => {
+      throw new Error("synthetic restore failure");
+    },
+    undefined,
+    load,
+  );
+  try {
+    await ui.type("/resume");
+    await ui.key("Enter");
+    await ui.key("Enter");
+    expect(
+      ui.element.querySelector(".launcher-footer [role=alert]"),
+    ).not.toBeNull();
+    expect(ui.element.textContent).not.toContain("读取未完成");
+    expect(
+      [...ui.element.querySelectorAll("button")].some(
+        (button) => button.textContent === "加载更多会话",
+      ),
+    ).toBe(true);
+    await ui.key("Enter");
+    expect(ui.calls).toHaveLength(2);
   } finally {
     await ui.close();
   }
