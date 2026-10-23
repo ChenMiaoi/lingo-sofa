@@ -11,7 +11,9 @@ import { runtime } from "../scripts/platform";
 import { prepareWorkerFixture } from "./sdk/worker-fixture";
 
 test("JavaScript runtime fixtures load native addons and emitted assets without cwd dotenv", async () => {
-  const directory = await mkdtemp(join(root, ".cache", "source fixture 测试-"));
+  const cache = join(root, ".cache");
+  await mkdir(cache, { recursive: true });
+  const directory = await mkdtemp(join(cache, "source fixture 测试-"));
   try {
     const sdk = Bun.resolveSync("@oh-my-pi/pi-coding-agent", root);
     const native = Bun.resolveSync("@oh-my-pi/pi-natives", sdk).replaceAll(
@@ -33,7 +35,7 @@ test("JavaScript runtime fixtures load native addons and emitted assets without 
     );
     const prepared = await prepareWorkerFixture(
       source,
-      join(directory, "probe"),
+      join(directory, "new", "nested", "probe"),
       false,
     );
     await writeFile(
