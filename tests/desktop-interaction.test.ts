@@ -129,14 +129,17 @@ async function mount(
     calls.push({ command, args });
     return onPerform?.(command, args);
   };
-  const render = async (value: DesktopState) => {
+  const render = async (
+    value: DesktopState,
+    nextRequestLogin = requestLogin,
+  ) => {
     await act(async () =>
       root.render(
         React.createElement(Desktop, {
           state: value,
           perform,
           loadModelCatalog: loadCatalog,
-          requestLogin,
+          requestLogin: nextRequestLogin,
           loadSessions,
           loadActivity,
         }),
@@ -3099,6 +3102,313 @@ test("Tab leaves command arguments and escaped text alone and preserves argument
     }
     expect(ui.calls).toHaveLength(0);
   } finally {
+    await ui.close();
+  }
+});
+
+test("login provider catalog failure offers an in-place retry without starting authorization", async () => {
+  const requests: string[] = [];
+  const request: RequestLogin = async (entry) => {
+    requests.push(entry.action);
+    if (entry.action !== "providers")
+      throw new Error("Unexpected authorization action");
+    if (requests.length === 1) throw new Error("synthetic catalog failure");
+    return {
+      providers: [
+        {
+          id: "synthetic-login",
+          provider: "synthetic-provider",
+          name: "Synthetic subscription",
+        },
+      ],
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login");
+    await ui.key("Enter");
+    expect(
+      ui.element.querySelector(".account-login .quiet-status")?.textContent,
+    ).toContain("服务商列表加载失败");
+    await ui.click("重试服务商列表");
+    expect(
+      ui.element.querySelector(".account-login .action-list")?.textContent,
+    ).toContain("Synthetic subscription");
+    expect(ui.element.textContent).not.toContain("服务商列表加载失败");
+    expect(requests).toEqual(["providers", "providers"]);
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("login provider search distinguishes no matches and clears back to the focused directory", async () => {
+  const request: RequestLogin = async (entry) => {
+    if (entry.action !== "providers")
+      throw new Error("Unexpected authorization action");
+    return {
+      providers: [
+        {
+          id: "synthetic-login",
+          provider: "synthetic-provider",
+          name: "Synthetic subscription",
+        },
+      ],
+    };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login");
+    await ui.key("Enter");
+    await ui.type("missing synthetic account", '[aria-label="搜索订阅服务商"]');
+    expect(
+      ui.element.querySelector(".account-login .quiet-status")?.textContent,
+    ).toContain("没有匹配的登录服务商");
+    await ui.click("清空搜索");
+    const field = ui.element.querySelector<HTMLInputElement>(
+      '[aria-label="搜索订阅服务商"]',
+    )!;
+    expect(field.value).toBe("");
+    expect(document.activeElement).toBe(field);
+    expect(
+      ui.element.querySelector(".account-login .action-list")?.textContent,
+    ).toContain("Synthetic subscription");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await ui.close();
+  }
+});
+
+test("login catalog loading and empty success never claim a search failure", async () => {
+  const result = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+  const ui = await mount(
+    state("input"),
+    catalog,
+    undefined,
+    () => result.promise,
+  );
+  try {
+    await ui.type("/login");
+    await ui.key("Enter");
+    await ui.type("missing", '[aria-label="搜索订阅服务商"]');
+    expect(ui.element.textContent).toContain("正在加载登录服务商");
+    expect(ui.element.textContent).not.toContain("没有匹配");
+    expect(ui.element.textContent).not.toContain("暂无可用");
+    await act(async () => result.resolve({ providers: [] }));
+    expect(ui.element.textContent).toContain("暂无可用的登录服务商");
+    expect(ui.element.textContent).not.toContain("没有匹配");
+    expect(
+      [...ui.element.querySelectorAll("button")].some(
+        (button) => button.textContent === "清空搜索",
+      ),
+    ).toBe(false);
+    await ui.key("Escape");
+    expect(ui.element.querySelector(".account-login")).toBeNull();
+  } finally {
+    await act(async () => result.resolve({ providers: [] }));
+    await ui.close();
+  }
+});
+
+test("login catalog retry preserves search and admits only one pending reload", async () => {
+  let count = 0;
+  const result = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+  const request: RequestLogin = async (entry) => {
+    if (entry.action !== "providers")
+      throw new Error("Unexpected authorization action");
+    if (++count === 1) throw new Error("synthetic catalog failure");
+    return result.promise;
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login");
+    await ui.key("Enter");
+    await ui.type("  synthetic  ", '[aria-label="搜索订阅服务商"]');
+    const retry = [
+      ...ui.element.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "重试服务商列表")!;
+    await act(async () => {
+      retry.click();
+      retry.click();
+    });
+    expect(count).toBe(2);
+    expect(ui.element.textContent).toContain("正在加载登录服务商");
+    expect(ui.element.textContent).not.toContain("服务商列表加载失败");
+    expect(ui.element.textContent).not.toContain("没有匹配");
+    await act(async () =>
+      result.resolve({
+        providers: [
+          {
+            id: "synthetic",
+            provider: "synthetic",
+            name: "Synthetic subscription",
+          },
+        ],
+      }),
+    );
+    const field = ui.element.querySelector<HTMLInputElement>(
+      '[aria-label="搜索订阅服务商"]',
+    )!;
+    expect(field.value).toBe("  synthetic  ");
+    expect(
+      ui.element.querySelectorAll(".account-login .action-list .action"),
+    ).toHaveLength(1);
+    expect(ui.element.textContent).not.toContain("服务商列表加载失败");
+    await act(async () => field.focus());
+    await ui.type("  ", '[aria-label="搜索订阅服务商"]');
+    expect(
+      ui.element.querySelectorAll(".account-login .action-list .action"),
+    ).toHaveLength(1);
+    expect(document.activeElement).toBe(field);
+  } finally {
+    await act(async () => result.resolve({ providers: [] }));
+    await ui.close();
+  }
+});
+
+for (const stale of ["success", "failure"]) {
+  test(`a replaced login catalog ${stale} cannot overwrite or unlock the current retry`, async () => {
+    const first = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+    const latest = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+    const oldRequest: RequestLogin = () => first.promise;
+    let count = 0;
+    const newRequest: RequestLogin = async () => {
+      if (++count === 1) throw new Error("synthetic current catalog failure");
+      return latest.promise;
+    };
+    const value = state("input");
+    const ui = await mount(value, catalog, undefined, oldRequest);
+    try {
+      await ui.type("/login");
+      await ui.key("Enter");
+      await ui.render(value, newRequest);
+      await ui.click("重试服务商列表");
+      await act(async () =>
+        stale === "success"
+          ? first.resolve({
+              providers: [
+                { id: "old", provider: "old", name: "Stale subscription" },
+              ],
+            })
+          : first.reject("synthetic stale failure"),
+      );
+      expect(ui.element.textContent).toContain("正在加载登录服务商");
+      expect(ui.element.textContent).not.toContain("Stale subscription");
+      expect(ui.element.textContent).not.toContain("服务商列表加载失败");
+      await act(async () =>
+        latest.resolve({
+          providers: [
+            { id: "new", provider: "new", name: "Current subscription" },
+          ],
+        }),
+      );
+      expect(ui.element.textContent).toContain("Current subscription");
+      expect(ui.element.textContent).not.toContain("正在加载登录服务商");
+      expect(ui.element.textContent).not.toContain("服务商列表加载失败");
+      expect(count).toBe(2);
+    } finally {
+      await act(async () => {
+        first.resolve({ providers: [] });
+        latest.resolve({ providers: [] });
+      });
+      await ui.close();
+    }
+  });
+}
+
+test("preset login catalog recovery does not restart or cancel authorization or discard its prompt draft", async () => {
+  const actions: string[] = [];
+  let catalogAttempts = 0;
+  const result = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+  const prompt = {
+    attempt: "synthetic-active",
+    provider: "synthetic",
+    phase: "prompt" as const,
+    prompt: {
+      id: 1,
+      message: "Synthetic authorization input",
+      secret: true,
+      allowEmpty: false,
+    },
+  };
+  const request: RequestLogin = async (entry) => {
+    actions.push(entry.action);
+    if (entry.action === "providers") {
+      if (++catalogAttempts === 1) throw new Error("synthetic catalog failure");
+      return result.promise;
+    }
+    if (entry.action === "start" || entry.action === "status") return prompt;
+    return { ...prompt, phase: "cancelled" };
+  };
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login synthetic");
+    await ui.key("Enter");
+    const field = ui.element.querySelector<HTMLInputElement>(
+      '[aria-label="登录授权输入"]',
+    )!;
+    await ui.type("SYNTHETIC_AUTH_DRAFT", '[aria-label="登录授权输入"]');
+    await ui.click("重试服务商列表");
+    await act(async () => field.focus());
+    await act(async () =>
+      result.resolve({
+        providers: [
+          {
+            id: "synthetic",
+            provider: "synthetic",
+            name: "Synthetic subscription",
+          },
+        ],
+      }),
+    );
+    expect(field.value).toBe("SYNTHETIC_AUTH_DRAFT");
+    expect(document.activeElement).toBe(field);
+    expect(actions.filter((action) => action === "start")).toHaveLength(1);
+    expect(actions.filter((action) => action === "cancel")).toHaveLength(0);
+    expect(ui.element.textContent).not.toContain("服务商列表加载失败");
+    expect(ui.calls).toHaveLength(0);
+  } finally {
+    await act(async () => result.resolve({ providers: [] }));
+    await ui.close();
+  }
+});
+
+test("closing a loading login catalog ignores its late result after reopening", async () => {
+  const first = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+  const second = Promise.withResolvers<Awaited<ReturnType<RequestLogin>>>();
+  let count = 0;
+  const request: RequestLogin = () =>
+    ++count === 1 ? first.promise : second.promise;
+  const ui = await mount(state("input"), catalog, undefined, request);
+  try {
+    await ui.type("/login");
+    await ui.key("Enter");
+    await ui.click("返回");
+    expect(ui.element.querySelector(".account-login")).toBeNull();
+    await ui.key("Enter");
+    await act(async () =>
+      first.resolve({
+        providers: [
+          { id: "old", provider: "old", name: "Closed subscription" },
+        ],
+      }),
+    );
+    expect(ui.element.textContent).toContain("正在加载登录服务商");
+    expect(ui.element.textContent).not.toContain("Closed subscription");
+    await act(async () =>
+      second.resolve({
+        providers: [
+          { id: "new", provider: "new", name: "Reopened subscription" },
+        ],
+      }),
+    );
+    expect(ui.element.textContent).toContain("Reopened subscription");
+    expect(count).toBe(2);
+  } finally {
+    await act(async () => {
+      first.resolve({ providers: [] });
+      second.resolve({ providers: [] });
+    });
     await ui.close();
   }
 });

@@ -23,6 +23,10 @@ export function AccountLogin({
   onComplete: (provider: string) => void;
 }) {
   const [providers, setProviders] = useState<LoginProvider[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogRetry, setCatalogRetry] = useState(0);
+  const catalogPending = useRef(true);
   const [state, setState] = useState<LoginState | null>(null);
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("");
@@ -64,15 +68,42 @@ export function AccountLogin({
     }
   };
   useEffect(() => {
+    let disposed = false;
+    catalogPending.current = true;
+    setCatalogLoading(true);
+    setCatalogError("");
+    setProviders([]);
+    void request({ action: "providers" })
+      .then(
+        (result) => {
+          if (!disposed && live.current) {
+            setProviders(result.providers ?? []);
+            setSelected(0);
+          }
+        },
+        (reason) => {
+          if (!disposed && live.current) setCatalogError(errorMessage(reason));
+        },
+      )
+      .finally(() => {
+        if (!disposed && live.current) {
+          catalogPending.current = false;
+          setCatalogLoading(false);
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [request, catalogRetry]);
+  const retryCatalog = () => {
+    if (catalogPending.current) return;
+    catalogPending.current = true;
+    setCatalogLoading(true);
+    setCatalogError("");
+    setCatalogRetry((value) => value + 1);
+  };
+  useEffect(() => {
     live.current = true;
-    void request({ action: "providers" }).then(
-      (result) => {
-        if (live.current) setProviders(result.providers ?? []);
-      },
-      (reason) => {
-        if (live.current) setError(errorMessage(reason));
-      },
-    );
     if (provider) void start(provider);
     return () => {
       live.current = false;
@@ -160,7 +191,9 @@ export function AccountLogin({
       ?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
   const matches = providers.filter((entry) =>
-    `${entry.id} ${entry.name}`.toLowerCase().includes(query.toLowerCase()),
+    `${entry.id} ${entry.name}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
   );
   const close = () => {
     live.current = false;
@@ -251,6 +284,35 @@ export function AccountLogin({
         </button>
       </header>
       <section className="action-list" aria-label="订阅账户登录" ref={list}>
+        {catalogLoading ? (
+          <p className="quiet-status" role="status">
+            正在加载登录服务商…
+          </p>
+        ) : catalogError ? (
+          <div className="quiet-status" role="status">
+            <p>服务商列表加载失败。{catalogError}</p>
+            <button onClick={retryCatalog}>重试服务商列表</button>
+          </div>
+        ) : !state && !matches.length ? (
+          <div className="quiet-status" role="status">
+            <p>
+              {providers.length
+                ? "没有匹配的登录服务商。"
+                : "暂无可用的登录服务商。"}
+            </p>
+            {providers.length > 0 && query.trim() && (
+              <button
+                onClick={() => {
+                  setQuery("");
+                  setSelected(0);
+                  field.current?.focus();
+                }}
+              >
+                清空搜索
+              </button>
+            )}
+          </div>
+        ) : null}
         {!state ? (
           <>
             <div className="list-caption">
