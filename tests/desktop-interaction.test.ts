@@ -4257,6 +4257,184 @@ test("preference controls patch independent fields before polling catches up", a
   }
 });
 
+test("preference saves lock each field immediately while other fields remain independent", async () => {
+  const finishes: Array<() => void> = [];
+  const ui = await mount(
+    state("settings"),
+    catalog,
+    async () => new Promise<void>((resolve) => finishes.push(resolve)),
+  );
+  try {
+    await ui.click("翻译偏好");
+    await act(async () => {
+      const target = ui.element.querySelector<HTMLSelectElement>("#target")!;
+      for (let i = 0; i < 2; i++) {
+        target.value = "English";
+        target.dispatchEvent(
+          new dom.Event("change", { bubbles: true }) as unknown as Event,
+        );
+      }
+    });
+    expect(ui.calls).toHaveLength(1);
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#target")!.disabled,
+    ).toBe(true);
+    expect(ui.element.querySelector("#target-saving")!.textContent).toContain(
+      "保存中…",
+    );
+    await ui.select("panel", "#translation-display");
+    await ui.select("panel", "#translation-display");
+    await act(async () => {
+      const pin = ui.element.querySelector<HTMLInputElement>("#pin-window")!;
+      pin.click();
+      pin.click();
+    });
+    expect(ui.calls).toEqual([
+      { command: "patch_settings", args: { patch: { target: "English" } } },
+      {
+        command: "patch_settings",
+        args: { patch: { translationDisplay: "panel" } },
+      },
+      { command: "patch_settings", args: { patch: { pinned: false } } },
+    ]);
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#translation-display")!
+        .disabled,
+    ).toBe(true);
+    expect(
+      ui.element.querySelector<HTMLInputElement>("#pin-window")!.disabled,
+    ).toBe(true);
+    expect(
+      ui.element.querySelector("#translation-display-saving")!.textContent,
+    ).toContain("保存中…");
+    expect(
+      ui.element.querySelector("#pin-window-saving")!.textContent,
+    ).toContain("保存中…");
+  } finally {
+    await act(async () => finishes.forEach((finish) => finish()));
+    await ui.close();
+  }
+});
+
+test("preference saves settle independently of snapshots and completion order", async () => {
+  const value = state("settings");
+  const finishes: Array<() => void> = [];
+  const ui = await mount(
+    value,
+    catalog,
+    async () => new Promise<void>((resolve) => finishes.push(resolve)),
+  );
+  try {
+    await ui.click("翻译偏好");
+    await ui.select("English", "#target");
+    await ui.select("panel", "#translation-display");
+    await act(async () => finishes[1]!());
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#translation-display")!
+        .disabled,
+    ).toBe(false);
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#translation-display")!
+        .value,
+    ).toBe("below");
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#target")!.disabled,
+    ).toBe(true);
+    const next = {
+      ...value,
+      model: {
+        ...value.model,
+        settings: {
+          ...value.model.settings,
+          target: "English",
+          translationDisplay: "panel" as const,
+        },
+      },
+    };
+    await ui.render(next);
+    expect(ui.element.querySelector<HTMLSelectElement>("#target")!.value).toBe(
+      "English",
+    );
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#target")!.disabled,
+    ).toBe(true);
+    await act(async () => finishes[0]!());
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#target")!.disabled,
+    ).toBe(false);
+    expect(ui.element.textContent).not.toContain("保存中…");
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#translation-display")!
+        .value,
+    ).toBe("panel");
+  } finally {
+    await act(async () => finishes.forEach((finish) => finish()));
+    await ui.close();
+  }
+});
+
+test("failed preference saves release controls without changing authoritative values", async () => {
+  for (const reject of [false, true]) {
+    const ui = await mount(state("settings"), catalog, async () => {
+      if (reject) throw new Error("simulated save failure");
+      return false;
+    });
+    try {
+      await ui.click("翻译偏好");
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await ui.select("English", "#target");
+        await ui.select("panel", "#translation-display");
+        await act(async () =>
+          ui.element.querySelector<HTMLInputElement>("#pin-window")!.click(),
+        );
+        expect(
+          ui.element.querySelector<HTMLSelectElement>("#target")!.disabled,
+        ).toBe(false);
+        expect(
+          ui.element.querySelector<HTMLSelectElement>("#target")!.value,
+        ).toBe("简体中文");
+        expect(
+          ui.element.querySelector<HTMLSelectElement>("#translation-display")!
+            .value,
+        ).toBe("below");
+        expect(
+          ui.element.querySelector<HTMLInputElement>("#pin-window")!.checked,
+        ).toBe(true);
+        expect(
+          ui.element.querySelector<HTMLInputElement>("#pin-window")!.disabled,
+        ).toBe(false);
+      }
+      expect(ui.calls).toHaveLength(6);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test("pending preferences can unmount safely on either platform", async () => {
+  for (const macos of [false, true]) {
+    const value = state("settings");
+    value.shortcuts = { ...value.shortcuts, macos };
+    let finish!: () => void;
+    const ui = await mount(
+      value,
+      catalog,
+      async () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await ui.click("翻译偏好");
+    await ui.select("English", "#target");
+    expect(
+      ui.element.querySelector<HTMLSelectElement>("#target")!.disabled,
+    ).toBe(true);
+    await ui.close();
+    await act(async () => finish());
+    expect(ui.calls).toHaveLength(1);
+  }
+});
+
 test("failed preference persistence is shown in settings and keeps the previous value", async () => {
   const element = document.createElement("div");
   document.body.append(element);

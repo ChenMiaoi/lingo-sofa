@@ -1,7 +1,11 @@
 import { dragWindow } from "./window-drag";
 import React, { useEffect, useRef, useState } from "react";
 import { formatShortcut, listIndex } from "./keyboard";
-import { isImeKey, type DesktopState } from "./api";
+import {
+  isImeKey,
+  type DesktopState,
+  type Settings as Preferences,
+} from "./api";
 import { ModelProviders, type LoadModelCatalog } from "./model-providers";
 import { UpdateSettings, updateSummary } from "./updates";
 import { ShortcutSettings } from "./shortcuts";
@@ -39,8 +43,10 @@ export function Settings({
   const { model } = state;
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [query, setQuery] = useState("");
-  const [automaticSaving, setAutomaticSaving] = useState(false);
-  const automaticPending = useRef(false);
+  const [saving, setSaving] = useState<ReadonlySet<keyof Preferences>>(
+    new Set(),
+  );
+  const pending = useRef(new Set<keyof Preferences>());
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -48,17 +54,21 @@ export function Settings({
       mounted.current = false;
     };
   }, []);
-  const saveAutomatic = (enabled: boolean) => {
-    if (automaticPending.current) return;
-    automaticPending.current = true;
-    setAutomaticSaving(true);
+  const savePreference = <K extends keyof Preferences>(
+    field: K,
+    value: Preferences[K],
+  ) => {
+    if (pending.current.has(field)) return;
+    pending.current.add(field);
+    setSaving(new Set(pending.current));
     const complete = () => {
-      automaticPending.current = false;
-      if (mounted.current) setAutomaticSaving(false);
+      pending.current.delete(field);
+      if (mounted.current) setSaving(new Set(pending.current));
     };
-    // App reports persistence errors; keep the controlled value authoritative.
+    // App reports persistence errors. ACK releases this field; polling supplies
+    // authoritative values independently, so a missing snapshot cannot lock it.
     void perform("patch_settings", {
-      patch: { autoSelectionTranslation: enabled },
+      patch: { [field]: value },
     }).then(complete, complete);
   };
   const filterInput = useRef<HTMLInputElement>(null);
@@ -267,13 +277,28 @@ export function Settings({
                 <input
                   type="checkbox"
                   checked={model.settings.autoSelectionTranslation}
-                  disabled={automaticSaving}
-                  onChange={(event) => saveAutomatic(event.target.checked)}
+                  disabled={saving.has("autoSelectionTranslation")}
+                  aria-describedby={
+                    saving.has("autoSelectionTranslation")
+                      ? "automatic-saving"
+                      : undefined
+                  }
+                  onChange={(event) =>
+                    savePreference(
+                      "autoSelectionTranslation",
+                      event.target.checked,
+                    )
+                  }
                 />
                 鼠标选中后自动翻译
               </label>
-              {automaticSaving && (
-                <p className="settings-help" role="status">
+              {saving.has("autoSelectionTranslation") && (
+                <p
+                  className="settings-help"
+                  id="automatic-saving"
+                  role="status"
+                  aria-label="鼠标选中后自动翻译保存中"
+                >
                   保存中…
                 </p>
               )}
@@ -288,16 +313,32 @@ export function Settings({
             <select
               id="translation-display"
               value={model.settings.translationDisplay}
+              disabled={saving.has("translationDisplay")}
+              aria-describedby={
+                saving.has("translationDisplay")
+                  ? "translation-display-saving"
+                  : undefined
+              }
               onChange={(event) =>
-                void perform("patch_settings", {
-                  patch: { translationDisplay: event.target.value },
-                })
+                savePreference(
+                  "translationDisplay",
+                  event.target.value as Preferences["translationDisplay"],
+                )
               }
             >
               <option value="below">原文下方 · 贴合显示</option>
               <option value="panel">悬浮栏 · 集中面板</option>
             </select>
           </div>
+          {saving.has("translationDisplay") && (
+            <p
+              className="settings-help"
+              id="translation-display-saving"
+              role="status"
+            >
+              译文位置保存中…
+            </p>
+          )}
           <p className="settings-help">
             OCR
             框选后直接翻译；空间不足时在区域上方显示。快捷键可临时使用另一种样式，不修改默认设置。
@@ -307,30 +348,40 @@ export function Settings({
             <select
               id="target"
               value={model.settings.target}
-              onChange={(e) =>
-                void perform("patch_settings", {
-                  patch: { target: e.target.value },
-                })
+              disabled={saving.has("target")}
+              aria-describedby={
+                saving.has("target") ? "target-saving" : undefined
               }
+              onChange={(e) => savePreference("target", e.target.value)}
             >
               {["简体中文", "English", "日本語", "한국어"].map((l) => (
                 <option key={l}>{l}</option>
               ))}
             </select>
           </div>
+          {saving.has("target") && (
+            <p className="settings-help" id="target-saving" role="status">
+              默认翻译语言保存中…
+            </p>
+          )}
           <label className="check">
             <input
               type="checkbox"
               id="pin-window"
               checked={model.settings.pinned}
-              onChange={(e) =>
-                void perform("patch_settings", {
-                  patch: { pinned: e.target.checked },
-                })
+              disabled={saving.has("pinned")}
+              aria-describedby={
+                saving.has("pinned") ? "pin-window-saving" : undefined
               }
+              onChange={(e) => savePreference("pinned", e.target.checked)}
             />
             Ask 与输入窗口保持置顶
           </label>
+          {saving.has("pinned") && (
+            <p className="settings-help" id="pin-window-saving" role="status">
+              窗口置顶保存中…
+            </p>
+          )}
         </section>
         <div hidden={page !== "updates"}>
           <UpdateSettings state={state} perform={perform} />
